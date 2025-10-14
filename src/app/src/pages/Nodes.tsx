@@ -554,7 +554,7 @@ export default function Nodes() {
             All nodes across {clusters?.length || 0} cluster(s)
           </p>
         </div>
-        <div className="relative w-full sm:w-80">
+        <div className="relative sm:w-80">
           <MagnifyingGlassIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400" />
           <input
             type="text"

@@ -645,6 +645,18 @@ export default function Layout() {
     }
   }, [isDark])
 
+
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 1023px)").matches) {
+      setSidebarWidth(0);
+      localStorage.setItem('sidebar-width', "0");
+      return
+    }
+    setSidebarWidth(256);
+    localStorage.setItem('sidebar-width', "256");
+  }, [setSidebarWidth])
+
+  console.log(sidebarWidth, sidebarOpen)
   return (
     <div className="min-h-screen bg-[#f9fafb] dark:bg-[#0f1828] transition-colors">
       {/* Mobile sidebar backdrop */}
@@ -742,11 +754,6 @@ export default function Layout() {
 
       {/* Main content */}
       <div className="w-full lg:w-auto" style={{ paddingLeft: `${sidebarWidth}px` }}>
-        <style>{`
-          @media (max-width: 1023px) {
-            .w-full { padding-left: 0 !important; }
-          }
-        `}</style>
         {/* Top bar */}
         <div className="sticky top-0 z-30 flex h-14 sm:h-16 shrink-0 items-center gap-x-2 sm:gap-x-4 border-b border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-[#0f1828]/95 backdrop-blur-sm px-3 sm:px-4 shadow-sm">
           <button
