@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.server
+    container_name: kubelens-server
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - DATABASE_PATH=/data/kubelens.db
+      - LOG_LEVEL=info
+      - CORS_ORIGINS=http://localhost,http://localhost:80
+    volumes:
+      - ../data:/data
+    restart: unless-stopped
+    networks:
+      - kubelens
+
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.app
+    container_name: kubelens-app
+    ports:
+      - "80:80"
+    depends_on:
+      - server
+    restart: unless-stopped
+    networks:
+      - kubelens
+
+networks:
+  kubelens:
+    driver: bridge
+
+volumes:
+  data:
+

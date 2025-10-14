@@ -1,0 +1,17 @@
+apiVersion: v2
+name: server
+description: Kubelens Server - Multi-Cluster Kubernetes Dashboard Backend
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - kubernetes
+  - server
+  - api
+home: https://github.com/sonnguyen/kubelens
+sources:
+  - https://github.com/sonnguyen/kubelens
+maintainers:
+  - name: Son Nguyen
+    email: son@example.com
+

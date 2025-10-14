@@ -1,0 +1,204 @@
+# Production values for Kubelens
+# This is an example configuration for production deployments
+
+# Server configuration
+server:
+  enabled: true
+  replicaCount: 3
+  
+  image:
+    repository: kubelens/server
+    pullPolicy: IfNotPresent
+    tag: "1.0.0"  # Use specific version in production
+  
+  service:
+    type: ClusterIP
+    port: 8080
+  
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+  
+  env:
+    - name: PORT
+      value: "8080"
+    - name: LOG_LEVEL
+      value: "info"  # Use "warn" or "error" in production
+    - name: DATABASE_PATH
+      value: "/data/kubelens.db"
+  
+  persistence:
+    enabled: true
+    storageClass: "fast-ssd"  # Use your cluster's fast storage class
+    accessMode: ReadWriteOnce
+    size: 10Gi
+  
+  # Pod anti-affinity for high availability
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: app.kubernetes.io/component
+              operator: In
+              values:
+              - server
+          topologyKey: kubernetes.io/hostname
+  
+  # Tolerations for dedicated nodes (optional)
+  tolerations: []
+  # - key: "workload"
+  #   operator: "Equal"
+  #   value: "kubelens"
+  #   effect: "NoSchedule"
+  
+  nodeSelector: {}
+  # workload: kubelens
+
+# App configuration
+app:
+  enabled: true
+  replicaCount: 3
+  
+  image:
+    repository: kubelens/app
+    pullPolicy: IfNotPresent
+    tag: "1.0.0"  # Use specific version in production
+  
+  service:
+    type: ClusterIP
+    port: 80
+  
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  
+  # Pod anti-affinity for high availability
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: app.kubernetes.io/component
+              operator: In
+              values:
+              - app
+          topologyKey: kubernetes.io/hostname
+  
+  tolerations: []
+  nodeSelector: {}
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Rate limiting (optional)
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    # CORS (optional)
+    # nginx.ingress.kubernetes.io/enable-cors: "true"
+    # nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+  hosts:
+    - host: kubelens.production.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: kubelens-tls
+      hosts:
+        - kubelens.production.example.com
+
+# Service Account
+serviceAccount:
+  create: true
+  annotations:
+    # Add annotations if needed (e.g., for IRSA in AWS)
+    # eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/kubelens-role
+  name: ""
+
+# RBAC
+rbac:
+  create: true
+  # Production rules - read-only by default, limited write operations
+  rules:
+    # Core resources - read only
+    - apiGroups: [""]
+      resources:
+        - nodes
+        - namespaces
+        - pods
+        - pods/log
+        - services
+        - endpoints
+        - secrets
+        - configmaps
+        - events
+        - persistentvolumes
+        - persistentvolumeclaims
+      verbs: ["get", "list", "watch"]
+    
+    # Apps resources - read + limited write
+    - apiGroups: ["apps"]
+      resources:
+        - deployments
+        - deployments/scale
+        - daemonsets
+        - statefulsets
+        - replicasets
+      verbs: ["get", "list", "watch", "update", "patch"]
+    
+    # Batch resources - read only
+    - apiGroups: ["batch"]
+      resources:
+        - jobs
+        - cronjobs
+      verbs: ["get", "list", "watch"]
+    
+    # Networking resources - read only
+    - apiGroups: ["networking.k8s.io"]
+      resources:
+        - ingresses
+        - networkpolicies
+      verbs: ["get", "list", "watch"]
+    
+    # Storage resources - read only
+    - apiGroups: ["storage.k8s.io"]
+      resources:
+        - storageclasses
+      verbs: ["get", "list", "watch"]
+    
+    # RBAC resources - read only
+    - apiGroups: ["rbac.authorization.k8s.io"]
+      resources:
+        - roles
+        - rolebindings
+        - clusterroles
+        - clusterrolebindings
+      verbs: ["get", "list", "watch"]
+    
+    # Pod exec/logs - for shell access feature
+    - apiGroups: [""]
+      resources:
+        - pods/exec
+      verbs: ["create"]
+
+# Global image pull secrets (if using private registry)
+global:
+  imagePullSecrets: []
+  # - name: regcred
+

@@ -1,0 +1,25 @@
+apiVersion: v2
+name: kubelens
+description: A Helm chart for Kubelens - Multi-Cluster Kubernetes Dashboard
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - kubernetes
+  - dashboard
+  - multi-cluster
+  - monitoring
+home: https://github.com/sonnguyen/kubelens
+sources:
+  - https://github.com/sonnguyen/kubelens
+maintainers:
+  - name: Son Nguyen
+    email: son@example.com
+
+dependencies:
+  - name: server
+    version: "1.0.0"
+    condition: server.enabled
+  - name: app
+    version: "1.0.0"
+    condition: app.enabled

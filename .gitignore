@@ -1,0 +1,62 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go build artifacts
+src/server/bin/
+src/server/main
+src/server/server
+src/server/kubelens
+src/server/kubelero
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Database files
+*.db
+src/server/data/*.db
+
+# Dependency directories
+src/server/vendor/
+src/app/node_modules/
+
+# src/app build artifacts
+src/app/dist/
+src/app/build/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment and config files
+.env
+.env.local
+.env.*.local
+config/config.yaml
+
+# Logs
+*.log
+logs/
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+
+# Go workspace file
+go.work
+
+# Temporary files
+tmp/
+temp/
+
+scripts/

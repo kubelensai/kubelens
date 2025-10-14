@@ -1,0 +1,9 @@
+dependencies:
+- name: server
+  repository: ""
+  version: 1.0.0
+- name: app
+  repository: ""
+  version: 1.0.0
+digest: sha256:fce538673d8af9f7a89c1553dc9d99a043966c2a5fdb08262ce7ce0dd24024fa
+generated: "2025-10-14T06:45:17.654337+07:00"
