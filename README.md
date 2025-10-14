@@ -17,7 +17,6 @@
 </div>
 
 ---
-
 ## 📖 Overview
 
 Kubelens is a powerful, user-friendly Kubernetes dashboard designed for DevOps teams managing multiple clusters. Built with modern technologies and best practices, it provides real-time insights, comprehensive resource management, and an intuitive interface for Kubernetes operations.
