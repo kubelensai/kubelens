@@ -4,7 +4,7 @@ services:
   server:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.server
+      dockerfile: docker/server/Dockerfile
     container_name: kubelens-server
     ports:
       - "8080:8080"
@@ -22,10 +22,12 @@ services:
   app:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.app
+      dockerfile: docker/app/Dockerfile
     container_name: kubelens-app
     ports:
       - "80:80"
+    environment:
+      - API_SERVER=http://server:8080
     depends_on:
       - server
     restart: unless-stopped

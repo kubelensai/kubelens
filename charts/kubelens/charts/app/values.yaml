@@ -57,6 +57,15 @@ readinessProbe:
   timeoutSeconds: 3
   failureThreshold: 3
 
+# Environment variables
+env:
+  # API Server URL - will be auto-configured if not set
+  # Format: http://service-name:port
+  apiServer: ""
+  # Extra environment variables
+  extra: {}
+    # CUSTOM_VAR: "value"
+
 # Server service configuration
 server:
   serviceName: ""  # Will be set by parent chart
