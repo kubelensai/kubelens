@@ -14,27 +14,31 @@ COPY src/app/ ./
 RUN npm run build
 
 # Production stage
-FROM nginx:alpine
+FROM node:20-alpine
 
-# Install envsubst for environment variable substitution
-RUN apk add --no-cache gettext
+WORKDIR /app
+
+# Install production dependencies only
+COPY src/app/package*.json ./
+RUN npm ci --omit=dev
 
 # Copy built assets from builder
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY --from=builder /app/dist ./dist
 
-# Copy nginx configuration template
-COPY docker/app/nginx.conf /etc/nginx/templates/default.conf.template
+# Copy proxy server
+COPY src/app/server.js ./
 
-# Copy entrypoint script
-COPY docker/app/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
-# Set default API_SERVER (can be overridden)
+# Set default environment variables
+ENV PORT=80
 ENV API_SERVER=http://server:8080
+ENV NODE_ENV=production
 
 # Expose port
 EXPOSE 80
 
-# Use custom entrypoint
-ENTRYPOINT ["/entrypoint.sh"]
-CMD ["nginx", "-g", "daemon off;"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:80', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+
+# Start the proxy server
+CMD ["npm", "start"]

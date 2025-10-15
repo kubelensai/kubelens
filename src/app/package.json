@@ -5,9 +5,22 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:mobile": "tsc && vite build --mode mobile",
+    "start": "node server.js",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
-    "test": "vitest"
+    "test": "vitest",
+    "cap:init": "cap init",
+    "cap:add:android": "cap add android",
+    "cap:add:ios": "cap add ios",
+    "cap:sync": "npm run build:mobile && cap sync",
+    "cap:open:android": "cap open android",
+    "cap:open:ios": "cap open ios",
+    "cap:run:android": "npm run cap:sync && cap run android",
+    "cap:run:ios": "npm run cap:sync && cap run ios",
+    "mobile:setup": "npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/ios @capacitor/splash-screen && npm run cap:init",
+    "mobile:android": "npm run build:mobile && cap sync android && cap open android",
+    "mobile:ios": "npm run build:mobile && cap sync ios && cap open ios"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.9",
@@ -22,7 +35,10 @@
     "@xterm/xterm": "^5.5.0",
     "axios": "^1.7.9",
     "clsx": "^2.1.1",
+    "compression": "^1.7.4",
     "date-fns": "^4.1.0",
+    "express": "^4.21.2",
+    "http-proxy-middleware": "^3.0.3",
     "immer": "^10.1.1",
     "js-yaml": "^4.1.0",
     "jsrsasign": "^11.1.0",
@@ -35,6 +51,12 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/cli": "^6.2.0",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/haptics": "^6.0.0",
+    "@capacitor/ios": "^6.2.0",
+    "@capacitor/splash-screen": "^6.0.0",
     "@types/jsrsasign": "^10.5.15",
     "@types/node": "^24.7.2",
     "@types/react": "^18.3.18",

@@ -29,9 +29,9 @@ securityContext:
   capabilities:
     drop:
     - ALL
-  readOnlyRootFilesystem: true
+  readOnlyRootFilesystem: false  # Node.js needs write access for temp files
   runAsNonRoot: true
-  runAsUser: 101  # nginx user
+  runAsUser: 1000  # node user
 
 nodeSelector: {}
 

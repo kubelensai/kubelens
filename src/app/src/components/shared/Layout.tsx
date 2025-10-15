@@ -45,6 +45,7 @@ import SearchBar from './SearchBar'
 import ClusterSelector from './ClusterSelector'
 import NamespaceSelector from './NamespaceSelector'
 import NotificationCenter from './NotificationCenter'
+import { lightTap } from '@/utils/haptics'
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -66,7 +67,10 @@ export default function Layout() {
   const { data: enabledClusters } = useClusters(true)
   const hasEnabledClusters = enabledClusters && enabledClusters.length > 0
 
-  const toggleGroup = (groupName: string) => {
+  const toggleGroup = async (groupName: string) => {
+    // Haptic feedback on expand/collapse
+    await lightTap()
+    
     setExpandedGroups(prev => {
       const newSet = new Set(prev)
       if (newSet.has(groupName)) {
@@ -176,6 +180,7 @@ export default function Layout() {
       <Link
         key={item.name}
         to={item.href}
+        onClick={() => lightTap()}
         className={clsx(
           'block w-full',
           location.pathname === item.href && 'bg-primary-50 dark:bg-primary-900/50 shadow-sm'

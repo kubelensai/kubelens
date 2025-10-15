@@ -29,7 +29,8 @@ src/app/node_modules/
 # src/app build artifacts
 src/app/dist/
 src/app/build/
-
+src/app/android/
+src/app/ios/
 # IDE and editor files
 .vscode/
 .idea/

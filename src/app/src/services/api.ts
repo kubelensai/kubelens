@@ -1,10 +1,14 @@
 import axios from 'axios'
 import type { Cluster, Pod, Deployment, Service, Node, Event } from '@/types'
+import { getApiBaseUrl } from '@/config/env'
 
 const api = axios.create({
-  baseURL: '/api/v1',
+  baseURL: getApiBaseUrl(),
   timeout: 30000,
 })
+
+// Log API base URL on initialization
+console.log('📡 API Base URL:', api.defaults.baseURL)
 
 // Clusters
 export const getClusters = async (): Promise<Cluster[]> => {
