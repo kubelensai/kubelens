@@ -8,7 +8,7 @@ server:
   replicaCount: 1
   
   image:
-    repository: kubelens/server
+    repository: kubelensai/kubelens-server
     pullPolicy: IfNotPresent
     tag: "latest"
   
@@ -61,7 +61,7 @@ app:
   replicaCount: 1
   
   image:
-    repository: kubelens/app
+    repository: kubelensai/kubelens-app
     pullPolicy: IfNotPresent
     tag: "latest"
   

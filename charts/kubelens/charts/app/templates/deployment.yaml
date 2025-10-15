@@ -32,7 +32,7 @@ spec:
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         env:
         - name: API_SERVER
-          value: {{ .Values.env.apiServer | default (printf "http://%s-kubelens-server:%d" .Release.Name (.Values.server.service.port | default 8080)) | quote }}
+          value: {{ .Values.env.apiServer | default (printf "http://%s-kubelens-server:%d" .Release.Name (.Values.server.servicePort | default 8080)) | quote }}
         {{- range $key, $value := .Values.env.extra }}
         - name: {{ $key }}
           value: {{ $value | quote }}

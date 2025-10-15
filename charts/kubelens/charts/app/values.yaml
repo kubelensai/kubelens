@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: kubelens/app
+  repository: kubelensai/kubelens-app
   pullPolicy: IfNotPresent
   tag: ""  # Defaults to chart appVersion
 
