@@ -23,6 +23,8 @@ WORKDIR /root/
 # Copy the binary from builder
 COPY --from=builder /app/server .
 
+RUN chmod +x /root/server
+
 # Create data directory
 RUN mkdir -p /root/data
 
