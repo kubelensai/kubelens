@@ -8,7 +8,7 @@ releases:
     - app:
         ingress:
           enabled: true
-          className: "nginx"
+          className: ""
           annotations: {}
           hosts:
             - host: kubelens.app
