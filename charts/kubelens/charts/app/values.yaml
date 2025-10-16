@@ -13,6 +13,23 @@ service:
   type: ClusterIP
   port: 80
 
+# Ingress configuration
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: kubelens.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: kubelens-tls
+      hosts:
+        - kubelens.example.com
+
 resources:
   limits:
     cpu: 100m
@@ -60,14 +77,15 @@ readinessProbe:
 # Environment variables
 env:
   # API Server URL - will be auto-configured if not set
-  # Format: http://service-name:port
+  # For standalone deployment: http://kubelens-server:8080
+  # For parent chart deployment: will be set automatically
   apiServer: ""
   # Extra environment variables
   extra: {}
     # CUSTOM_VAR: "value"
 
-# Server service configuration
+# Server service configuration (for parent chart integration)
 server:
-  serviceName: ""  # Will be set by parent chart
+  # Server service name (auto-detected from Release.Name in parent chart)
+  serviceName: ""
   servicePort: 8080
-
