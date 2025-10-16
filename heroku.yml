@@ -6,9 +6,7 @@ build:
     # Server (Backend) - Go API
     server:
       dockerfile: docker/server/Dockerfile
-      context: .
     
     # App (Frontend) - Node.js + React
     app:
       dockerfile: docker/app/Dockerfile
-      context: .
