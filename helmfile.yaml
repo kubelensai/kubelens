@@ -1,0 +1,8 @@
+releases:
+- name: kubelens
+  namespace: kubelens
+  chart: ./charts/kubelens
+  version: 0.1.0
+  createNamespace: true
+  values:
+    - values.production.yaml
