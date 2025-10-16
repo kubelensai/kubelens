@@ -1,4 +1,4 @@
-name: Build and Push Docker Images
+name: Build and Deploy Kubelens
 
 on:
   push:
@@ -19,8 +19,8 @@ env:
   APP_IMAGE: kubelensai/kubelens-app
 
 jobs:
-  build-and-push-amd64:
-    name: Build and Push Docker Images amd64
+  build-and-push:
+    name: Build and Push Docker Images
     runs-on: ubuntu-24.04
     
     steps:
@@ -96,4 +96,17 @@ jobs:
           echo "Server Image Digest: ${{ steps.meta-server.outputs.digest }}"
           echo "App Image Digest: ${{ steps.meta-app.outputs.digest }}"
 
-  
+  helm-deploy:
+    name: Helm Deploy Kubelens
+    runs-on: ubuntu-24.04
+    needs: build-and-push
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy with Helmfile
+        uses: helmfile/helmfile-action@v2
+        with:
+          helmfile-args: apply
+        env:
+          KUBECONFIG: '${{ secrets.KUBECONFIG }}'
