@@ -1,4 +1,8 @@
-# Global settings
+# Kubelens Parent Chart Values
+# This chart only includes sub-charts (server and app)
+# No resources are created directly by this chart
+
+# Global settings (inherited by sub-charts)
 global:
   imagePullSecrets: []
 
@@ -9,12 +13,20 @@ server:
   
   image:
     repository: kubelensai/kubelens-server
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
     tag: "latest"
   
   service:
     type: ClusterIP
     port: 8080
+  
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+  
+  rbac:
+    create: true
   
   resources:
     limits:
@@ -47,7 +59,7 @@ server:
     capabilities:
       drop:
       - ALL
-    readOnlyRootFilesystem: true
+    readOnlyRootFilesystem: false
     runAsNonRoot: true
     runAsUser: 1000
   
@@ -62,12 +74,28 @@ app:
   
   image:
     repository: kubelensai/kubelens-app
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
     tag: "latest"
   
   service:
     type: ClusterIP
     port: 80
+  
+  ingress:
+    enabled: false
+    className: "nginx"
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    hosts:
+      - host: kubelens.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: kubelens-tls
+        hosts:
+          - kubelens.example.com
   
   resources:
     limits:
@@ -77,56 +105,27 @@ app:
       cpu: 50m
       memory: 64Mi
   
-  podAnnotations: {}
+  env:
+    # API Server URL - auto-configured to point to server service
+    apiServer: ""  # Will be set to http://<release-name>-server:8080
+    extra: {}
   
+  # Server service configuration for app to connect
+  server:
+    serviceName: ""  # Auto-detected from Release.Name
+    servicePort: 8080
+  
+  podAnnotations: {}
   podSecurityContext: {}
   
   securityContext:
     capabilities:
       drop:
       - ALL
-    readOnlyRootFilesystem: true
+    readOnlyRootFilesystem: false
     runAsNonRoot: true
-    runAsUser: 101
+    runAsUser: 1000
   
   nodeSelector: {}
   tolerations: []
   affinity: {}
-
-# Ingress configuration
-ingress:
-  enabled: false
-  className: "nginx"
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-    # nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
-  hosts:
-    - host: kubelens.example.com
-      paths:
-        - path: /
-          pathType: Prefix
-  tls:
-    - secretName: kubelens-tls
-      hosts:
-        - kubelens.example.com
-
-# Service Account configuration
-serviceAccount:
-  create: true
-  annotations: {}
-  name: ""
-
-# RBAC configuration
-rbac:
-  create: true
-  # Rules for cluster-wide access
-  rules:
-    - apiGroups: ["*"]
-      resources: ["*"]
-      verbs: ["get", "list", "watch"]
-    - apiGroups: [""]
-      resources: ["pods", "pods/log", "pods/exec"]
-      verbs: ["get", "list", "create", "delete"]
-    - apiGroups: ["apps"]
-      resources: ["deployments", "deployments/scale"]
-      verbs: ["get", "list", "update", "patch"]

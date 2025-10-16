@@ -1,0 +1,144 @@
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "server.fullname" . }}
+  labels:
+    {{- include "server.labels" . | nindent 4 }}
+rules:
+# Core resources - read access
+- apiGroups: [""]
+  resources:
+    - nodes
+    - namespaces
+    - pods
+    - pods/log
+    - services
+    - endpoints
+    - secrets
+    - configmaps
+    - events
+    - persistentvolumes
+    - persistentvolumeclaims
+    - serviceaccounts
+    - resourcequotas
+    - limitranges
+  verbs: ["get", "list", "watch"]
+
+# Core resources - write access (limited)
+- apiGroups: [""]
+  resources:
+    - pods/exec
+    - pods/portforward
+  verbs: ["create"]
+
+# Apps resources
+- apiGroups: ["apps"]
+  resources:
+    - deployments
+    - daemonsets
+    - statefulsets
+    - replicasets
+  verbs: ["get", "list", "watch", "update", "patch"]
+
+- apiGroups: ["apps"]
+  resources:
+    - deployments/scale
+    - statefulsets/scale
+    - replicasets/scale
+  verbs: ["get", "update", "patch"]
+
+# Batch resources
+- apiGroups: ["batch"]
+  resources:
+    - jobs
+    - cronjobs
+  verbs: ["get", "list", "watch", "create", "delete"]
+
+# Networking resources
+- apiGroups: ["networking.k8s.io"]
+  resources:
+    - ingresses
+    - networkpolicies
+  verbs: ["get", "list", "watch"]
+
+# Storage resources
+- apiGroups: ["storage.k8s.io"]
+  resources:
+    - storageclasses
+    - persistentvolumes
+    - persistentvolumeclaims
+  verbs: ["get", "list", "watch"]
+
+# RBAC resources - read only
+- apiGroups: ["rbac.authorization.k8s.io"]
+  resources:
+    - roles
+    - rolebindings
+    - clusterroles
+    - clusterrolebindings
+  verbs: ["get", "list", "watch"]
+
+# Policy resources
+- apiGroups: ["policy"]
+  resources:
+    - poddisruptionbudgets
+    - podsecuritypolicies
+  verbs: ["get", "list", "watch"]
+
+# Autoscaling resources
+- apiGroups: ["autoscaling"]
+  resources:
+    - horizontalpodautoscalers
+    - verticalpodautoscalers
+  verbs: ["get", "list", "watch"]
+
+# Custom Resources - read all
+- apiGroups: ["apiextensions.k8s.io"]
+  resources:
+    - customresourcedefinitions
+  verbs: ["get", "list", "watch"]
+
+# Coordination resources (for leases)
+- apiGroups: ["coordination.k8s.io"]
+  resources:
+    - leases
+  verbs: ["get", "list", "watch"]
+
+# Admission registration (webhooks)
+- apiGroups: ["admissionregistration.k8s.io"]
+  resources:
+    - mutatingwebhookconfigurations
+    - validatingwebhookconfigurations
+  verbs: ["get", "list", "watch"]
+
+# Node resources
+- apiGroups: [""]
+  resources:
+    - nodes/status
+    - nodes/proxy
+  verbs: ["get"]
+
+# Metrics
+- apiGroups: ["metrics.k8s.io"]
+  resources:
+    - pods
+    - nodes
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "server.fullname" . }}
+  labels:
+    {{- include "server.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "server.fullname" . }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "server.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}
+

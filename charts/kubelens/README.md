@@ -1,95 +1,69 @@
 # Kubelens Helm Chart
 
-A comprehensive Helm chart for deploying Kubelens - a modern, multi-cluster Kubernetes dashboard.
+A comprehensive Helm chart for deploying Kubelens - a modern, multi-cluster Kubernetes dashboard with real-time monitoring and management capabilities.
 
-## Overview
-
-Kubelens provides a unified interface for managing multiple Kubernetes clusters from a single dashboard. This chart deploys both server API and app UI components.
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────┐
-│                  Parent Chart                        │
-│                   (kubelens)                         │
-│                                                      │
-│  ┌──────────────────┐      ┌──────────────────┐   │
-│  │  Server         │      │  App         │   │
-│  │  (sub-chart)     │◄─────┤  (sub-chart)      │   │
-│  │                  │      │                   │   │
-│  │  - Go API        │      │  - React UI       │   │
-│  │  - SQLite DB     │      │  - Nginx          │   │
-│  │  - WebSocket     │      │  - Static Files   │   │
-│  └──────────────────┘      └──────────────────┘   │
-│                                                      │
-│  ┌──────────────────────────────────────────────┐  │
-│  │         Ingress (optional)                    │  │
-│  └──────────────────────────────────────────────┘  │
-│                                                      │
-│  ┌──────────────────────────────────────────────┐  │
-│  │         RBAC + ServiceAccount                 │  │
-│  └──────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────┘
-```
+**This is a parent chart that orchestrates two independent sub-charts:**
+- 🔧 **Server**: Go-based API server with RBAC
+- 🌐 **App**: React-based web interface with Ingress
 
 ## Features
 
-- 🚀 **Multi-cluster Management**: Connect and manage multiple Kubernetes clusters
-- 📊 **Comprehensive Dashboard**: View resources, logs, metrics across clusters
-- 🔐 **RBAC Support**: Fine-grained access control with ServiceAccount
-- 💾 **Persistent Storage**: SQLite database for cluster configurations
-- 🌐 **Ingress Support**: Optional ingress with TLS/SSL
-- 📦 **Modular Design**: Server and app as independent sub-charts
-- ⚡ **Real-time Updates**: WebSocket support for live data
+- ✅ **Modular Architecture**: Server and App can be deployed independently
+- ✅ **Auto-configured RBAC**: Server includes comprehensive cluster permissions by default
+- ✅ **Built-in Ingress**: App chart manages ingress for easy external access
+- ✅ **Multi-cluster Support**: Manage multiple Kubernetes clusters from one dashboard
+- ✅ **Real-time Updates**: WebSocket support for live cluster monitoring
+- ✅ **Persistent Storage**: SQLite database with PVC support
+- ✅ **Production Ready**: Security hardening, resource limits, health checks
 
-## Prerequisites
+## Chart Architecture
 
-- Kubernetes 1.19+
-- Helm 3.0+
-- (Optional) Ingress controller (nginx, traefik, etc.)
-- (Optional) cert-manager for TLS certificates
-
-## Installation
-
-### Quick Start
-
-```bash
-# Add the repository (if published)
-helm repo add kubelens https://charts.kubelens.io
-helm repo update
-
-# Install with default values
-helm install kubelens kubelens/kubelens
-
-# Or install from local directory
-helm install kubelens ./kubelens
+```
+kubelens (parent)
+├── server (sub-chart) - Independent deployment
+│   ├── Deployment + Service
+│   ├── RBAC (ClusterRole + ClusterRoleBinding)
+│   ├── ServiceAccount
+│   └── PersistentVolumeClaim
+│
+└── app (sub-chart) - Independent deployment
+    ├── Deployment + Service
+    └── Ingress
 ```
 
-### Custom Installation
+**Important**: The parent chart does **not** create any Kubernetes resources directly. It only includes and configures sub-charts.
+
+## Quick Start
+
+### Default Installation
 
 ```bash
-# Install with custom values
-helm install kubelens ./kubelens -f custom-values.yaml
+# Install with default settings
+helm install kubelens ./kubelens \
+  --namespace kubelens \
+  --create-namespace
+```
 
-# Install in specific namespace
-helm install kubelens ./kubelens --namespace kubelens --create-namespace
+### With Ingress
 
+```bash
 # Install with ingress enabled
 helm install kubelens ./kubelens \
-  --set ingress.enabled=true \
-  --set ingress.hosts[0].host=kubelens.example.com
+  --namespace kubelens \
+  --create-namespace \
+  --set app.ingress.enabled=true \
+  --set app.ingress.hosts[0].host=kubelens.example.com \
+  --set app.ingress.hosts[0].paths[0].path=/ \
+  --set app.ingress.hosts[0].paths[0].pathType=Prefix
 ```
 
-### Upgrading
+### Access the Dashboard
 
 ```bash
-helm upgrade kubelens ./kubelens -f custom-values.yaml
-```
+# Port forward to access locally
+kubectl port-forward -n kubelens svc/kubelens-app 8080:80
 
-### Uninstalling
-
-```bash
-helm uninstall kubelens
+# Open http://localhost:8080 in your browser
 ```
 
 ## Configuration
@@ -106,14 +80,12 @@ helm uninstall kubelens
 |-----------|-------------|---------|
 | `server.enabled` | Enable server sub-chart | `true` |
 | `server.replicaCount` | Number of server replicas | `1` |
-| `server.image.repository` | Server image repository | `kubelens/server` |
+| `server.image.repository` | Server image | `kubelensai/kubelens-server` |
 | `server.image.tag` | Server image tag | `latest` |
-| `server.service.type` | Server service type | `ClusterIP` |
-| `server.service.port` | Server service port | `8080` |
+| `server.rbac.create` | Create RBAC resources | `true` |
+| `server.serviceAccount.create` | Create ServiceAccount | `true` |
 | `server.persistence.enabled` | Enable persistent storage | `true` |
 | `server.persistence.size` | PVC size | `1Gi` |
-| `server.resources.requests.cpu` | CPU request | `250m` |
-| `server.resources.requests.memory` | Memory request | `256Mi` |
 
 ### App Configuration
 
@@ -121,61 +93,45 @@ helm uninstall kubelens
 |-----------|-------------|---------|
 | `app.enabled` | Enable app sub-chart | `true` |
 | `app.replicaCount` | Number of app replicas | `1` |
-| `app.image.repository` | App image repository | `kubelens/app` |
+| `app.image.repository` | App image | `kubelensai/kubelens-app` |
 | `app.image.tag` | App image tag | `latest` |
-| `app.service.type` | App service type | `ClusterIP` |
-| `app.service.port` | App service port | `80` |
-| `app.resources.requests.cpu` | CPU request | `50m` |
-| `app.resources.requests.memory` | Memory request | `64Mi` |
+| `app.ingress.enabled` | Enable ingress | `false` |
+| `app.ingress.className` | Ingress class | `nginx` |
 
-### Ingress Configuration
+See [values.yaml](values.yaml) for all available options.
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `ingress.enabled` | Enable ingress | `false` |
-| `ingress.className` | Ingress class name | `nginx` |
-| `ingress.annotations` | Ingress annotations | See values.yaml |
-| `ingress.hosts` | Ingress hosts configuration | See values.yaml |
-| `ingress.tls` | TLS configuration | See values.yaml |
+## Independent Sub-Chart Deployment
 
-### RBAC Configuration
+Both server and app can be deployed independently:
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `rbac.create` | Create RBAC resources | `true` |
-| `rbac.rules` | RBAC rules | Cluster-wide read + limited write |
-| `serviceAccount.create` | Create ServiceAccount | `true` |
-| `serviceAccount.name` | ServiceAccount name | Generated from release name |
-
-## Examples
-
-### Minimal Installation
-
-```yaml
-# minimal-values.yaml
-server:
-  persistence:
-    size: 500Mi
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-
-app:
-  resources:
-    requests:
-      cpu: 25m
-      memory: 32Mi
-```
+### Deploy Server Only
 
 ```bash
-helm install kubelens ./kubelens -f minimal-values.yaml
+helm install kubelens-server ./kubelens/charts/server \
+  --namespace kubelens \
+  --create-namespace
 ```
 
-### Production Installation with Ingress
+See [server/README.md](charts/server/README.md) for detailed server configuration.
+
+### Deploy App Only
+
+```bash
+helm install kubelens-app ./kubelens/charts/app \
+  --namespace kubelens \
+  --create-namespace \
+  --set env.apiServer=http://my-backend-server:8080 \
+  --set ingress.enabled=true
+```
+
+See [app/README.md](charts/app/README.md) for detailed app configuration.
+
+## Production Examples
+
+### Minimal Production Setup
 
 ```yaml
-# production-values.yaml
+# minimal-prod.yaml
 server:
   replicaCount: 2
   persistence:
@@ -198,27 +154,25 @@ app:
     limits:
       cpu: 200m
       memory: 256Mi
-
-ingress:
-  enabled: true
-  className: "nginx"
-  annotations:
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-  hosts:
-    - host: kubelens.production.example.com
-      paths:
-        - path: /
-          pathType: Prefix
-  tls:
-    - secretName: kubelens-tls
-      hosts:
-        - kubelens.production.example.com
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    hosts:
+      - host: kubelens.production.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: kubelens-tls
+        hosts:
+          - kubelens.production.example.com
 ```
 
 ```bash
 helm install kubelens ./kubelens \
-  -f production-values.yaml \
+  -f minimal-prod.yaml \
   --namespace kubelens \
   --create-namespace
 ```
@@ -229,6 +183,9 @@ helm install kubelens ./kubelens \
 # ha-values.yaml
 server:
   replicaCount: 3
+  persistence:
+    size: 10Gi
+    storageClass: "fast-ssd"
   affinity:
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
@@ -243,7 +200,7 @@ server:
           topologyKey: kubernetes.io/hostname
 
 app:
-  replicaCount: 3
+  replicaCount: 5
   affinity:
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
@@ -256,126 +213,221 @@ app:
               values:
               - app
           topologyKey: kubernetes.io/hostname
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      nginx.ingress.kubernetes.io/rate-limit: "100"
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    hosts:
+      - host: kubelens.ha.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: kubelens-ha-tls
+        hosts:
+          - kubelens.ha.example.com
 ```
-
-## Accessing Kubelens
-
-### Port Forward (Development)
 
 ```bash
-# Forward app port
-kubectl port-forward svc/kubelens-app 8080:80
-
-# Access at http://localhost:8080
+helm install kubelens ./kubelens \
+  -f ha-values.yaml \
+  --namespace kubelens \
+  --create-namespace
 ```
 
-### Via Ingress (Production)
-
-Access via configured ingress hostname, e.g., `https://kubelens.example.com`
-
-### Via LoadBalancer
+### Development Setup
 
 ```yaml
+# dev-values.yaml
+server:
+  image:
+    tag: "dev"
+  persistence:
+    size: 500Mi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  env:
+    - name: LOG_LEVEL
+      value: "debug"
+
 app:
-  service:
-    type: LoadBalancer
+  image:
+    tag: "dev"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+  ingress:
+    enabled: true
+    className: "nginx"
+    hosts:
+      - host: kubelens.dev.local
+        paths:
+          - path: /
+            pathType: Prefix
 ```
 
-Then get the external IP:
 ```bash
-kubectl get svc kubelens-app
+helm install kubelens ./kubelens \
+  -f dev-values.yaml \
+  --namespace kubelens-dev \
+  --create-namespace
+```
+
+## RBAC & Security
+
+### Default RBAC
+
+The server chart automatically creates:
+- ✅ **ClusterRole** with comprehensive permissions
+- ✅ **ClusterRoleBinding** 
+- ✅ **ServiceAccount**
+
+**No manual RBAC configuration required!**
+
+### Permissions Granted
+
+- **Read access**: All cluster resources
+- **Write access**: Limited to:
+  - Pod exec and port-forward
+  - Deployment scaling
+  - Job/CronJob management
+- **Metrics**: Read access for monitoring
+
+### Disable RBAC (Not Recommended)
+
+```yaml
+server:
+  rbac:
+    create: false
+  serviceAccount:
+    create: false
+    name: "existing-service-account"
+```
+
+⚠️ **Warning**: You must manually configure appropriate permissions.
+
+## Upgrade
+
+```bash
+helm upgrade kubelens ./kubelens \
+  --namespace kubelens \
+  --reuse-values
+```
+
+## Uninstall
+
+```bash
+helm uninstall kubelens --namespace kubelens
+```
+
+⚠️ **Note**: PersistentVolumeClaim is retained by default. Delete manually if needed:
+
+```bash
+kubectl delete pvc -n kubelens -l app.kubernetes.io/name=server
 ```
 
 ## Troubleshooting
 
-### Check Pod Status
+### Server Can't Access Kubernetes API
+
+Check RBAC:
+```bash
+kubectl get clusterrole,clusterrolebinding -l app.kubernetes.io/component=server
+kubectl auth can-i get pods --as=system:serviceaccount:kubelens:<sa-name>
+```
+
+### App Can't Connect to Server
+
+Check connection:
+```bash
+kubectl get svc -n kubelens
+kubectl logs -n kubelens -l app.kubernetes.io/component=app
+```
+
+Verify API server URL:
+```bash
+kubectl get pods -n kubelens -l app.kubernetes.io/component=app \
+  -o jsonpath='{.items[0].spec.containers[0].env[?(@.name=="API_SERVER")].value}'
+```
+
+### Ingress Not Working
 
 ```bash
-kubectl get pods -l app.kubernetes.io/name=kubelens
+kubectl get ingress -n kubelens
+kubectl describe ingress -n kubelens
 ```
 
-### View Server Logs
+Check Ingress controller:
+```bash
+kubectl get pods -n ingress-nginx
+```
+
+### View Logs
 
 ```bash
-kubectl logs -l app.kubernetes.io/component=server
+# Server logs
+kubectl logs -n kubelens -l app.kubernetes.io/component=server --tail=100 -f
+
+# App logs
+kubectl logs -n kubelens -l app.kubernetes.io/component=app --tail=100 -f
 ```
 
-### View App Logs
+## Architecture Details
 
-```bash
-kubectl logs -l app.kubernetes.io/component=app
+### Communication Flow
+
+```
+Internet/User
+     ↓
+  Ingress (App Chart)
+     ↓
+  App Service (Port 80)
+     ↓
+  App Pods (Node.js + React)
+     ↓ /api/* proxy
+  Server Service (Port 8080)
+     ↓
+  Server Pods (Go API)
+     ↓
+  Kubernetes API (RBAC)
+     ↓
+  Cluster Resources
 ```
 
-### Check Persistent Volume
+### Storage Architecture
 
-```bash
-kubectl get pvc
-kubectl describe pvc kubelens-server-data
+```
+Server Pod
+    ↓
+PersistentVolumeClaim (1Gi)
+    ↓
+SQLite Database
+    ├── Cluster configurations
+    ├── User preferences
+    └── Application state
 ```
 
-### Common Issues
+## Values Reference
 
-1. **Server not starting**: Check PVC is bound and accessible
-2. **App can't connect to server**: Verify service names and ports
-3. **Ingress not working**: Ensure ingress controller is installed
-4. **Permission denied**: Check RBAC rules and ServiceAccount
+See [values.yaml](values.yaml) for complete configuration options.
 
-## Sub-charts
+## Sub-Chart Documentation
 
-This chart includes two sub-charts:
+- **Server**: [charts/server/README.md](charts/server/README.md)
+- **App**: [charts/app/README.md](charts/app/README.md)
 
-- **server**: Go-based API server ([README](charts/server/README.md))
-- **app**: React-based UI ([README](charts/app/README.md))
+## Support & Contributing
 
-Each sub-chart can be configured independently or disabled:
-
-```yaml
-server:
-  enabled: true
-  # ... server configuration
-
-app:
-  enabled: true
-  # ... app configuration
-```
-
-## Development
-
-### Build Dependencies
-
-```bash
-helm dependency build ./kubelens
-```
-
-### Lint Chart
-
-```bash
-helm lint ./kubelens
-```
-
-### Template Output
-
-```bash
-helm template kubelens ./kubelens
-```
-
-### Test Installation
-
-```bash
-helm install --dry-run --debug kubelens ./kubelens
-```
-
-## Contributing
-
-Contributions are welcome! Please see [CONTRIBUTING.md](../../../CONTRIBUTING.md)
+- **GitHub**: https://github.com/sonnguyen/kubelens
+- **Documentation**: [docs/](../../docs/)
+- **Issues**: https://github.com/sonnguyen/kubelens/issues
 
 ## License
 
-This project is licensed under the MIT License - see [LICENSE](../../../LICENSE)
-
-## Support
-
-- GitHub Issues: https://github.com/sonnguyen/kubelens/issues
-- Documentation: https://kubelens.io/docs
-- Slack: https://kubelens.slack.com
-
+See [LICENSE](../../LICENSE)

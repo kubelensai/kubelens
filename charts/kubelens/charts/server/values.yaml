@@ -9,6 +9,23 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
+# Service Account
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+# RBAC Configuration
+rbac:
+  # Specifies whether RBAC resources should be created
+  create: true
+  # Additional rules to add to the ClusterRole
+  # additionalRules: []
+
 service:
   type: ClusterIP
   port: 8080
@@ -72,4 +89,3 @@ readinessProbe:
   periodSeconds: 5
   timeoutSeconds: 3
   failureThreshold: 3
-

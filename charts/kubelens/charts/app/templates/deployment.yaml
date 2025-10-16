@@ -34,7 +34,13 @@ spec:
         - name: PORT
           value: "80"
         - name: API_SERVER
-          value: {{ .Values.env.apiServer | default (printf "http://%s-kubelens-server:%d" .Release.Name (.Values.server.servicePort | default 8080)) | quote }}
+          {{- if .Values.env.apiServer }}
+          value: {{ .Values.env.apiServer | quote }}
+          {{- else if .Values.server.serviceName }}
+          value: {{ printf "http://%s:%v" .Values.server.serviceName (.Values.server.servicePort | default 8080) | quote }}
+          {{- else }}
+          value: {{ printf "http://%s-server:%v" .Release.Name (.Values.server.servicePort | default 8080) | quote }}
+          {{- end }}
         - name: NODE_ENV
           value: "production"
         {{- range $key, $value := .Values.env.extra }}
