@@ -18,15 +18,22 @@ FROM alpine:latest
 
 RUN apk --no-cache add ca-certificates
 
-WORKDIR /root/
+# Create non-root user (matching Helm chart UID 1000)
+RUN addgroup -g 1000 kubelens && \
+    adduser -D -u 1000 -G kubelens kubelens
+
+WORKDIR /app
 
 # Copy the binary from builder
 COPY --from=builder /app/server .
 
-RUN chmod +x /root/server
+# Create data directory with correct permissions
+RUN mkdir -p /data && \
+    chown -R kubelens:kubelens /app /data && \
+    chmod +x /app/server
 
-# Create data directory
-RUN mkdir -p /root/data
+# Switch to non-root user
+USER kubelens
 
 # Expose port
 EXPOSE 8080

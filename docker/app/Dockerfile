@@ -16,6 +16,13 @@ RUN npm run build
 # Production stage
 FROM node:20-alpine
 
+# Create non-root user (matching Helm chart UID 1000)
+# Note: node:alpine already has a 'node' user with UID 1000
+# We'll use that user instead of creating a new one
+RUN deluser --remove-home node 2>/dev/null || true && \
+    addgroup -g 1000 kubelens && \
+    adduser -D -u 1000 -G kubelens kubelens
+
 WORKDIR /app
 
 # Install production dependencies only
@@ -27,6 +34,12 @@ COPY --from=builder /app/dist ./dist
 
 # Copy proxy server
 COPY src/app/server.js ./
+
+# Change ownership to non-root user
+RUN chown -R kubelens:kubelens /app
+
+# Switch to non-root user
+USER kubelens
 
 # Set default environment variables
 ENV PORT=80
