@@ -9,8 +9,8 @@ releases:
         ingress:
           enabled: true
           className: "nginx"
-          annotations:
-            cert-manager.io/cluster-issuer: cloudflare-cluster-issuer
+          annotations: {}
+            # cert-manager.io/cluster-issuer: cloudflare-cluster-issuer
             # nginx.ingress.kubernetes.io/ssl-redirect: "true"
           hosts:
             - host: kubelens.app
@@ -18,6 +18,6 @@ releases:
                 - path: /
                   pathType: Prefix
           tls:
-            - secretName: kubelens-tls
+            - secretName: kubelens-app-secret
               hosts:
                 - kubelens.app
