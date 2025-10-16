@@ -104,9 +104,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Create kubeconfig file
+        run: echo "${{ secrets.KUBECONFIG }}" > ${{ github.workspace }}/kubeconfig
+      
       - name: Deploy with Helmfile
         uses: helmfile/helmfile-action@v2
         with:
           helmfile-args: apply
         env:
-          KUBECONFIG: '${{ secrets.KUBECONFIG }}'
+          KUBECONFIG: '${{ github.workspace }}/kubeconfig'
