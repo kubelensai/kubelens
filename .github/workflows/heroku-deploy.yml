@@ -26,7 +26,7 @@ jobs:
         run: |
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             echo "environment=review" >> $GITHUB_OUTPUT
-            echo "app_name=kubelens-server-pr-${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+            echo "app_name=${{ secrets.HEROKU_SERVER_APP_NAME }}" >> $GITHUB_OUTPUT
           else
             echo "environment=production" >> $GITHUB_OUTPUT
             echo "app_name=${{ secrets.HEROKU_SERVER_APP_NAME }}" >> $GITHUB_OUTPUT
@@ -71,8 +71,8 @@ jobs:
         run: |
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             echo "environment=review" >> $GITHUB_OUTPUT
-            echo "app_name=kubelens-app-pr-${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
-            echo "app_url=https://kubelens-app-pr-${{ github.event.pull_request.number }}.herokuapp.com" >> $GITHUB_OUTPUT
+            echo "app_name=${{ secrets.HEROKU_APP_NAME }}" >> $GITHUB_OUTPUT
+            echo "app_url=https://${{ secrets.HEROKU_APP_NAME }}-pr-${{ github.event.pull_request.number }}.herokuapp.com" >> $GITHUB_OUTPUT
           else
             echo "environment=production" >> $GITHUB_OUTPUT
             echo "app_name=${{ secrets.HEROKU_APP_NAME }}" >> $GITHUB_OUTPUT
