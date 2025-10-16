@@ -1,0 +1,14 @@
+# Heroku configuration for Docker deployment
+# This file tells Heroku how to build and run Docker containers
+
+build:
+  docker:
+    # Server (Backend) - Go API
+    server:
+      dockerfile: docker/server/Dockerfile
+      context: .
+    
+    # App (Frontend) - Node.js + React
+    app:
+      dockerfile: docker/app/Dockerfile
+      context: .
