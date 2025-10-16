@@ -1,0 +1,178 @@
+name: Deploy to Heroku
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy-server:
+    name: Deploy Server to Heroku
+    runs-on: ubuntu-latest
+    outputs:
+      server_url: ${{ steps.set-url.outputs.server_url }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Determine environment and app name
+        id: env
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "environment=review" >> $GITHUB_OUTPUT
+            echo "app_name=kubelens-server-pr-${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          else
+            echo "environment=production" >> $GITHUB_OUTPUT
+            echo "app_name=${{ secrets.HEROKU_SERVER_APP_NAME }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set server URL
+        id: set-url
+        run: |
+          if [[ "${{ steps.env.outputs.environment }}" == "review" ]]; then
+            echo "server_url=https://kubelens-server-pr-${{ github.event.pull_request.number }}.herokuapp.com" >> $GITHUB_OUTPUT
+          else
+            echo "server_url=https://api.kubelens.app" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build, Push and Deploy Server to Heroku
+        uses: gonuit/heroku-docker-deploy@v1.3.3
+        with:
+          email: ${{ secrets.HEROKU_EMAIL }}
+          heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
+          heroku_app_name: ${{ steps.env.outputs.app_name }}
+          dockerfile_directory: ./
+          dockerfile_name: docker/server/Dockerfile
+          docker_options: "--no-cache"
+          process_type: web
+
+      - name: Verify server deployment
+        run: |
+          echo "✅ Server deployed to: ${{ steps.set-url.outputs.server_url }}"
+          echo "App name: ${{ steps.env.outputs.app_name }}"
+          echo "Environment: ${{ steps.env.outputs.environment }}"
+
+  deploy-app:
+    name: Deploy App to Heroku
+    runs-on: ubuntu-latest
+    needs: deploy-server
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Determine environment and app name
+        id: env
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "environment=review" >> $GITHUB_OUTPUT
+            echo "app_name=kubelens-app-pr-${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+            echo "app_url=https://kubelens-app-pr-${{ github.event.pull_request.number }}.herokuapp.com" >> $GITHUB_OUTPUT
+          else
+            echo "environment=production" >> $GITHUB_OUTPUT
+            echo "app_name=${{ secrets.HEROKU_APP_NAME }}" >> $GITHUB_OUTPUT
+            echo "app_url=https://kubelens.app" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set API_SERVER environment variable for Heroku
+        run: |
+          echo "Setting API_SERVER to: ${{ needs.deploy-server.outputs.server_url }}"
+          
+          # Install Heroku CLI
+          curl https://cli-assets.heroku.com/install.sh | sh
+          
+          # Login to Heroku
+          echo "${{ secrets.HEROKU_API_KEY }}" | heroku auth:token
+          
+          # Set config var
+          heroku config:set API_SERVER=${{ needs.deploy-server.outputs.server_url }} \
+            --app ${{ steps.env.outputs.app_name }}
+
+      - name: Build, Push and Deploy App to Heroku
+        uses: gonuit/heroku-docker-deploy@v1.3.3
+        with:
+          email: ${{ secrets.HEROKU_EMAIL }}
+          heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
+          heroku_app_name: ${{ steps.env.outputs.app_name }}
+          dockerfile_directory: ./
+          dockerfile_name: docker/app/Dockerfile
+          docker_options: "--no-cache"
+          process_type: web
+
+      - name: Verify app deployment
+        run: |
+          echo "✅ App deployed to: ${{ steps.env.outputs.app_url }}"
+          echo "App name: ${{ steps.env.outputs.app_name }}"
+          echo "Environment: ${{ steps.env.outputs.environment }}"
+          echo "API Server: ${{ needs.deploy-server.outputs.server_url }}"
+
+      - name: Add comment to PR (if PR)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 🚀 Heroku Review Apps Deployed
+
+              ### Frontend (App)
+              - **URL**: ${{ steps.env.outputs.app_url }}
+              - **App**: \`${{ steps.env.outputs.app_name }}\`
+
+              ### Backend (Server)
+              - **URL**: ${{ needs.deploy-server.outputs.server_url }}
+              - **App**: \`kubelens-server-pr-${{ github.event.pull_request.number }}\`
+
+              ---
+              📝 Review apps will be automatically destroyed when the PR is closed.
+              `
+            })
+
+  cleanup-review-apps:
+    name: Cleanup Review Apps
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    steps:
+      - name: Delete review apps
+        run: |
+          # Install Heroku CLI
+          curl https://cli-assets.heroku.com/install.sh | sh
+          
+          # Login to Heroku
+          echo "${{ secrets.HEROKU_API_KEY }}" | heroku auth:token
+          
+          # Delete review apps
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          
+          echo "Deleting kubelens-app-pr-$PR_NUMBER..."
+          heroku apps:destroy kubelens-app-pr-$PR_NUMBER --confirm kubelens-app-pr-$PR_NUMBER || echo "App not found or already deleted"
+          
+          echo "Deleting kubelens-server-pr-$PR_NUMBER..."
+          heroku apps:destroy kubelens-server-pr-$PR_NUMBER --confirm kubelens-server-pr-$PR_NUMBER || echo "App not found or already deleted"
+          
+          echo "✅ Review apps cleaned up"
+
+      - name: Add cleanup comment to PR
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 🧹 Heroku Review Apps Cleaned Up
+
+              The following review apps have been destroyed:
+              - \`kubelens-app-pr-${{ github.event.pull_request.number }}\`
+              - \`kubelens-server-pr-${{ github.event.pull_request.number }}\`
+              `
+            })
