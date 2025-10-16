@@ -84,18 +84,18 @@ app:
   ingress:
     enabled: false
     className: "nginx"
-    annotations:
-      cert-manager.io/cluster-issuer: letsencrypt-prod
+    annotations: {}
+      # cert-manager.io/cluster-issuer: letsencrypt-prod
       # nginx.ingress.kubernetes.io/ssl-redirect: "true"
     hosts:
-      - host: kubelens.example.com
+      - host: kubelens.app
         paths:
           - path: /
             pathType: Prefix
     tls:
-      - secretName: kubelens-tls
+      - secretName: kubelens-app-secret
         hosts:
-          - kubelens.example.com
+          - kubelens.app
   
   resources:
     limits:
