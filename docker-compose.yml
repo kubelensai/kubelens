@@ -1,8 +1,8 @@
 services:
   server:
     build:
-      context: ..
-      dockerfile: docker/server/Dockerfile
+      context: .
+      dockerfile: Dockerfile.server
     container_name: kubelens-server
     ports:
       - "8080:8080"
@@ -10,17 +10,21 @@ services:
       - PORT=8080
       - DATABASE_PATH=/data/kubelens.db
       - LOG_LEVEL=info
-      - CORS_ORIGINS=http://localhost,http://localhost:80
+      - CORS_ORIGINS=http://localhost,http://localhost:80,http://app,http://app:80
+      - DEX_ISSUER=http://dex:5556/dex
+      - DEX_CLIENT_ID=kubelens
+      - DEX_CLIENT_SECRET=kubelens-secret-change-in-production
+      - KUBELENS_URL=http://localhost
     volumes:
-      - ../data:/data
+      - data:/data
     restart: unless-stopped
     networks:
       - kubelens
 
   app:
     build:
-      context: ..
-      dockerfile: docker/app/Dockerfile
+      context: .
+      dockerfile: Dockerfile.app
     container_name: kubelens-app
     ports:
       - "80:80"
@@ -30,9 +34,32 @@ services:
       - NODE_ENV=production
     depends_on:
       - server
+      - dex
     restart: unless-stopped
     networks:
       - kubelens
+
+  dex:
+    image: ghcr.io/dexidp/dex:v2.37.0
+    container_name: kubelens-dex
+    ports:
+      - "5556:5556"
+      - "5558:5558"
+    environment:
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-your-google-client-id}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-your-google-client-secret}
+    volumes:
+      - ./dex/config.yaml:/etc/dex/config.yaml:ro
+      - dex-data:/var/dex
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    restart: unless-stopped
+    networks:
+      - kubelens
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:5556/dex/.well-known/openid-configuration"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 networks:
   kubelens:
@@ -40,4 +67,5 @@ networks:
 
 volumes:
   data:
+  dex-data:
 

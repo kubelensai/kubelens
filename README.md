@@ -28,9 +28,12 @@ Kubelens is a powerful, user-friendly Kubernetes dashboard designed for DevOps t
 - **🌐 Multi-Cluster Management**
   - Connect unlimited Kubernetes clusters
   - Switch between clusters seamlessly
-  - Import clusters via server URL, CA certificate, and token
+  - **Multiple authentication methods**: 
+    - Kubeconfig (recommended, easiest)
+    - Service Account Token (manual, fine-grained control)
   - Enable/disable clusters dynamically
   - Per-cluster metrics and health monitoring
+  - Context selection for multi-context kubeconfigs
 
 - **📊 Comprehensive Resource Management**
   - **Workloads**: Pods, Deployments, DaemonSets, StatefulSets, ReplicaSets, Jobs, CronJobs
