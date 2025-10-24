@@ -140,7 +140,7 @@ export default function IngressClasses() {
           items={
             cluster
               ? [
-                  { name: cluster, href: `/clusters/${cluster}/overview` },
+                  { name: cluster, href: "/dashboard" },
                   { name: 'Ingress Classes' }
                 ]
               : [{ name: 'Ingress Classes' }]

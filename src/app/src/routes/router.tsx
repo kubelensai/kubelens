@@ -3,7 +3,6 @@ import { createBrowserRouter } from "react-router-dom";
 import App from "../App";
 import RequireEnabledCluster from "../components/shared/RequireEnabledCluster";
 import ClusterManagement from "../pages/ClusterManagement";
-import ClusterOverview from "../pages/ClusterOverview";
 import ClusterRoleBindings from "../pages/ClusterRoleBindings";
 import ClusterRoles from "../pages/ClusterRoles";
 import ConfigMaps from "../pages/ConfigMaps";
@@ -18,10 +17,13 @@ import Events from "../pages/Events";
 import HPAs from "../pages/HPAs";
 import IngressClasses from "../pages/IngressClasses";
 import Ingresses from "../pages/Ingresses";
+import Integrations from "../pages/Integrations";
 import Jobs from "../pages/Jobs";
 import Leases from "../pages/Leases";
+import Login from "../pages/Login";
 import MutatingWebhookConfigurations from "../pages/MutatingWebhookConfigurations";
 import Namespaces from "../pages/Namespaces";
+import Profile from "../pages/Profile";
 import NetworkPolicies from "../pages/NetworkPolicies";
 import Nodes from "../pages/Nodes";
 import PDBs from "../pages/PDBs";
@@ -36,8 +38,10 @@ import RuntimeClasses from "../pages/RuntimeClasses";
 import Secrets from "../pages/Secrets";
 import ServiceAccounts from "../pages/ServiceAccounts";
 import Services from "../pages/Services";
+import Signup from "../pages/Signup";
 import StatefulSets from "../pages/StatefulSets";
 import StorageClasses from "../pages/StorageClasses";
+import Users from "../pages/Users";
 import ValidatingWebhookConfigurations from "../pages/ValidatingWebhookConfigurations";
 
 // Define common resource paths
@@ -120,6 +124,16 @@ const generateResourceRoutes = (resources: any[]) => {
 };
 
 const routes = [
+  // Auth routes (no layout)
+  {
+    path: "/login",
+    element: <Login />,
+  },
+  {
+    path: "/signup",
+    element: <Signup />,
+  },
+  // Main app routes (with layout)
   {
     path: "/",
     element: <App />,
@@ -129,12 +143,24 @@ const routes = [
         element: <Dashboard />,
       },
       {
+        path: "dashboard",
+        element: <Dashboard />,
+      },
+      {
         path: "clusters",
         element: <ClusterManagement />,
       },
       {
-        path: "clusters/:cluster/overview",
-        element: withClusterCheck(<ClusterOverview />),
+        path: "integrations",
+        element: <Integrations />,
+      },
+      {
+        path: "users",
+        element: <Users />,
+      },
+      {
+        path: "profile",
+        element: <Profile />,
       },
       // Generate routes for all resource types
       ...Object.values(resourceTypes).flatMap(generateResourceRoutes),

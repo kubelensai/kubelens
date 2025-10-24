@@ -318,7 +318,7 @@ export default function Pods() {
               items={
                 cluster
                   ? [
-                      { name: cluster, href: `/clusters/${cluster}/overview` },
+                      { name: cluster, href: "/dashboard" },
                       { name: 'Pods' }
                     ]
                   : [{ name: 'Pods' }]

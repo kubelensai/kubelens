@@ -236,7 +236,7 @@ export default function Services() {
               items={
                 cluster
                   ? [
-                      { name: cluster, href: `/clusters/${cluster}/overview` },
+                      { name: cluster, href: "/dashboard" },
                       { name: 'Services' }
                     ]
                   : [{ name: 'Services' }]

@@ -201,7 +201,7 @@ export default function ReplicaSets() {
               items={
                 cluster
                   ? [
-                      { name: cluster, href: `/clusters/${cluster}/overview` },
+                      { name: cluster, href: "/dashboard" },
                       { name: 'ReplicaSets' }
                     ]
                   : [{ name: 'ReplicaSets' }]

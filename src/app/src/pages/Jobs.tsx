@@ -222,7 +222,7 @@ export default function Jobs() {
               items={
                 cluster
                   ? [
-                      { name: cluster, href: `/clusters/${cluster}/overview` },
+                      { name: cluster, href: "/dashboard" },
                       { name: 'Jobs' }
                     ]
                   : [{ name: 'Jobs' }]

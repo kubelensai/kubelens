@@ -212,7 +212,7 @@ export default function StatefulSets() {
               items={
                 cluster
                   ? [
-                      { name: cluster, href: `/clusters/${cluster}/overview` },
+                      { name: cluster, href: "/dashboard" },
                       { name: 'StatefulSets' }
                     ]
                   : [{ name: 'StatefulSets' }]

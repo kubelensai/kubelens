@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -53,7 +54,7 @@ func NewManager(database *db.DB) *Manager {
 // LoadFromConfig loads clusters from configuration
 func (m *Manager) LoadFromConfig(cfg *config.Config) error {
 	// NOTE: Auto-loading from kubeconfig is DISABLED
-	// Clusters must be imported via UI with server/ca/token fields
+	// Clusters must be imported via UI with server/ca/token or kubeconfig
 	// This ensures all clusters are stored in database with proper schema
 	
 	// Legacy code (disabled):
@@ -71,16 +72,53 @@ func (m *Manager) LoadFromConfig(cfg *config.Config) error {
 
 	for _, dbCluster := range dbClusters {
 		if _, exists := m.clients[dbCluster.Name]; !exists {
-			// Load cluster from new schema (server, ca, token)
-			if dbCluster.Server != "" && dbCluster.CA != "" && dbCluster.Token != "" {
-				if err := m.AddClusterFromConfig(dbCluster.Name, dbCluster.Server, dbCluster.CA, dbCluster.Token); err != nil {
-					log.Warnf("Failed to load cluster %s from database: %v", dbCluster.Name, err)
-					// Update status to error
+			var loadErr error
+
+			// Load based on auth_type
+			switch dbCluster.AuthType {
+			case "kubeconfig":
+				// Parse auth_config JSON to extract kubeconfig
+				var authConfig map[string]string
+				if err := json.Unmarshal([]byte(dbCluster.AuthConfig), &authConfig); err != nil {
+					log.Errorf("Failed to parse auth_config for cluster %s: %v", dbCluster.Name, err)
 					m.db.UpdateClusterStatus(dbCluster.Name, "error")
-				} else {
-					// Update status to connected
-					m.db.UpdateClusterStatus(dbCluster.Name, "connected")
+					continue
 				}
+
+				kubeconfigContent := authConfig["kubeconfig"]
+				context := authConfig["context"]
+
+				if kubeconfigContent != "" {
+					loadErr = m.AddClusterFromKubeconfigContent(dbCluster.Name, kubeconfigContent, context)
+				} else {
+					log.Errorf("Empty kubeconfig for cluster %s", dbCluster.Name)
+					m.db.UpdateClusterStatus(dbCluster.Name, "error")
+					continue
+				}
+
+			case "token":
+				// Use extracted server/ca/token fields
+				if dbCluster.Server != "" && dbCluster.CA != "" && dbCluster.Token != "" {
+					loadErr = m.AddClusterFromConfig(dbCluster.Name, dbCluster.Server, dbCluster.CA, dbCluster.Token)
+				} else {
+					log.Errorf("Missing server/ca/token for cluster %s", dbCluster.Name)
+					m.db.UpdateClusterStatus(dbCluster.Name, "error")
+					continue
+				}
+
+			default:
+				log.Warnf("Unsupported auth_type '%s' for cluster %s", dbCluster.AuthType, dbCluster.Name)
+				m.db.UpdateClusterStatus(dbCluster.Name, "error")
+				continue
+			}
+
+			// Update status based on load result
+			if loadErr != nil {
+				log.Warnf("Failed to load cluster %s from database: %v", dbCluster.Name, loadErr)
+				m.db.UpdateClusterStatus(dbCluster.Name, "error")
+			} else {
+				log.Infof("Successfully loaded cluster %s (auth_type: %s)", dbCluster.Name, dbCluster.AuthType)
+				m.db.UpdateClusterStatus(dbCluster.Name, "connected")
 			}
 		}
 	}

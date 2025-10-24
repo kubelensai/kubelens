@@ -136,7 +136,7 @@ export default function MutatingWebhookConfigurations() {
           items={
             cluster
               ? [
-                  { name: cluster, href: `/clusters/${cluster}/overview` },
+                  { name: cluster, href: "/dashboard" },
                   { name: 'Mutating Webhooks' }
                 ]
               : [{ name: 'Mutating Webhooks' }]

@@ -191,7 +191,7 @@ export default function HPAs() {
           items={
             cluster
               ? [
-                  { name: cluster, href: `/clusters/${cluster}/overview` },
+                  { name: cluster, href: "/dashboard" },
                   { name: 'Horizontal Pod Autoscalers' }
                 ]
               : [{ name: 'Horizontal Pod Autoscalers' }]

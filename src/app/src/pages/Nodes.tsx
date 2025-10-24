@@ -539,7 +539,7 @@ export default function Nodes() {
         <Breadcrumb 
           items={cluster 
             ? [
-                { name: cluster, href: `/clusters/${cluster}/overview` },
+                { name: cluster, href: "/dashboard" },
                 { name: 'Nodes' }
               ]
             : [{ name: 'Nodes' }]

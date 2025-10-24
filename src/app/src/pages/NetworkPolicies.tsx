@@ -176,7 +176,7 @@ export default function NetworkPolicies() {
           items={
             currentCluster
               ? [
-                  { name: currentCluster, href: `/clusters/${currentCluster}/overview` },
+                  { name: currentCluster, href: "/dashboard" },
                   { name: 'Network Policies' }
                 ]
               : [{ name: 'Network Policies' }]

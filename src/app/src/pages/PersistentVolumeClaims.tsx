@@ -179,7 +179,7 @@ export default function PersistentVolumeClaims() {
           items={
             currentCluster
               ? [
-                  { name: currentCluster, href: `/clusters/${currentCluster}/overview` },
+                  { name: currentCluster, href: "/dashboard" },
                   { name: 'Persistent Volume Claims' }
                 ]
               : [{ name: 'Persistent Volume Claims' }]

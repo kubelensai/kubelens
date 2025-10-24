@@ -147,7 +147,7 @@ export default function ConfigMaps() {
               items={
                 cluster
                   ? [
-                      { name: cluster, href: `/clusters/${cluster}/overview` },
+                      { name: cluster, href: "/dashboard" },
                       { name: 'ConfigMaps' }
                     ]
                   : [{ name: 'ConfigMaps' }]

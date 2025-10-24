@@ -14,13 +14,21 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/sonnguyen/kubelens/internal/api"
+	"github.com/sonnguyen/kubelens/internal/auth"
 	"github.com/sonnguyen/kubelens/internal/cluster"
 	"github.com/sonnguyen/kubelens/internal/config"
 	"github.com/sonnguyen/kubelens/internal/db"
+	"github.com/sonnguyen/kubelens/internal/modules"
+	oauth2handler "github.com/sonnguyen/kubelens/internal/oauth2"
 	"github.com/sonnguyen/kubelens/internal/ws"
 
 	// Import all client-go auth plugins
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+
+	// Import integration modules (conditionally compiled via build tags)
+	_ "github.com/sonnguyen/kubelens/internal/integrations/gcp" // +build gcp
+	// _ "github.com/sonnguyen/kubelens/internal/integrations/aws"    // +build aws
+	// _ "github.com/sonnguyen/kubelens/internal/integrations/azure"  // +build azure
 )
 
 func main() {
@@ -42,6 +50,11 @@ func main() {
 	}
 	defer database.Close()
 
+	// Initialize default admin user and groups
+	if err := database.InitializeDefaultData(); err != nil {
+		log.Warnf("Failed to initialize default data: %v", err)
+	}
+
 	// Initialize cluster manager
 	clusterManager := cluster.NewManager(database)
 
@@ -61,15 +74,23 @@ func main() {
 
 	router := gin.Default()
 
-	// CORS middleware
-	router.Use(cors.New(cors.Config{
-		AllowOrigins:     cfg.CORSOrigins,
-		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
-		MaxAge:           12 * time.Hour,
-	}))
+	// CORS middleware - Allow all origins in development (easier for testing)
+	// For production, set specific origins via CORS_ORIGINS env var
+	corsConfig := cors.DefaultConfig()
+	corsConfig.AllowAllOrigins = true // Simple and works for all scenarios
+	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
+	corsConfig.AllowHeaders = []string{
+		"Origin", "Content-Type", "Accept", "Authorization",
+		"User-Agent", "Referer", "Accept-Language", "Accept-Encoding",
+		"Connection", "Upgrade-Insecure-Requests",
+		"Sec-Fetch-Dest", "Sec-Fetch-Mode", "Sec-Fetch-Site",
+		"sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform",
+		"X-Requested-With", "Cache-Control", "Pragma",
+	}
+	corsConfig.ExposeHeaders = []string{"Content-Length"}
+	corsConfig.MaxAge = 12 * time.Hour
+	
+	router.Use(cors.New(corsConfig))
 
 	// Health check endpoint
 	router.GET("/health", func(c *gin.Context) {
@@ -79,267 +100,376 @@ func main() {
 		})
 	})
 
+	// OAuth2 handler (initialize before modules)
+	oauth2Handler := oauth2handler.NewHandler(
+		database,
+		os.Getenv("DEX_ISSUER"),
+		os.Getenv("DEX_CLIENT_ID"),
+		os.Getenv("DEX_CLIENT_SECRET"),
+		os.Getenv("KUBELENS_URL")+"/auth/callback",
+	)
+
+	// Initialize module registry
+	moduleRegistry := modules.DefaultRegistry
+	log.Infof("📦 Module registry initialized with %d module(s)", moduleRegistry.Count())
+
+	// Initialize all registered modules
+	if moduleRegistry.Count() > 0 {
+		moduleDeps := &modules.ModuleDependencies{
+			DB:             database,
+			ClusterManager: clusterManager,
+			OAuth2Handler:  oauth2Handler,
+			Logger:         log.StandardLogger(),
+			Config:         map[string]interface{}{},
+		}
+
+		if err := moduleRegistry.InitializeAll(context.Background(), moduleDeps); err != nil {
+			log.Fatalf("Failed to initialize modules: %v", err)
+		}
+	} else {
+		log.Info("ℹ️  No modules registered (build with -tags=\"gcp aws azure\" to enable integrations)")
+	}
+
+	// Initialize auth handler
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "kubelens-secret-change-in-production" // Default for development
+		log.Warn("⚠️  JWT_SECRET not set, using default (not secure for production!)")
+	}
+	authHandler := auth.NewHandler(database, jwtSecret)
+
 	// API routes
 	apiHandler := api.NewHandler(clusterManager, database, wsHub)
 	v1 := router.Group("/api/v1")
 	{
+		// Authentication routes (public)
+		authRoutes := v1.Group("/auth")
+		{
+			authRoutes.POST("/signup", authHandler.Signup)
+			authRoutes.POST("/signin", authHandler.Signin)
+			authRoutes.GET("/me", auth.AuthMiddleware(jwtSecret), authHandler.GetCurrentUser)
+			authRoutes.PATCH("/profile", auth.AuthMiddleware(jwtSecret), authHandler.UpdateProfile)
+			authRoutes.POST("/change-password", auth.AuthMiddleware(jwtSecret), authHandler.ChangePassword)
+			authRoutes.POST("/logout", auth.AuthMiddleware(jwtSecret), authHandler.Logout)
+		}
+
+		// User management routes (admin only)
+		userRoutes := v1.Group("/users")
+		userRoutes.Use(auth.AuthMiddleware(jwtSecret), auth.AdminOnly())
+		{
+			userRoutes.GET("", authHandler.ListUsers)
+			userRoutes.GET("/:id", authHandler.GetUser)
+			userRoutes.PATCH("/:id", authHandler.UpdateUser)
+			userRoutes.DELETE("/:id", authHandler.DeleteUser)
+			userRoutes.GET("/:id/groups", authHandler.GetUserGroups)
+			userRoutes.POST("/:id/groups", authHandler.AddUserToGroup)
+			userRoutes.DELETE("/:id/groups/:group_id", authHandler.RemoveUserFromGroup)
+		}
+
+		// Group management routes (admin only)
+		groupRoutes := v1.Group("/groups")
+		groupRoutes.Use(auth.AuthMiddleware(jwtSecret), auth.AdminOnly())
+		{
+			groupRoutes.GET("", authHandler.ListGroups)
+			groupRoutes.POST("", authHandler.CreateGroup)
+		}
+
+	// Protected routes - require authentication
+	protected := v1.Group("")
+	protected.Use(auth.AuthMiddleware(jwtSecret))
+	{
+		// Module management API
+		protected.GET("/modules", func(c *gin.Context) {
+			metadata := moduleRegistry.GetUIMetadataAll()
+			c.JSON(http.StatusOK, gin.H{
+				"modules": metadata,
+				"count":   len(metadata),
+			})
+		})
+
+		// Integrations management
+		protected.GET("/integrations", apiHandler.ListIntegrations)
+		protected.POST("/integrations", apiHandler.CreateIntegration)
+		protected.PATCH("/integrations/:id", apiHandler.UpdateIntegration)
+		
+		// OAuth2 routes
+		protected.GET("/integrations/:id/oauth/start", oauth2Handler.StartOAuth2Flow)
+		protected.GET("/integrations/:id/oauth/revoke", oauth2Handler.RevokeToken)
+		protected.GET("/integrations/:id/oauth/tokens", oauth2Handler.GetTokenInfo)
+
 		// Global search across all resources
-		v1.GET("/search", apiHandler.Search)
+		protected.GET("/search", apiHandler.Search)
 
 		// Cluster management
-		v1.GET("/clusters", apiHandler.ListClusters)
-		v1.POST("/clusters", apiHandler.AddCluster)
-		v1.PUT("/clusters/:name", apiHandler.UpdateCluster)
-		v1.PATCH("/clusters/:name/enabled", apiHandler.UpdateClusterEnabled)
-		v1.DELETE("/clusters/:name", apiHandler.RemoveCluster)
-		v1.GET("/clusters/:name/status", apiHandler.GetClusterStatus)
-		v1.GET("/clusters/:name/metrics", apiHandler.GetClusterMetrics)
-		v1.GET("/clusters/:name/resources-summary", apiHandler.GetClusterResourcesSummary)
+		protected.GET("/clusters", apiHandler.ListClusters)
+		protected.POST("/clusters", apiHandler.AddCluster)
+		protected.PUT("/clusters/:name", apiHandler.UpdateCluster)
+		protected.PATCH("/clusters/:name/enabled", apiHandler.UpdateClusterEnabled)
+		protected.DELETE("/clusters/:name", apiHandler.RemoveCluster)
+		protected.GET("/clusters/:name/status", apiHandler.GetClusterStatus)
+		protected.GET("/clusters/:name/metrics", apiHandler.GetClusterMetrics)
+		protected.GET("/clusters/:name/resources-summary", apiHandler.GetClusterResourcesSummary)
 
 		// Namespaces (cluster-scoped)
-		v1.GET("/clusters/:name/namespaces", apiHandler.ListNamespaces)
-		v1.GET("/clusters/:name/namespaces/:namespace", apiHandler.GetNamespace)
-		v1.PUT("/clusters/:name/namespaces/:namespace", apiHandler.UpdateNamespace)
-		v1.DELETE("/clusters/:name/namespaces/:namespace", apiHandler.DeleteNamespace)
+		protected.GET("/clusters/:name/namespaces", apiHandler.ListNamespaces)
+		protected.GET("/clusters/:name/namespaces/:namespace", apiHandler.GetNamespace)
+		protected.PUT("/clusters/:name/namespaces/:namespace", apiHandler.UpdateNamespace)
+		protected.DELETE("/clusters/:name/namespaces/:namespace", apiHandler.DeleteNamespace)
 
 		// Pods
-		v1.GET("/clusters/:name/pods", apiHandler.ListPods)
-		v1.GET("/clusters/:name/namespaces/:namespace/pods/:pod", apiHandler.GetPod)
-		v1.GET("/clusters/:name/namespaces/:namespace/pods/:pod/metrics", apiHandler.GetPodMetrics)
-		v1.PUT("/clusters/:name/namespaces/:namespace/pods/:pod", apiHandler.UpdatePod)
-		v1.DELETE("/clusters/:name/namespaces/:namespace/pods/:pod", apiHandler.DeletePod)
-		v1.POST("/clusters/:name/namespaces/:namespace/pods/:pod/evict", apiHandler.EvictPod)
-		v1.GET("/clusters/:name/namespaces/:namespace/pods/:pod/logs", apiHandler.GetPodLogs)
-		v1.GET("/clusters/:name/namespaces/:namespace/pods/:pod/shell", apiHandler.PodShell)
+		protected.GET("/clusters/:name/pods", apiHandler.ListPods)
+		protected.GET("/clusters/:name/namespaces/:namespace/pods/:pod", apiHandler.GetPod)
+		protected.GET("/clusters/:name/namespaces/:namespace/pods/:pod/metrics", apiHandler.GetPodMetrics)
+		protected.PUT("/clusters/:name/namespaces/:namespace/pods/:pod", apiHandler.UpdatePod)
+		protected.DELETE("/clusters/:name/namespaces/:namespace/pods/:pod", apiHandler.DeletePod)
+		protected.POST("/clusters/:name/namespaces/:namespace/pods/:pod/evict", apiHandler.EvictPod)
+		protected.GET("/clusters/:name/namespaces/:namespace/pods/:pod/logs", apiHandler.GetPodLogs)
+		protected.GET("/clusters/:name/namespaces/:namespace/pods/:pod/shell", apiHandler.PodShell)
 
 		// Deployments
-		v1.GET("/clusters/:name/deployments", apiHandler.ListDeployments)
-		v1.GET("/clusters/:name/namespaces/:namespace/deployments/:deployment", apiHandler.GetDeployment)
-		v1.PUT("/clusters/:name/namespaces/:namespace/deployments/:deployment", apiHandler.UpdateDeployment)
-		v1.DELETE("/clusters/:name/namespaces/:namespace/deployments/:deployment", apiHandler.DeleteDeployment)
-		v1.PATCH("/clusters/:name/namespaces/:namespace/deployments/:deployment/scale", apiHandler.ScaleDeployment)
-		v1.POST("/clusters/:name/namespaces/:namespace/deployments/:deployment/restart", apiHandler.RestartDeployment)
+		protected.GET("/clusters/:name/deployments", apiHandler.ListDeployments)
+		protected.GET("/clusters/:name/namespaces/:namespace/deployments/:deployment", apiHandler.GetDeployment)
+		protected.PUT("/clusters/:name/namespaces/:namespace/deployments/:deployment", apiHandler.UpdateDeployment)
+		protected.DELETE("/clusters/:name/namespaces/:namespace/deployments/:deployment", apiHandler.DeleteDeployment)
+		protected.PATCH("/clusters/:name/namespaces/:namespace/deployments/:deployment/scale", apiHandler.ScaleDeployment)
+		protected.POST("/clusters/:name/namespaces/:namespace/deployments/:deployment/restart", apiHandler.RestartDeployment)
 
 		// DaemonSets
-		v1.GET("/clusters/:name/daemonsets", apiHandler.ListDaemonSets)
-		v1.GET("/clusters/:name/namespaces/:namespace/daemonsets/:daemonset", apiHandler.GetDaemonSet)
-		v1.PUT("/clusters/:name/namespaces/:namespace/daemonsets/:daemonset", apiHandler.UpdateDaemonSet)
-		v1.DELETE("/clusters/:name/namespaces/:namespace/daemonsets/:daemonset", apiHandler.DeleteDaemonSet)
-		v1.POST("/clusters/:name/namespaces/:namespace/daemonsets/:daemonset/restart", apiHandler.RestartDaemonSet)
+		protected.GET("/clusters/:name/daemonsets", apiHandler.ListDaemonSets)
+		protected.GET("/clusters/:name/namespaces/:namespace/daemonsets/:daemonset", apiHandler.GetDaemonSet)
+		protected.PUT("/clusters/:name/namespaces/:namespace/daemonsets/:daemonset", apiHandler.UpdateDaemonSet)
+		protected.DELETE("/clusters/:name/namespaces/:namespace/daemonsets/:daemonset", apiHandler.DeleteDaemonSet)
+		protected.POST("/clusters/:name/namespaces/:namespace/daemonsets/:daemonset/restart", apiHandler.RestartDaemonSet)
 
 		// StatefulSets
-		v1.GET("/clusters/:name/statefulsets", apiHandler.ListStatefulSets)
-		v1.GET("/clusters/:name/namespaces/:namespace/statefulsets/:statefulset", apiHandler.GetStatefulSet)
-		v1.PUT("/clusters/:name/namespaces/:namespace/statefulsets/:statefulset", apiHandler.UpdateStatefulSet)
-		v1.DELETE("/clusters/:name/namespaces/:namespace/statefulsets/:statefulset", apiHandler.DeleteStatefulSet)
-		v1.PATCH("/clusters/:name/namespaces/:namespace/statefulsets/:statefulset/scale", apiHandler.ScaleStatefulSet)
-		v1.POST("/clusters/:name/namespaces/:namespace/statefulsets/:statefulset/restart", apiHandler.RestartStatefulSet)
+		protected.GET("/clusters/:name/statefulsets", apiHandler.ListStatefulSets)
+		protected.GET("/clusters/:name/namespaces/:namespace/statefulsets/:statefulset", apiHandler.GetStatefulSet)
+		protected.PUT("/clusters/:name/namespaces/:namespace/statefulsets/:statefulset", apiHandler.UpdateStatefulSet)
+		protected.DELETE("/clusters/:name/namespaces/:namespace/statefulsets/:statefulset", apiHandler.DeleteStatefulSet)
+		protected.PATCH("/clusters/:name/namespaces/:namespace/statefulsets/:statefulset/scale", apiHandler.ScaleStatefulSet)
+		protected.POST("/clusters/:name/namespaces/:namespace/statefulsets/:statefulset/restart", apiHandler.RestartStatefulSet)
 
 		// ReplicaSets
-		v1.GET("/clusters/:name/replicasets", apiHandler.ListReplicaSets)
-		v1.GET("/clusters/:name/namespaces/:namespace/replicasets/:replicaset", apiHandler.GetReplicaSet)
-		v1.PUT("/clusters/:name/namespaces/:namespace/replicasets/:replicaset", apiHandler.UpdateReplicaSet)
-		v1.DELETE("/clusters/:name/namespaces/:namespace/replicasets/:replicaset", apiHandler.DeleteReplicaSet)
-		v1.PATCH("/clusters/:name/namespaces/:namespace/replicasets/:replicaset/scale", apiHandler.ScaleReplicaSet)
+		protected.GET("/clusters/:name/replicasets", apiHandler.ListReplicaSets)
+		protected.GET("/clusters/:name/namespaces/:namespace/replicasets/:replicaset", apiHandler.GetReplicaSet)
+		protected.PUT("/clusters/:name/namespaces/:namespace/replicasets/:replicaset", apiHandler.UpdateReplicaSet)
+		protected.DELETE("/clusters/:name/namespaces/:namespace/replicasets/:replicaset", apiHandler.DeleteReplicaSet)
+		protected.PATCH("/clusters/:name/namespaces/:namespace/replicasets/:replicaset/scale", apiHandler.ScaleReplicaSet)
 
 		// Jobs
-		v1.GET("/clusters/:name/jobs", apiHandler.ListJobs)
-		v1.GET("/clusters/:name/namespaces/:namespace/jobs/:job", apiHandler.GetJob)
-		v1.PUT("/clusters/:name/namespaces/:namespace/jobs/:job", apiHandler.UpdateJob)
-		v1.DELETE("/clusters/:name/namespaces/:namespace/jobs/:job", apiHandler.DeleteJob)
+		protected.GET("/clusters/:name/jobs", apiHandler.ListJobs)
+		protected.GET("/clusters/:name/namespaces/:namespace/jobs/:job", apiHandler.GetJob)
+		protected.PUT("/clusters/:name/namespaces/:namespace/jobs/:job", apiHandler.UpdateJob)
+		protected.DELETE("/clusters/:name/namespaces/:namespace/jobs/:job", apiHandler.DeleteJob)
 
 		// CronJobs
-		v1.GET("/clusters/:name/cronjobs", apiHandler.ListCronJobs)
-		v1.GET("/clusters/:name/namespaces/:namespace/cronjobs/:cronjob", apiHandler.GetCronJob)
-		v1.PUT("/clusters/:name/namespaces/:namespace/cronjobs/:cronjob", apiHandler.UpdateCronJob)
-		v1.DELETE("/clusters/:name/namespaces/:namespace/cronjobs/:cronjob", apiHandler.DeleteCronJob)
+		protected.GET("/clusters/:name/cronjobs", apiHandler.ListCronJobs)
+		protected.GET("/clusters/:name/namespaces/:namespace/cronjobs/:cronjob", apiHandler.GetCronJob)
+		protected.PUT("/clusters/:name/namespaces/:namespace/cronjobs/:cronjob", apiHandler.UpdateCronJob)
+		protected.DELETE("/clusters/:name/namespaces/:namespace/cronjobs/:cronjob", apiHandler.DeleteCronJob)
 
 		// Services
-		v1.GET("/clusters/:name/services", apiHandler.ListServices)
-		v1.GET("/clusters/:name/namespaces/:namespace/services/:service", apiHandler.GetService)
-		v1.PUT("/clusters/:name/namespaces/:namespace/services/:service", apiHandler.UpdateService)
+		protected.GET("/clusters/:name/services", apiHandler.ListServices)
+		protected.GET("/clusters/:name/namespaces/:namespace/services/:service", apiHandler.GetService)
+		protected.PUT("/clusters/:name/namespaces/:namespace/services/:service", apiHandler.UpdateService)
 
 		// Endpoints
-		v1.GET("/clusters/:name/endpoints", apiHandler.ListEndpoints)
-		v1.GET("/clusters/:name/namespaces/:namespace/endpoints/:endpoint", apiHandler.GetEndpoint)
+		protected.GET("/clusters/:name/endpoints", apiHandler.ListEndpoints)
+		protected.GET("/clusters/:name/namespaces/:namespace/endpoints/:endpoint", apiHandler.GetEndpoint)
 
 		// Ingresses (namespaced)
-		v1.GET("/clusters/:name/namespaces/:namespace/ingresses", apiHandler.ListIngresses)
-		v1.GET("/clusters/:name/ingresses", apiHandler.ListIngresses)
-		v1.GET("/clusters/:name/namespaces/:namespace/ingresses/:ingress", apiHandler.GetIngress)
-		v1.POST("/clusters/:name/namespaces/:namespace/ingresses", apiHandler.CreateIngress)
-		v1.PUT("/clusters/:name/namespaces/:namespace/ingresses/:ingress", apiHandler.UpdateIngress)
-		v1.DELETE("/clusters/:name/namespaces/:namespace/ingresses/:ingress", apiHandler.DeleteIngress)
+		protected.GET("/clusters/:name/namespaces/:namespace/ingresses", apiHandler.ListIngresses)
+		protected.GET("/clusters/:name/ingresses", apiHandler.ListIngresses)
+		protected.GET("/clusters/:name/namespaces/:namespace/ingresses/:ingress", apiHandler.GetIngress)
+		protected.POST("/clusters/:name/namespaces/:namespace/ingresses", apiHandler.CreateIngress)
+		protected.PUT("/clusters/:name/namespaces/:namespace/ingresses/:ingress", apiHandler.UpdateIngress)
+		protected.DELETE("/clusters/:name/namespaces/:namespace/ingresses/:ingress", apiHandler.DeleteIngress)
 
 		// Ingress Classes (cluster-scoped)
-		v1.GET("/clusters/:name/ingressclasses", apiHandler.ListIngressClasses)
-		v1.GET("/clusters/:name/ingressclasses/:ingressclass", apiHandler.GetIngressClass)
-		v1.POST("/clusters/:name/ingressclasses", apiHandler.CreateIngressClass)
-		v1.PUT("/clusters/:name/ingressclasses/:ingressclass", apiHandler.UpdateIngressClass)
-		v1.DELETE("/clusters/:name/ingressclasses/:ingressclass", apiHandler.DeleteIngressClass)
+		protected.GET("/clusters/:name/ingressclasses", apiHandler.ListIngressClasses)
+		protected.GET("/clusters/:name/ingressclasses/:ingressclass", apiHandler.GetIngressClass)
+		protected.POST("/clusters/:name/ingressclasses", apiHandler.CreateIngressClass)
+		protected.PUT("/clusters/:name/ingressclasses/:ingressclass", apiHandler.UpdateIngressClass)
+		protected.DELETE("/clusters/:name/ingressclasses/:ingressclass", apiHandler.DeleteIngressClass)
 
 		// Network Policies (namespaced)
-		v1.GET("/clusters/:name/networkpolicies", apiHandler.ListNetworkPolicies)
-		v1.GET("/clusters/:name/namespaces/:namespace/networkpolicies", apiHandler.ListNetworkPolicies)
-		v1.GET("/clusters/:name/namespaces/:namespace/networkpolicies/:networkpolicy", apiHandler.GetNetworkPolicy)
-		v1.PUT("/clusters/:name/namespaces/:namespace/networkpolicies/:networkpolicy", apiHandler.UpdateNetworkPolicy)
-		v1.DELETE("/clusters/:name/namespaces/:namespace/networkpolicies/:networkpolicy", apiHandler.DeleteNetworkPolicy)
+		protected.GET("/clusters/:name/networkpolicies", apiHandler.ListNetworkPolicies)
+		protected.GET("/clusters/:name/namespaces/:namespace/networkpolicies", apiHandler.ListNetworkPolicies)
+		protected.GET("/clusters/:name/namespaces/:namespace/networkpolicies/:networkpolicy", apiHandler.GetNetworkPolicy)
+		protected.PUT("/clusters/:name/namespaces/:namespace/networkpolicies/:networkpolicy", apiHandler.UpdateNetworkPolicy)
+		protected.DELETE("/clusters/:name/namespaces/:namespace/networkpolicies/:networkpolicy", apiHandler.DeleteNetworkPolicy)
 
 		// ConfigMaps
-		v1.GET("/clusters/:name/configmaps", apiHandler.ListConfigMaps)
-		v1.POST("/clusters/:name/namespaces/:namespace/configmaps", apiHandler.CreateConfigMap)
-		v1.GET("/clusters/:name/namespaces/:namespace/configmaps/:configmap", apiHandler.GetConfigMap)
-		v1.PUT("/clusters/:name/namespaces/:namespace/configmaps/:configmap", apiHandler.UpdateConfigMap)
-		v1.DELETE("/clusters/:name/namespaces/:namespace/configmaps/:configmap", apiHandler.DeleteConfigMap)
+		protected.GET("/clusters/:name/configmaps", apiHandler.ListConfigMaps)
+		protected.POST("/clusters/:name/namespaces/:namespace/configmaps", apiHandler.CreateConfigMap)
+		protected.GET("/clusters/:name/namespaces/:namespace/configmaps/:configmap", apiHandler.GetConfigMap)
+		protected.PUT("/clusters/:name/namespaces/:namespace/configmaps/:configmap", apiHandler.UpdateConfigMap)
+		protected.DELETE("/clusters/:name/namespaces/:namespace/configmaps/:configmap", apiHandler.DeleteConfigMap)
 
 		// Secrets
-		v1.GET("/clusters/:name/secrets", apiHandler.ListSecrets)
-		v1.POST("/clusters/:name/namespaces/:namespace/secrets", apiHandler.CreateSecret)
-		v1.GET("/clusters/:name/namespaces/:namespace/secrets/:secret", apiHandler.GetSecret)
-		v1.PUT("/clusters/:name/namespaces/:namespace/secrets/:secret", apiHandler.UpdateSecret)
-		v1.DELETE("/clusters/:name/namespaces/:namespace/secrets/:secret", apiHandler.DeleteSecret)
+		protected.GET("/clusters/:name/secrets", apiHandler.ListSecrets)
+		protected.POST("/clusters/:name/namespaces/:namespace/secrets", apiHandler.CreateSecret)
+		protected.GET("/clusters/:name/namespaces/:namespace/secrets/:secret", apiHandler.GetSecret)
+		protected.PUT("/clusters/:name/namespaces/:namespace/secrets/:secret", apiHandler.UpdateSecret)
+		protected.DELETE("/clusters/:name/namespaces/:namespace/secrets/:secret", apiHandler.DeleteSecret)
 
 		// Storage Classes (cluster-scoped)
-		v1.GET("/clusters/:name/storageclasses", apiHandler.ListStorageClasses)
-		v1.POST("/clusters/:name/storageclasses", apiHandler.CreateStorageClass)
-		v1.GET("/clusters/:name/storageclasses/:storageclass", apiHandler.GetStorageClass)
-		v1.PUT("/clusters/:name/storageclasses/:storageclass", apiHandler.UpdateStorageClass)
-		v1.DELETE("/clusters/:name/storageclasses/:storageclass", apiHandler.DeleteStorageClass)
+		protected.GET("/clusters/:name/storageclasses", apiHandler.ListStorageClasses)
+		protected.POST("/clusters/:name/storageclasses", apiHandler.CreateStorageClass)
+		protected.GET("/clusters/:name/storageclasses/:storageclass", apiHandler.GetStorageClass)
+		protected.PUT("/clusters/:name/storageclasses/:storageclass", apiHandler.UpdateStorageClass)
+		protected.DELETE("/clusters/:name/storageclasses/:storageclass", apiHandler.DeleteStorageClass)
 
 		// Persistent Volumes (cluster-scoped)
-		v1.GET("/clusters/:name/persistentvolumes", apiHandler.ListPersistentVolumes)
-		v1.GET("/clusters/:name/persistentvolumes/:pv", apiHandler.GetPersistentVolume)
-		v1.PUT("/clusters/:name/persistentvolumes/:pv", apiHandler.UpdatePersistentVolume)
-		v1.DELETE("/clusters/:name/persistentvolumes/:pv", apiHandler.DeletePersistentVolume)
+		protected.GET("/clusters/:name/persistentvolumes", apiHandler.ListPersistentVolumes)
+		protected.GET("/clusters/:name/persistentvolumes/:pv", apiHandler.GetPersistentVolume)
+		protected.PUT("/clusters/:name/persistentvolumes/:pv", apiHandler.UpdatePersistentVolume)
+		protected.DELETE("/clusters/:name/persistentvolumes/:pv", apiHandler.DeletePersistentVolume)
 
 		// Persistent Volume Claims (namespaced)
-		v1.GET("/clusters/:name/persistentvolumeclaims", apiHandler.ListPersistentVolumeClaims)
-		v1.GET("/clusters/:name/namespaces/:namespace/persistentvolumeclaims", apiHandler.ListPersistentVolumeClaims)
-		v1.GET("/clusters/:name/namespaces/:namespace/persistentvolumeclaims/:pvc", apiHandler.GetPersistentVolumeClaim)
-		v1.PUT("/clusters/:name/namespaces/:namespace/persistentvolumeclaims/:pvc", apiHandler.UpdatePersistentVolumeClaim)
-		v1.DELETE("/clusters/:name/namespaces/:namespace/persistentvolumeclaims/:pvc", apiHandler.DeletePersistentVolumeClaim)
+		protected.GET("/clusters/:name/persistentvolumeclaims", apiHandler.ListPersistentVolumeClaims)
+		protected.GET("/clusters/:name/namespaces/:namespace/persistentvolumeclaims", apiHandler.ListPersistentVolumeClaims)
+		protected.GET("/clusters/:name/namespaces/:namespace/persistentvolumeclaims/:pvc", apiHandler.GetPersistentVolumeClaim)
+		protected.PUT("/clusters/:name/namespaces/:namespace/persistentvolumeclaims/:pvc", apiHandler.UpdatePersistentVolumeClaim)
+		protected.DELETE("/clusters/:name/namespaces/:namespace/persistentvolumeclaims/:pvc", apiHandler.DeletePersistentVolumeClaim)
 
 		// ServiceAccounts (namespaced)
-		v1.GET("/clusters/:name/serviceaccounts", apiHandler.ListServiceAccounts)
-		v1.GET("/clusters/:name/namespaces/:namespace/serviceaccounts", apiHandler.ListServiceAccountsByNamespace)
-		v1.GET("/clusters/:name/namespaces/:namespace/serviceaccounts/:serviceaccount", apiHandler.GetServiceAccount)
-		v1.PUT("/clusters/:name/namespaces/:namespace/serviceaccounts/:serviceaccount", apiHandler.UpdateServiceAccount)
-		v1.DELETE("/clusters/:name/namespaces/:namespace/serviceaccounts/:serviceaccount", apiHandler.DeleteServiceAccount)
-		v1.POST("/clusters/:name/namespaces/:namespace/serviceaccounts", apiHandler.CreateServiceAccount)
+		protected.GET("/clusters/:name/serviceaccounts", apiHandler.ListServiceAccounts)
+		protected.GET("/clusters/:name/namespaces/:namespace/serviceaccounts", apiHandler.ListServiceAccountsByNamespace)
+		protected.GET("/clusters/:name/namespaces/:namespace/serviceaccounts/:serviceaccount", apiHandler.GetServiceAccount)
+		protected.PUT("/clusters/:name/namespaces/:namespace/serviceaccounts/:serviceaccount", apiHandler.UpdateServiceAccount)
+		protected.DELETE("/clusters/:name/namespaces/:namespace/serviceaccounts/:serviceaccount", apiHandler.DeleteServiceAccount)
+		protected.POST("/clusters/:name/namespaces/:namespace/serviceaccounts", apiHandler.CreateServiceAccount)
 
 		// ClusterRoles (cluster-scoped)
-		v1.GET("/clusters/:name/clusterroles", apiHandler.ListClusterRoles)
-		v1.GET("/clusters/:name/clusterroles/:clusterrole", apiHandler.GetClusterRole)
-		v1.PUT("/clusters/:name/clusterroles/:clusterrole", apiHandler.UpdateClusterRole)
-		v1.DELETE("/clusters/:name/clusterroles/:clusterrole", apiHandler.DeleteClusterRole)
-		v1.POST("/clusters/:name/clusterroles", apiHandler.CreateClusterRole)
+		protected.GET("/clusters/:name/clusterroles", apiHandler.ListClusterRoles)
+		protected.GET("/clusters/:name/clusterroles/:clusterrole", apiHandler.GetClusterRole)
+		protected.PUT("/clusters/:name/clusterroles/:clusterrole", apiHandler.UpdateClusterRole)
+		protected.DELETE("/clusters/:name/clusterroles/:clusterrole", apiHandler.DeleteClusterRole)
+		protected.POST("/clusters/:name/clusterroles", apiHandler.CreateClusterRole)
 
 		// Roles (namespaced)
-		v1.GET("/clusters/:name/roles", apiHandler.ListRoles)
-		v1.GET("/clusters/:name/namespaces/:namespace/roles", apiHandler.ListRolesByNamespace)
-		v1.GET("/clusters/:name/namespaces/:namespace/roles/:role", apiHandler.GetRole)
-		v1.PUT("/clusters/:name/namespaces/:namespace/roles/:role", apiHandler.UpdateRole)
-		v1.DELETE("/clusters/:name/namespaces/:namespace/roles/:role", apiHandler.DeleteRole)
-		v1.POST("/clusters/:name/namespaces/:namespace/roles", apiHandler.CreateRole)
+		protected.GET("/clusters/:name/roles", apiHandler.ListRoles)
+		protected.GET("/clusters/:name/namespaces/:namespace/roles", apiHandler.ListRolesByNamespace)
+		protected.GET("/clusters/:name/namespaces/:namespace/roles/:role", apiHandler.GetRole)
+		protected.PUT("/clusters/:name/namespaces/:namespace/roles/:role", apiHandler.UpdateRole)
+		protected.DELETE("/clusters/:name/namespaces/:namespace/roles/:role", apiHandler.DeleteRole)
+		protected.POST("/clusters/:name/namespaces/:namespace/roles", apiHandler.CreateRole)
 
 		// ClusterRoleBindings (cluster-scoped)
-		v1.GET("/clusters/:name/clusterrolebindings", apiHandler.ListClusterRoleBindings)
-		v1.GET("/clusters/:name/clusterrolebindings/:clusterrolebinding", apiHandler.GetClusterRoleBinding)
-		v1.PUT("/clusters/:name/clusterrolebindings/:clusterrolebinding", apiHandler.UpdateClusterRoleBinding)
-		v1.DELETE("/clusters/:name/clusterrolebindings/:clusterrolebinding", apiHandler.DeleteClusterRoleBinding)
-		v1.POST("/clusters/:name/clusterrolebindings", apiHandler.CreateClusterRoleBinding)
+		protected.GET("/clusters/:name/clusterrolebindings", apiHandler.ListClusterRoleBindings)
+		protected.GET("/clusters/:name/clusterrolebindings/:clusterrolebinding", apiHandler.GetClusterRoleBinding)
+		protected.PUT("/clusters/:name/clusterrolebindings/:clusterrolebinding", apiHandler.UpdateClusterRoleBinding)
+		protected.DELETE("/clusters/:name/clusterrolebindings/:clusterrolebinding", apiHandler.DeleteClusterRoleBinding)
+		protected.POST("/clusters/:name/clusterrolebindings", apiHandler.CreateClusterRoleBinding)
 
 		// RoleBindings (namespaced)
-		v1.GET("/clusters/:name/rolebindings", apiHandler.ListRoleBindings)
-		v1.GET("/clusters/:name/namespaces/:namespace/rolebindings", apiHandler.ListRoleBindingsByNamespace)
-		v1.GET("/clusters/:name/namespaces/:namespace/rolebindings/:rolebinding", apiHandler.GetRoleBinding)
-		v1.PUT("/clusters/:name/namespaces/:namespace/rolebindings/:rolebinding", apiHandler.UpdateRoleBinding)
-		v1.DELETE("/clusters/:name/namespaces/:namespace/rolebindings/:rolebinding", apiHandler.DeleteRoleBinding)
-		v1.POST("/clusters/:name/namespaces/:namespace/rolebindings", apiHandler.CreateRoleBinding)
+		protected.GET("/clusters/:name/rolebindings", apiHandler.ListRoleBindings)
+		protected.GET("/clusters/:name/namespaces/:namespace/rolebindings", apiHandler.ListRoleBindingsByNamespace)
+		protected.GET("/clusters/:name/namespaces/:namespace/rolebindings/:rolebinding", apiHandler.GetRoleBinding)
+		protected.PUT("/clusters/:name/namespaces/:namespace/rolebindings/:rolebinding", apiHandler.UpdateRoleBinding)
+		protected.DELETE("/clusters/:name/namespaces/:namespace/rolebindings/:rolebinding", apiHandler.DeleteRoleBinding)
+		protected.POST("/clusters/:name/namespaces/:namespace/rolebindings", apiHandler.CreateRoleBinding)
 
 		// Nodes
-		v1.GET("/clusters/:name/nodes", apiHandler.ListNodes)
-		v1.GET("/clusters/:name/nodes/:node", apiHandler.GetNode)
-		v1.GET("/clusters/:name/nodes/:node/metrics", apiHandler.GetNodeMetrics)
-		v1.POST("/clusters/:name/nodes/:node/cordon", apiHandler.CordonNode)
-		v1.POST("/clusters/:name/nodes/:node/uncordon", apiHandler.UncordonNode)
-		v1.POST("/clusters/:name/nodes/:node/drain", apiHandler.DrainNode)
-		v1.DELETE("/clusters/:name/nodes/:node", apiHandler.DeleteNode)
+		protected.GET("/clusters/:name/nodes", apiHandler.ListNodes)
+		protected.GET("/clusters/:name/nodes/:node", apiHandler.GetNode)
+		protected.GET("/clusters/:name/nodes/:node/metrics", apiHandler.GetNodeMetrics)
+		protected.POST("/clusters/:name/nodes/:node/cordon", apiHandler.CordonNode)
+		protected.POST("/clusters/:name/nodes/:node/uncordon", apiHandler.UncordonNode)
+		protected.POST("/clusters/:name/nodes/:node/drain", apiHandler.DrainNode)
+		protected.DELETE("/clusters/:name/nodes/:node", apiHandler.DeleteNode)
 
 		// Events
-		v1.GET("/clusters/:name/events", apiHandler.ListEvents)
+		protected.GET("/clusters/:name/events", apiHandler.ListEvents)
 
 		// Horizontal Pod Autoscalers
-		v1.GET("/clusters/:name/hpas", apiHandler.ListHPAs)
-		v1.GET("/clusters/:name/namespaces/:namespace/hpas/:hpa", apiHandler.GetHPA)
-		v1.POST("/clusters/:name/namespaces/:namespace/hpas", apiHandler.CreateHPA)
-		v1.PUT("/clusters/:name/namespaces/:namespace/hpas/:hpa", apiHandler.UpdateHPA)
-		v1.DELETE("/clusters/:name/namespaces/:namespace/hpas/:hpa", apiHandler.DeleteHPA)
+		protected.GET("/clusters/:name/hpas", apiHandler.ListHPAs)
+		protected.GET("/clusters/:name/namespaces/:namespace/hpas/:hpa", apiHandler.GetHPA)
+		protected.POST("/clusters/:name/namespaces/:namespace/hpas", apiHandler.CreateHPA)
+		protected.PUT("/clusters/:name/namespaces/:namespace/hpas/:hpa", apiHandler.UpdateHPA)
+		protected.DELETE("/clusters/:name/namespaces/:namespace/hpas/:hpa", apiHandler.DeleteHPA)
 
 		// Pod Disruption Budgets
-		v1.GET("/clusters/:name/pdbs", apiHandler.ListPDBs)
-		v1.GET("/clusters/:name/namespaces/:namespace/pdbs/:pdb", apiHandler.GetPDB)
-		v1.POST("/clusters/:name/namespaces/:namespace/pdbs", apiHandler.CreatePDB)
-		v1.PUT("/clusters/:name/namespaces/:namespace/pdbs/:pdb", apiHandler.UpdatePDB)
-		v1.DELETE("/clusters/:name/namespaces/:namespace/pdbs/:pdb", apiHandler.DeletePDB)
+		protected.GET("/clusters/:name/pdbs", apiHandler.ListPDBs)
+		protected.GET("/clusters/:name/namespaces/:namespace/pdbs/:pdb", apiHandler.GetPDB)
+		protected.POST("/clusters/:name/namespaces/:namespace/pdbs", apiHandler.CreatePDB)
+		protected.PUT("/clusters/:name/namespaces/:namespace/pdbs/:pdb", apiHandler.UpdatePDB)
+		protected.DELETE("/clusters/:name/namespaces/:namespace/pdbs/:pdb", apiHandler.DeletePDB)
 
 		// Priority Classes (cluster-scoped)
-		v1.GET("/clusters/:name/priorityclasses", apiHandler.ListPriorityClasses)
-		v1.GET("/clusters/:name/priorityclasses/:priorityclass", apiHandler.GetPriorityClass)
-		v1.POST("/clusters/:name/priorityclasses", apiHandler.CreatePriorityClass)
-		v1.PUT("/clusters/:name/priorityclasses/:priorityclass", apiHandler.UpdatePriorityClass)
-		v1.DELETE("/clusters/:name/priorityclasses/:priorityclass", apiHandler.DeletePriorityClass)
+		protected.GET("/clusters/:name/priorityclasses", apiHandler.ListPriorityClasses)
+		protected.GET("/clusters/:name/priorityclasses/:priorityclass", apiHandler.GetPriorityClass)
+		protected.POST("/clusters/:name/priorityclasses", apiHandler.CreatePriorityClass)
+		protected.PUT("/clusters/:name/priorityclasses/:priorityclass", apiHandler.UpdatePriorityClass)
+		protected.DELETE("/clusters/:name/priorityclasses/:priorityclass", apiHandler.DeletePriorityClass)
 
 		// Runtime Classes (cluster-scoped)
-		v1.GET("/clusters/:name/runtimeclasses", apiHandler.ListRuntimeClasses)
-		v1.GET("/clusters/:name/runtimeclasses/:runtimeclass", apiHandler.GetRuntimeClass)
-		v1.POST("/clusters/:name/runtimeclasses", apiHandler.CreateRuntimeClass)
-		v1.PUT("/clusters/:name/runtimeclasses/:runtimeclass", apiHandler.UpdateRuntimeClass)
-		v1.DELETE("/clusters/:name/runtimeclasses/:runtimeclass", apiHandler.DeleteRuntimeClass)
+		protected.GET("/clusters/:name/runtimeclasses", apiHandler.ListRuntimeClasses)
+		protected.GET("/clusters/:name/runtimeclasses/:runtimeclass", apiHandler.GetRuntimeClass)
+		protected.POST("/clusters/:name/runtimeclasses", apiHandler.CreateRuntimeClass)
+		protected.PUT("/clusters/:name/runtimeclasses/:runtimeclass", apiHandler.UpdateRuntimeClass)
+		protected.DELETE("/clusters/:name/runtimeclasses/:runtimeclass", apiHandler.DeleteRuntimeClass)
 
 		// Leases (namespaced)
-		v1.GET("/clusters/:name/namespaces/:namespace/leases", apiHandler.ListLeases)
-		v1.GET("/clusters/:name/namespaces/:namespace/leases/:lease", apiHandler.GetLease)
-		v1.POST("/clusters/:name/namespaces/:namespace/leases", apiHandler.CreateLease)
-		v1.PUT("/clusters/:name/namespaces/:namespace/leases/:lease", apiHandler.UpdateLease)
-		v1.DELETE("/clusters/:name/namespaces/:namespace/leases/:lease", apiHandler.DeleteLease)
+		protected.GET("/clusters/:name/namespaces/:namespace/leases", apiHandler.ListLeases)
+		protected.GET("/clusters/:name/namespaces/:namespace/leases/:lease", apiHandler.GetLease)
+		protected.POST("/clusters/:name/namespaces/:namespace/leases", apiHandler.CreateLease)
+		protected.PUT("/clusters/:name/namespaces/:namespace/leases/:lease", apiHandler.UpdateLease)
+		protected.DELETE("/clusters/:name/namespaces/:namespace/leases/:lease", apiHandler.DeleteLease)
 
 		// Mutating Webhook Configurations (cluster-scoped)
-		v1.GET("/clusters/:name/mutatingwebhookconfigurations", apiHandler.ListMutatingWebhookConfigurations)
-		v1.GET("/clusters/:name/mutatingwebhookconfigurations/:webhook", apiHandler.GetMutatingWebhookConfiguration)
-		v1.POST("/clusters/:name/mutatingwebhookconfigurations", apiHandler.CreateMutatingWebhookConfiguration)
-		v1.PUT("/clusters/:name/mutatingwebhookconfigurations/:webhook", apiHandler.UpdateMutatingWebhookConfiguration)
-		v1.DELETE("/clusters/:name/mutatingwebhookconfigurations/:webhook", apiHandler.DeleteMutatingWebhookConfiguration)
+		protected.GET("/clusters/:name/mutatingwebhookconfigurations", apiHandler.ListMutatingWebhookConfigurations)
+		protected.GET("/clusters/:name/mutatingwebhookconfigurations/:webhook", apiHandler.GetMutatingWebhookConfiguration)
+		protected.POST("/clusters/:name/mutatingwebhookconfigurations", apiHandler.CreateMutatingWebhookConfiguration)
+		protected.PUT("/clusters/:name/mutatingwebhookconfigurations/:webhook", apiHandler.UpdateMutatingWebhookConfiguration)
+		protected.DELETE("/clusters/:name/mutatingwebhookconfigurations/:webhook", apiHandler.DeleteMutatingWebhookConfiguration)
 
 		// Validating Webhook Configurations (cluster-scoped)
-		v1.GET("/clusters/:name/validatingwebhookconfigurations", apiHandler.ListValidatingWebhookConfigurations)
-		v1.GET("/clusters/:name/validatingwebhookconfigurations/:webhook", apiHandler.GetValidatingWebhookConfiguration)
-		v1.POST("/clusters/:name/validatingwebhookconfigurations", apiHandler.CreateValidatingWebhookConfiguration)
-		v1.PUT("/clusters/:name/validatingwebhookconfigurations/:webhook", apiHandler.UpdateValidatingWebhookConfiguration)
-		v1.DELETE("/clusters/:name/validatingwebhookconfigurations/:webhook", apiHandler.DeleteValidatingWebhookConfiguration)
+		protected.GET("/clusters/:name/validatingwebhookconfigurations", apiHandler.ListValidatingWebhookConfigurations)
+		protected.GET("/clusters/:name/validatingwebhookconfigurations/:webhook", apiHandler.GetValidatingWebhookConfiguration)
+		protected.POST("/clusters/:name/validatingwebhookconfigurations", apiHandler.CreateValidatingWebhookConfiguration)
+		protected.PUT("/clusters/:name/validatingwebhookconfigurations/:webhook", apiHandler.UpdateValidatingWebhookConfiguration)
+		protected.DELETE("/clusters/:name/validatingwebhookconfigurations/:webhook", apiHandler.DeleteValidatingWebhookConfiguration)
 
 		// Custom Resource Definitions (cluster-scoped)
-		v1.GET("/clusters/:name/customresourcedefinitions", apiHandler.ListCustomResourceDefinitions)
-		v1.GET("/clusters/:name/customresourcedefinitions/:crd", apiHandler.GetCustomResourceDefinition)
-		v1.PUT("/clusters/:name/customresourcedefinitions/:crd", apiHandler.UpdateCustomResourceDefinition)
-		v1.DELETE("/clusters/:name/customresourcedefinitions/:crd", apiHandler.DeleteCustomResourceDefinition)
+		protected.GET("/clusters/:name/customresourcedefinitions", apiHandler.ListCustomResourceDefinitions)
+		protected.GET("/clusters/:name/customresourcedefinitions/:crd", apiHandler.GetCustomResourceDefinition)
+		protected.PUT("/clusters/:name/customresourcedefinitions/:crd", apiHandler.UpdateCustomResourceDefinition)
+		protected.DELETE("/clusters/:name/customresourcedefinitions/:crd", apiHandler.DeleteCustomResourceDefinition)
 
 		// Custom Resources (Dynamic) - cluster-scoped
-		v1.GET("/clusters/:name/customresources", apiHandler.ListCustomResources)
-		v1.GET("/clusters/:name/customresources/:resourcename", apiHandler.GetCustomResource)
-		v1.PUT("/clusters/:name/customresources/:resourcename", apiHandler.UpdateCustomResource)
-		v1.DELETE("/clusters/:name/customresources/:resourcename", apiHandler.DeleteCustomResource)
+		protected.GET("/clusters/:name/customresources", apiHandler.ListCustomResources)
+		protected.GET("/clusters/:name/customresources/:resourcename", apiHandler.GetCustomResource)
+		protected.PUT("/clusters/:name/customresources/:resourcename", apiHandler.UpdateCustomResource)
+		protected.DELETE("/clusters/:name/customresources/:resourcename", apiHandler.DeleteCustomResource)
 
 		// Custom Resources (Dynamic) - namespaced
-		v1.GET("/clusters/:name/namespaces/:namespace/customresources", apiHandler.ListCustomResources)
-		v1.GET("/clusters/:name/namespaces/:namespace/customresources/:resourcename", apiHandler.GetCustomResource)
-		v1.PUT("/clusters/:name/namespaces/:namespace/customresources/:resourcename", apiHandler.UpdateCustomResource)
-		v1.DELETE("/clusters/:name/namespaces/:namespace/customresources/:resourcename", apiHandler.DeleteCustomResource)
+		protected.GET("/clusters/:name/namespaces/:namespace/customresources", apiHandler.ListCustomResources)
+		protected.GET("/clusters/:name/namespaces/:namespace/customresources/:resourcename", apiHandler.GetCustomResource)
+		protected.PUT("/clusters/:name/namespaces/:namespace/customresources/:resourcename", apiHandler.UpdateCustomResource)
+		protected.DELETE("/clusters/:name/namespaces/:namespace/customresources/:resourcename", apiHandler.DeleteCustomResource)
 
 		// WebSocket endpoint for real-time updates
-		v1.GET("/ws", func(c *gin.Context) {
+		protected.GET("/ws", func(c *gin.Context) {
 			ws.ServeWs(wsHub, c.Writer, c.Request)
 		})
+	}
+	}
+
+	// OAuth2 callback route (outside /api/v1)
+	router.GET("/auth/callback", oauth2Handler.HandleCallback)
+
+	// Register module-specific routes
+	if moduleRegistry.Count() > 0 {
+		modulesGroup := v1.Group("/modules")
+		for _, module := range moduleRegistry.List() {
+			if err := module.RegisterRoutes(modulesGroup); err != nil {
+				log.Warnf("Failed to register routes for module %s: %v", module.Name(), err)
+			} else {
+				log.Infof("✅ Registered routes for module: %s", module.Name())
+			}
+		}
 	}
 
 	// Create HTTP server
@@ -369,6 +499,14 @@ func main() {
 	// Graceful shutdown with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+
+	// Shutdown modules first
+	if moduleRegistry.Count() > 0 {
+		log.Info("Shutting down modules...")
+		if err := moduleRegistry.ShutdownAll(ctx); err != nil {
+			log.Errorf("Error shutting down modules: %v", err)
+		}
+	}
 
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Errorf("Server forced to shutdown: %v", err)

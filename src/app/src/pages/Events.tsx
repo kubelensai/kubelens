@@ -113,7 +113,7 @@ export default function Events() {
               items={
                 cluster
                   ? [
-                      { name: cluster, href: `/clusters/${cluster}/overview` },
+                      { name: cluster, href: "/dashboard" },
                       { name: 'Events' }
                     ]
                   : [{ name: 'Events' }]

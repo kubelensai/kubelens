@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -96,15 +97,23 @@ func (h *Handler) ListClusters(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"clusters": clusters})
 }
 
-// AddCluster adds a new cluster from server, CA, and token
+// getMapKeys returns the keys of a map for debugging
+func getMapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// AddCluster adds a new cluster with support for multiple auth types
 func (h *Handler) AddCluster(c *gin.Context) {
 	var req struct {
-		Name      string `json:"name" binding:"required"`
-		Server    string `json:"server" binding:"required"`
-		CA        string `json:"ca" binding:"required"`
-		Token     string `json:"token" binding:"required"`
-		IsDefault bool   `json:"is_default"`
-		Enabled   bool   `json:"enabled"`
+		Name       string                 `json:"name" binding:"required"`
+		AuthType   string                 `json:"auth_type"` // "token", "kubeconfig"
+		AuthConfig map[string]interface{} `json:"auth_config" binding:"required"`
+		IsDefault  bool                   `json:"is_default"`
+		Enabled    bool                   `json:"enabled"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -112,47 +121,179 @@ func (h *Handler) AddCluster(c *gin.Context) {
 		return
 	}
 
-	// Default to enabled if not specified
+	// Default values
+	if req.AuthType == "" {
+		req.AuthType = "token"
+	}
 	if !req.Enabled {
 		req.Enabled = true
 	}
 
-	// Add cluster to manager from server, CA, and token
-	if err := h.clusterManager.AddClusterFromConfig(req.Name, req.Server, req.CA, req.Token); err != nil {
-		log.Errorf("Failed to add cluster: %v", err)
-		// Save to database with error status
-		dbCluster := &db.Cluster{
-			Name:      req.Name,
-			Server:    req.Server,
-			CA:        req.CA,
-			Token:     req.Token,
-			IsDefault: req.IsDefault,
-			Enabled:   req.Enabled,
-			Status:    "error",
-		}
-		h.db.SaveCluster(dbCluster)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	// Debug logging
+	log.Infof("Received AddCluster request: name=%s, auth_type=%s, auth_config keys=%v", 
+		req.Name, req.AuthType, getMapKeys(req.AuthConfig))
+
+	// Marshal auth_config to JSON string for storage
+	authConfigJSON, err := json.Marshal(req.AuthConfig)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid auth_config format"})
 		return
 	}
 
-	// Save to database with connected status
+	var serverURL string
+	var addErr error
+
+	// Handle different auth types
+	switch req.AuthType {
+	case "kubeconfig":
+		// Extract kubeconfig and context from auth_config
+		kubeconfigStr, ok := req.AuthConfig["kubeconfig"].(string)
+		if !ok {
+			log.Errorf("kubeconfig type assertion failed. Type: %T, Value: %v", req.AuthConfig["kubeconfig"], req.AuthConfig["kubeconfig"])
+			c.JSON(http.StatusBadRequest, gin.H{"error": "kubeconfig is required for kubeconfig auth type"})
+			return
+		}
+		if kubeconfigStr == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "kubeconfig content is empty"})
+			return
+		}
+		
+		context, _ := req.AuthConfig["context"].(string)
+		
+		// Add cluster using kubeconfig
+		addErr = h.clusterManager.AddClusterFromKubeconfigContent(req.Name, kubeconfigStr, context)
+		
+		// Extract server URL from kubeconfig for display
+		serverURL, _ = extractServerFromKubeconfig(kubeconfigStr, context)
+
+	case "token":
+		// Extract server, CA, token from auth_config
+		server, ok1 := req.AuthConfig["server"].(string)
+		ca, ok2 := req.AuthConfig["ca"].(string)
+		token, ok3 := req.AuthConfig["token"].(string)
+		
+		if !ok1 || !ok2 || !ok3 || server == "" || ca == "" || token == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "server, ca, and token are required for token auth type"})
+			return
+		}
+		
+		// Add cluster using token
+		addErr = h.clusterManager.AddClusterFromConfig(req.Name, server, ca, token)
+		serverURL = server
+
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unsupported auth_type: %s", req.AuthType)})
+		return
+	}
+
+	// Handle connection error
+	status := "connected"
+	if addErr != nil {
+		log.Errorf("Failed to add cluster %s: %v", req.Name, addErr)
+		status = "error"
+	}
+
+	// Prepare cluster struct with extracted fields
 	dbCluster := &db.Cluster{
-		Name:      req.Name,
-		Server:    req.Server,
-		CA:        req.CA,
-		Token:     req.Token,
-		IsDefault: req.IsDefault,
-		Enabled:   req.Enabled,
-		Status:    "connected",
+		Name:       req.Name,
+		AuthType:   req.AuthType,
+		AuthConfig: string(authConfigJSON),
+		Server:     serverURL,
+		IsDefault:  req.IsDefault,
+		Enabled:    req.Enabled,
+		Status:     status,
+	}
+
+	// For "token" auth, extract and store CA/Token for direct cluster manager use
+	if req.AuthType == "token" {
+		if ca, ok := req.AuthConfig["ca"].(string); ok {
+			dbCluster.CA = ca
+		}
+		if token, ok := req.AuthConfig["token"].(string); ok {
+			dbCluster.Token = token
+		}
 	}
 
 	if err := h.db.SaveCluster(dbCluster); err != nil {
 		log.Errorf("Failed to save cluster to database: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save cluster"})
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "Cluster added successfully", "name": req.Name})
+	// Return error if connection failed
+	if addErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": addErr.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"message":   "Cluster added successfully",
+		"name":      req.Name,
+		"auth_type": req.AuthType,
+	})
+}
+
+// extractServerFromKubeconfig extracts the server URL from kubeconfig YAML
+func extractServerFromKubeconfig(kubeconfigContent, contextName string) (string, error) {
+	var kubeconfig map[string]interface{}
+	if err := yaml.Unmarshal([]byte(kubeconfigContent), &kubeconfig); err != nil {
+		return "", err
+	}
+
+	// Get current context if not specified
+	if contextName == "" {
+		if currentContext, ok := kubeconfig["current-context"].(string); ok {
+			contextName = currentContext
+		}
+	}
+
+	// Find the context
+	contexts, ok := kubeconfig["contexts"].([]interface{})
+	if !ok {
+		return "", fmt.Errorf("invalid kubeconfig: no contexts")
+	}
+
+	var clusterName string
+	for _, ctx := range contexts {
+		ctxMap, ok := ctx.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if ctxMap["name"] == contextName {
+			if context, ok := ctxMap["context"].(map[string]interface{}); ok {
+				if cluster, ok := context["cluster"].(string); ok {
+					clusterName = cluster
+					break
+				}
+			}
+		}
+	}
+
+	if clusterName == "" {
+		return "", fmt.Errorf("context not found in kubeconfig")
+	}
+
+	// Find the cluster
+	clusters, ok := kubeconfig["clusters"].([]interface{})
+	if !ok {
+		return "", fmt.Errorf("invalid kubeconfig: no clusters")
+	}
+
+	for _, cls := range clusters {
+		clsMap, ok := cls.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if clsMap["name"] == clusterName {
+			if cluster, ok := clsMap["cluster"].(map[string]interface{}); ok {
+				if server, ok := cluster["server"].(string); ok {
+					return server, nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("cluster not found in kubeconfig")
 }
 
 // UpdateCluster updates an existing cluster
@@ -5408,4 +5549,96 @@ func (h *Handler) DeleteCustomResource(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Custom resource deleted successfully"})
+}
+
+// ListIntegrations lists all integrations
+func (h *Handler) ListIntegrations(c *gin.Context) {
+	integrations, err := h.db.ListIntegrations()
+	if err != nil {
+		log.Errorf("Failed to list integrations: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, integrations)
+}
+
+// CreateIntegration creates a new integration
+func (h *Handler) CreateIntegration(c *gin.Context) {
+	var req struct {
+		Name       string `json:"name" binding:"required"`
+		Type       string `json:"type" binding:"required"`
+		Config     string `json:"config"`
+		Enabled    bool   `json:"enabled"`
+		AuthMethod string `json:"auth_method"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	integration := &db.Integration{
+		Name:       req.Name,
+		Type:       req.Type,
+		Config:     req.Config,
+		Enabled:    req.Enabled,
+		AuthMethod: req.AuthMethod,
+	}
+
+	if err := h.db.SaveIntegration(integration); err != nil {
+		log.Errorf("Failed to create integration: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Reload to get the ID
+	created, err := h.db.GetIntegrationByType(req.Type)
+	if err != nil {
+		log.Errorf("Failed to retrieve created integration: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, created)
+}
+
+// UpdateIntegration updates an integration
+func (h *Handler) UpdateIntegration(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid integration ID"})
+		return
+	}
+
+	var req struct {
+		Enabled *bool `json:"enabled"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Get existing integration
+	integration, err := h.db.GetIntegrationByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "integration not found"})
+		return
+	}
+
+	// Update fields
+	if req.Enabled != nil {
+		integration.Enabled = *req.Enabled
+	}
+
+	// Save
+	if err := h.db.SaveIntegration(integration); err != nil {
+		log.Errorf("Failed to update integration: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, integration)
 }

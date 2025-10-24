@@ -161,7 +161,7 @@ export default function PDBs() {
           items={
             cluster
               ? [
-                  { name: cluster, href: `/clusters/${cluster}/overview` },
+                  { name: cluster, href: "/dashboard" },
                   { name: 'Pod Disruption Budgets' }
                 ]
               : [{ name: 'Pod Disruption Budgets' }]

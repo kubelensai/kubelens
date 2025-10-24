@@ -151,13 +151,13 @@ export default function Leases() {
           items={
             cluster && namespace
               ? [
-                  { name: cluster, href: `/clusters/${cluster}/overview` },
+                  { name: cluster, href: "/dashboard" },
                   { name: namespace, href: `/clusters/${cluster}/namespaces/${namespace}/pods` },
                   { name: 'Leases' }
                 ]
               : cluster
               ? [
-                  { name: cluster, href: `/clusters/${cluster}/overview` },
+                  { name: cluster, href: "/dashboard" },
                   { name: 'Leases' }
                 ]
               : [{ name: 'Leases' }]

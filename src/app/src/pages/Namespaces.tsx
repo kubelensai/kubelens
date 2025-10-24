@@ -144,7 +144,7 @@ export default function Namespaces() {
           items={
             currentCluster
               ? [
-                  { name: currentCluster, href: `/clusters/${currentCluster}/overview` },
+                  { name: currentCluster, href: "/dashboard" },
                   { name: 'Namespaces' }
                 ]
               : [{ name: 'Namespaces' }]

@@ -183,7 +183,7 @@ export default function ServiceAccounts() {
           items={
             clusterParam
               ? [
-                  { name: clusterParam, href: `/clusters/${clusterParam}/overview` },
+                  { name: clusterParam, href: "/dashboard" },
                   { name: 'ServiceAccounts' }
                 ]
               : [{ name: 'ServiceAccounts' }]

@@ -195,7 +195,7 @@ export default function Ingresses() {
           items={
             currentCluster
               ? [
-                  { name: currentCluster, href: `/clusters/${currentCluster}/overview` },
+                  { name: currentCluster, href: "/dashboard" },
                   { name: 'Ingresses' }
                 ]
               : [{ name: 'Ingresses' }]

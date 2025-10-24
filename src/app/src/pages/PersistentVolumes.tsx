@@ -175,7 +175,7 @@ export default function PersistentVolumes() {
           items={
             currentCluster
               ? [
-                  { name: currentCluster, href: `/clusters/${currentCluster}/overview` },
+                  { name: currentCluster, href: "/dashboard" },
                   { name: 'Persistent Volumes' }
                 ]
               : [{ name: 'Persistent Volumes' }]

@@ -153,7 +153,7 @@ export default function PriorityClasses() {
           items={
             cluster
               ? [
-                  { name: cluster, href: `/clusters/${cluster}/overview` },
+                  { name: cluster, href: "/dashboard" },
                   { name: 'Priority Classes' }
                 ]
               : [{ name: 'Priority Classes' }]

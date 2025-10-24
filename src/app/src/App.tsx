@@ -3,6 +3,7 @@ import { useClusters } from "@/hooks/useClusters";
 import { useClusterStore } from "@/stores/clusterStore";
 import { useNamespaceStore } from "@/stores/namespaceStore";
 import { useThemeStore } from "@/stores/themeStore";
+import { useAuthStore } from "@/stores/authStore";
 import { lightTap } from "@/utils/haptics";
 import {
   AdjustmentsHorizontalIcon,
@@ -11,7 +12,6 @@ import {
   BellAlertIcon,
   BoltIcon,
   BriefcaseIcon,
-  ChartBarIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   ChevronUpIcon,
@@ -46,6 +46,7 @@ import ClusterSelector from "./components/shared/ClusterSelector";
 import NamespaceSelector from "./components/shared/NamespaceSelector";
 import NotificationCenter from "./components/shared/NotificationCenter";
 import SearchBar from "./components/shared/SearchBar";
+import UserProfileDropdown from "./components/shared/UserProfileDropdown";
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -61,6 +62,12 @@ export default function App() {
   const { isDark, toggleTheme } = useThemeStore();
   const { selectedCluster } = useClusterStore();
   const { selectedNamespace } = useNamespaceStore();
+  const { initializeAuth } = useAuthStore();
+
+  // Initialize auth on mount
+  useEffect(() => {
+    initializeAuth();
+  }, [initializeAuth]);
   const {
     groups: crdGroups,
     isLoading: crdLoading,
@@ -284,15 +291,8 @@ export default function App() {
   const navigation = [
     { name: "Dashboard", href: "/", icon: HomeIcon },
     { name: "Cluster Management", href: "/clusters", icon: ServerIcon },
-    ...(selectedCluster
-      ? [
-          {
-            name: "Overview",
-            href: `/clusters/${selectedCluster}/overview`,
-            icon: ChartBarIcon,
-          },
-        ]
-      : []),
+    { name: "Integrations", href: "/integrations", icon: PuzzlePieceIcon },
+    { name: "Users", href: "/users", icon: IdentificationIcon },
     {
       name: "Nodes",
       // Nodes are cluster-level resources, no namespace filtering
@@ -641,8 +641,8 @@ export default function App() {
     let filteredItems = items;
 
     if (!hasEnabledClusters) {
-      // When no enabled clusters, only show Dashboard and Cluster Management
-      filteredItems = items.filter((item) => item.name === "Dashboard" || item.name === "Cluster Management");
+      // When no enabled clusters, only show Dashboard, Cluster Management, Integrations, and Users
+      filteredItems = items.filter((item) => item.name === "Dashboard" || item.name === "Cluster Management" || item.name === "Integrations" || item.name === "Users");
     }
 
     // Then filter by search query
@@ -840,6 +840,9 @@ export default function App() {
                   <MoonIcon className="h-5 w-5 text-gray-700" />
                 )}
               </button>
+
+              {/* User Profile Dropdown */}
+              <UserProfileDropdown />
             </div>
           </div>
         </div>

@@ -136,7 +136,7 @@ export default function ValidatingWebhookConfigurations() {
           items={
             cluster
               ? [
-                  { name: cluster, href: `/clusters/${cluster}/overview` },
+                  { name: cluster, href: "/dashboard" },
                   { name: 'Validating Webhooks' }
                 ]
               : [{ name: 'Validating Webhooks' }]

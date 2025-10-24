@@ -1,0 +1,47 @@
+issuer: http://dex:5556/dex
+
+storage:
+  type: sqlite3
+  config:
+    file: /var/dex/dex.db
+
+web:
+  http: 0.0.0.0:5556
+
+telemetry:
+  http: 0.0.0.0:5558
+
+oauth2:
+  skipApprovalScreen: false
+  responseTypes: ["code", "token", "id_token"]
+
+staticClients:
+- id: kubelens
+  redirectURIs:
+  - 'http://localhost/auth/callback'
+  - 'http://localhost:3000/auth/callback'
+  name: 'Kubelens'
+  secret: kubelens-secret-change-in-production
+
+connectors:
+- type: google
+  id: google
+  name: Google
+  config:
+    clientID: $GOOGLE_CLIENT_ID
+    clientSecret: $GOOGLE_CLIENT_SECRET
+    redirectURI: http://dex:5556/dex/callback
+    # Request required scopes for GKE access
+    scopes:
+      - profile
+      - email
+      - openid
+    # Admin email for group sync (optional)
+    # adminEmail: admin@example.com
+    # Service account for Google Workspace group sync (optional)
+    # serviceAccountFilePath: /etc/dex/service-account.json
+    
+logger:
+  level: "debug"
+  format: "text"
+

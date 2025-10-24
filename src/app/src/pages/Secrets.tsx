@@ -177,7 +177,7 @@ export default function Secrets() {
               items={
                 cluster
                   ? [
-                      { name: cluster, href: `/clusters/${cluster}/overview` },
+                      { name: cluster, href: "/dashboard" },
                       { name: 'Secrets' }
                     ]
                   : [{ name: 'Secrets' }]

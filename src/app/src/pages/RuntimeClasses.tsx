@@ -144,7 +144,7 @@ export default function RuntimeClasses() {
           items={
             cluster
               ? [
-                  { name: cluster, href: `/clusters/${cluster}/overview` },
+                  { name: cluster, href: "/dashboard" },
                   { name: 'Runtime Classes' }
                 ]
               : [{ name: 'Runtime Classes' }]

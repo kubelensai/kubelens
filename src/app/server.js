@@ -26,16 +26,31 @@ app.use((req, res, next) => {
   next()
 })
 
-// API Proxy Configuration - prepend /api back to the path
+// API Proxy Configuration
 const proxyOptions = {
   target: API_SERVER,
   changeOrigin: true,
   ws: true,
+  // Important: Do NOT parse body before proxying
+  // The proxy will forward the raw request stream
   pathRewrite: (path, req) => {
-    // When mounted at /api, express strips it, so we need to add it back
-    return `/api${path}`
+    // Express strips /api, add it back for the backend
+    const rewritten = `/api${path}`
+    console.log(`🔀 Proxy: ${req.method} ${path} → ${rewritten}`)
+    return rewritten
   },
   on: {
+    proxyReq: (proxyReq, req, res) => {
+      // Explicitly forward Origin header for CORS
+      if (req.headers.origin) {
+        proxyReq.setHeader('Origin', req.headers.origin)
+      }
+      // Log request details for debugging
+      console.log(`📤 Forwarding: ${req.method} ${proxyReq.path} (Origin: ${req.headers.origin || 'none'})`)
+    },
+    proxyRes: (proxyRes, req, res) => {
+      console.log(`📥 Response: ${proxyRes.statusCode} from ${req.method} ${req.url}`)
+    },
     error: (err, req, res) => {
       console.error(`❌ Proxy Error: ${err.message}`)
       if (!res.headersSent) {
@@ -49,7 +64,12 @@ const proxyOptions = {
 }
 
 // Create and use proxy middleware for /api/** paths
+// IMPORTANT: This must come BEFORE express.json() to avoid consuming the request stream
 app.use('/api', createProxyMiddleware(proxyOptions))
+
+// Body parsing middleware - AFTER proxy to avoid consuming request stream
+app.use(express.json())
+app.use(express.urlencoded({ extended: true }))
 
 // Serve static files from dist directory
 const distPath = path.join(__dirname, 'dist')

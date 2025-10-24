@@ -232,7 +232,7 @@ export default function StorageClasses() {
           items={
             currentCluster
               ? [
-                  { name: currentCluster, href: `/clusters/${currentCluster}/overview` },
+                  { name: currentCluster, href: "/dashboard" },
                   { name: 'Storage Classes' }
                 ]
               : [{ name: 'Storage Classes' }]

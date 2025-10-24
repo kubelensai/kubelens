@@ -1,118 +1,74 @@
 import { Link } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { useClusterStore } from '@/stores/clusterStore'
-import { useNamespaceStore } from '@/stores/namespaceStore'
+import { useClusters } from '@/hooks/useClusters'
 import {
   ServerIcon,
   CubeIcon,
-  RocketLaunchIcon,
   GlobeAltIcon,
-  Cog6ToothIcon,
   CircleStackIcon,
-  ShieldCheckIcon,
-  PuzzlePieceIcon,
-  BellAlertIcon,
-  ChevronRightIcon,
   ViewColumnsIcon,
+  CpuChipIcon,
 } from '@heroicons/react/24/outline'
 import Breadcrumb from '@/components/shared/Breadcrumb'
+import ResourceWidget from '@/components/dashboard/ResourceWidget'
+import UsageWidget from '@/components/dashboard/UsageWidget'
+import api from '@/services/api'
 
-interface CategoryCard {
-  title: string
-  description: string
-  icon: React.ComponentType<{ className?: string }>
-  href: string
-  color: string
-  gradient: string
-  stats?: string
+// Fetch cluster metrics with authentication
+const getClusterMetrics = async (clusterName: string) => {
+  const response = await api.get(`/clusters/${clusterName}/metrics`)
+  return response.data
+}
+
+const getClusterResources = async (clusterName: string) => {
+  const response = await api.get(`/clusters/${clusterName}/resources-summary`)
+  return response.data
 }
 
 export default function Dashboard() {
   const { selectedCluster } = useClusterStore()
-  const { selectedNamespace } = useNamespaceStore()
+  const { data: clusters } = useClusters(true) // Get enabled clusters only
 
-  const getHref = (basePath: string) => {
-    if (selectedCluster && selectedNamespace) {
-      return `/clusters/${selectedCluster}/namespaces/${selectedNamespace}${basePath}`
-    } else if (selectedCluster) {
-      return `/clusters/${selectedCluster}${basePath}`
-    }
-    return basePath
+  // Fetch cluster metrics and resources only if we have at least one cluster
+  const hasCluster = clusters && clusters.length > 0
+  const clusterToShow = selectedCluster || (hasCluster ? clusters[0]?.name : null)
+
+  // Fetch cluster metrics
+  const { data: metrics, isLoading: metricsLoading } = useQuery({
+    queryKey: ['cluster-metrics', clusterToShow],
+    queryFn: () => clusterToShow ? getClusterMetrics(clusterToShow) : Promise.resolve(null),
+    enabled: !!clusterToShow,
+    refetchInterval: 30000, // Refresh every 30 seconds
+  })
+
+  // Fetch resource summary
+  const { data: resources, isLoading: resourcesLoading } = useQuery({
+    queryKey: ['cluster-resources', clusterToShow],
+    queryFn: () => clusterToShow ? getClusterResources(clusterToShow) : Promise.resolve(null),
+    enabled: !!clusterToShow,
+  })
+
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 B'
+    const k = 1024
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`
   }
 
-  const categories: CategoryCard[] = [
-    {
-      title: 'Nodes',
-      description: 'View and manage cluster nodes',
-      icon: ServerIcon,
-      href: getHref('/nodes'),
-      color: 'blue',
-      gradient: 'from-blue-500 to-cyan-500',
-    },
-    {
-      title: 'Namespaces',
-      description: 'Organize and isolate resources',
-      icon: ViewColumnsIcon,
-      href: getHref('/namespaces'),
-      color: 'purple',
-      gradient: 'from-purple-500 to-pink-500',
-    },
-    {
-      title: 'Workloads',
-      description: 'Pods, Deployments, StatefulSets & more',
-      icon: RocketLaunchIcon,
-      href: getHref('/pods'),
-      color: 'green',
-      gradient: 'from-green-500 to-emerald-500',
-    },
-    {
-      title: 'Network',
-      description: 'Services, Ingresses & Network Policies',
-      icon: GlobeAltIcon,
-      href: getHref('/services'),
-      color: 'indigo',
-      gradient: 'from-indigo-500 to-blue-500',
-    },
-    {
-      title: 'Config',
-      description: 'ConfigMaps, Secrets & HPAs',
-      icon: Cog6ToothIcon,
-      href: getHref('/configmaps'),
-      color: 'orange',
-      gradient: 'from-orange-500 to-amber-500',
-    },
-    {
-      title: 'Storage',
-      description: 'Volumes, Claims & Storage Classes',
-      icon: CircleStackIcon,
-      href: getHref('/persistentvolumeclaims'),
-      color: 'rose',
-      gradient: 'from-rose-500 to-red-500',
-    },
-    {
-      title: 'Access Control',
-      description: 'RBAC, Service Accounts & Roles',
-      icon: ShieldCheckIcon,
-      href: getHref('/serviceaccounts'),
-      color: 'teal',
-      gradient: 'from-teal-500 to-cyan-500',
-    },
-    {
-      title: 'Custom Resources',
-      description: 'CRDs and custom resources',
-      icon: PuzzlePieceIcon,
-      href: getHref('/customresourcedefinitions'),
-      color: 'violet',
-      gradient: 'from-violet-500 to-purple-500',
-    },
-    {
-      title: 'Events',
-      description: 'Cluster events and activities',
-      icon: BellAlertIcon,
-      href: getHref('/events'),
-      color: 'amber',
-      gradient: 'from-amber-500 to-yellow-500',
-    },
-  ]
+  const formatCPU = (millicores: number) => {
+    const cores = millicores / 1000
+    if (cores < 1) {
+      return `${millicores.toFixed(0)}m`
+    }
+    return `${cores.toFixed(2)}`
+  }
+
+  const calculatePercentage = (used: number, total: number) => {
+    if (!total) return '0.0'
+    return ((used / total) * 100).toFixed(1)
+  }
 
   return (
     <div className="space-y-6">
@@ -134,111 +90,127 @@ export default function Dashboard() {
               Welcome to Kubelens! 👋
             </h2>
             <p className="text-gray-600 dark:text-gray-400 mb-4 max-w-2xl">
-              Manage your Kubernetes resources with ease. Select a category below to get started.
+              Manage your Kubernetes resources with ease. 
             </p>
-            {selectedCluster && (
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-                <CubeIcon className="h-4 w-4 text-primary-600 dark:text-primary-400" />
-                <span className="text-sm font-medium text-gray-900 dark:text-white">
-                  {selectedCluster}
-                </span>
-                {selectedNamespace && selectedNamespace !== 'all' && (
-                  <>
-                    <span className="text-gray-400">/</span>
-                    <span className="text-sm text-gray-600 dark:text-gray-400">
-                      {selectedNamespace}
-                    </span>
-                  </>
-                )}
-              </div>
-            )}
           </div>
         </div>
       </div>
 
-      {/* Categories Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 lg:gap-6">
-        {categories.map((category) => (
-          <Link
-            key={category.title}
-            to={category.href}
-            className="group card p-6 hover:shadow-2xl hover:scale-[1.02] transition-all duration-300 relative overflow-hidden"
-          >
-            {/* Background Gradient */}
-            <div className={`absolute inset-0 bg-gradient-to-br ${category.gradient} opacity-0 group-hover:opacity-5 transition-opacity duration-300`} />
-            
-            {/* Content */}
-            <div className="relative">
-              {/* Icon */}
-              <div className={`p-3 rounded-xl bg-gradient-to-br ${category.gradient} w-fit mb-4 group-hover:scale-110 transition-transform duration-300 shadow-lg`}>
-                <category.icon className="h-7 w-7 text-white" />
-              </div>
+      {/* Cluster Widgets - Only show when at least one cluster is added */}
+      {hasCluster && clusterToShow && (
+        <>
+          {/* Resource Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Link to={`/clusters/${clusterToShow}/nodes`} className="block transition-transform hover:scale-105">
+              <ResourceWidget
+                title="Nodes"
+                icon={<ServerIcon className="h-5 w-5" />}
+                value={resources?.totalNodes || 0}
+                subtitle={`${resources?.readyNodes || 0} All ready`}
+                color="blue"
+                isLoading={resourcesLoading}
+              />
+            </Link>
+            <Link to={`/clusters/${clusterToShow}/pods`} className="block transition-transform hover:scale-105">
+              <ResourceWidget
+                title="Pods"
+                icon={<CubeIcon className="h-5 w-5" />}
+                value={resources?.totalPods || 0}
+                subtitle={`${resources?.runningPods || 0} All ready`}
+                color="green"
+                isLoading={resourcesLoading}
+              />
+            </Link>
+            <Link to={`/clusters/${clusterToShow}/namespaces`} className="block transition-transform hover:scale-105">
+              <ResourceWidget
+                title="Namespaces"
+                icon={<ViewColumnsIcon className="h-5 w-5" />}
+                value={resources?.totalNamespaces || 5}
+                subtitle="All ready"
+                color="purple"
+                isLoading={resourcesLoading}
+              />
+            </Link>
+            <Link to={`/clusters/${clusterToShow}/services`} className="block transition-transform hover:scale-105">
+              <ResourceWidget
+                title="Services"
+                icon={<GlobeAltIcon className="h-5 w-5" />}
+                value={resources?.totalServices || 6}
+                subtitle="All ready"
+                color="orange"
+                isLoading={resourcesLoading}
+              />
+            </Link>
+          </div>
 
-              {/* Title & Description */}
-              <div className="mb-3">
-                <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
-                  {category.title}
-                </h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  {category.description}
-                </p>
-              </div>
+          {/* CPU and Memory Usage */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <UsageWidget
+              title="CPU Usage"
+              icon={<CpuChipIcon className="h-6 w-6" />}
+              requests={`${formatCPU(metrics?.cpu?.requests || 0)} cores`}
+              limits={`${formatCPU(metrics?.cpu?.limits || 0)} cores`}
+              total={`${formatCPU(metrics?.cpu?.allocatable || 0)} cores`}
+              requestsPercent={calculatePercentage(metrics?.cpu?.requests || 0, metrics?.cpu?.allocatable || 0)}
+              limitsPercent={calculatePercentage(metrics?.cpu?.limits || 0, metrics?.cpu?.allocatable || 0)}
+              isLoading={metricsLoading}
+            />
+            <UsageWidget
+              title="Memory Usage"
+              icon={<CircleStackIcon className="h-6 w-6" />}
+              requests={formatBytes(metrics?.memory?.requests || 0)}
+              limits={formatBytes(metrics?.memory?.limits || 0)}
+              total={formatBytes(metrics?.memory?.allocatable || 0)}
+              requestsPercent={calculatePercentage(metrics?.memory?.requests || 0, metrics?.memory?.allocatable || 0)}
+              limitsPercent={calculatePercentage(metrics?.memory?.limits || 0, metrics?.memory?.allocatable || 0)}
+              isLoading={metricsLoading}
+            />
+          </div>
 
-              {/* Arrow Icon */}
-              <div className="flex items-center justify-end">
-                <div className="p-1 rounded-full bg-gray-100 dark:bg-gray-800 group-hover:bg-primary-100 dark:group-hover:bg-primary-900/30 transition-colors">
-                  <ChevronRightIcon className="h-5 w-5 text-gray-500 dark:text-gray-400 group-hover:text-primary-600 dark:group-hover:text-primary-400 transform group-hover:translate-x-1 transition-all" />
-                </div>
+          {/* Cluster Information */}
+          <div className="card p-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+              Cluster Information
+            </h3>
+            <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div>
+                <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Name</dt>
+                <dd className="mt-1 text-sm font-medium text-gray-900 dark:text-gray-100">{clusterToShow}</dd>
               </div>
+              <div>
+                <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Version</dt>
+                <dd className="mt-1 text-sm font-medium text-gray-900 dark:text-gray-100">
+                  {clusters?.find((c: any) => c.name === clusterToShow)?.version || 'N/A'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Status</dt>
+                <dd className="mt-1">
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                    clusters?.find((c: any) => c.name === clusterToShow)?.status === 'connected' || 
+                    clusters?.find((c: any) => c.name === clusterToShow)?.status === 'healthy'
+                      ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                      : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                  }`}>
+                    {clusters?.find((c: any) => c.name === clusterToShow)?.status || 'Unknown'}
+                  </span>
+                </dd>
+              </div>
+            </dl>
+          </div>
+
+          {/* Recent Events */}
+          <div className="card p-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+              Recent Events
+            </h3>
+            <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+              <p className="text-sm">Latest cluster events</p>
+              <p className="text-sm mt-2">No recent events</p>
             </div>
-          </Link>
-        ))}
-      </div>
-
-      {/* Quick Actions */}
-      <div className="card p-6">
-        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
-          Quick Actions
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <Link
-            to="/clusters"
-            className="flex items-center gap-3 p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-primary-500 dark:hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-all group"
-          >
-            <ServerIcon className="h-5 w-5 text-gray-600 dark:text-gray-400 group-hover:text-primary-600 dark:group-hover:text-primary-400" />
-            <span className="text-sm font-medium text-gray-900 dark:text-white">
-              Cluster Management
-            </span>
-          </Link>
-          <Link
-            to={getHref('/pods')}
-            className="flex items-center gap-3 p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-green-500 dark:hover:border-green-500 hover:bg-green-50 dark:hover:bg-green-900/20 transition-all group"
-          >
-            <RocketLaunchIcon className="h-5 w-5 text-gray-600 dark:text-gray-400 group-hover:text-green-600 dark:group-hover:text-green-400" />
-            <span className="text-sm font-medium text-gray-900 dark:text-white">
-              View Pods
-            </span>
-          </Link>
-          <Link
-            to={getHref('/events')}
-            className="flex items-center gap-3 p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-amber-500 dark:hover:border-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-all group"
-          >
-            <BellAlertIcon className="h-5 w-5 text-gray-600 dark:text-gray-400 group-hover:text-amber-600 dark:group-hover:text-amber-400" />
-            <span className="text-sm font-medium text-gray-900 dark:text-white">
-              Check Events
-            </span>
-          </Link>
-          <Link
-            to={getHref('/customresourcedefinitions')}
-            className="flex items-center gap-3 p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-violet-500 dark:hover:border-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all group"
-          >
-            <PuzzlePieceIcon className="h-5 w-5 text-gray-600 dark:text-gray-400 group-hover:text-violet-600 dark:group-hover:text-violet-400" />
-            <span className="text-sm font-medium text-gray-900 dark:text-white">
-              CRDs
-            </span>
-          </Link>
-        </div>
-      </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
