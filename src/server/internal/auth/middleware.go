@@ -8,22 +8,30 @@ import (
 )
 
 // AuthMiddleware validates JWT tokens and sets user context
+// Supports both Authorization header (for HTTP) and token query parameter (for WebSocket)
 func AuthMiddleware(secret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "authorization header required"})
-			c.Abort()
-			return
-		}
+		var tokenString string
 
-		// Extract token from "Bearer <token>" format
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		if tokenString == authHeader {
-			// No "Bearer " prefix found
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid authorization format"})
-			c.Abort()
-			return
+		// Try to get token from Authorization header first
+		authHeader := c.GetHeader("Authorization")
+		if authHeader != "" {
+			// Extract token from "Bearer <token>" format
+			tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+			if tokenString == authHeader {
+				// No "Bearer " prefix found
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid authorization format"})
+				c.Abort()
+				return
+			}
+		} else {
+			// For WebSocket connections, try to get token from query parameter
+			tokenString = c.Query("token")
+			if tokenString == "" {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "authorization required (header or token query parameter)"})
+				c.Abort()
+				return
+			}
 		}
 
 		claims, err := ValidateToken(tokenString, secret)

@@ -9,7 +9,35 @@ interface SidebarItemProps {
 
 export const SidebarItem = ({ item }: SidebarItemProps) => {
   const location = useLocation();
-  const isActive = location.pathname === item.href;
+  
+  // Precise matching logic for sidebar items
+  const isActive = (() => {
+    if (!item.href) return false;
+    
+    const currentPath = location.pathname;
+    const itemPath = item.href;
+    
+    // Exact match
+    if (currentPath === itemPath) return true;
+    
+    // For root paths (/, /dashboard, /clusters, etc.), only exact match
+    if (itemPath === '/' || itemPath === '/dashboard' || itemPath === '/clusters' || 
+        itemPath === '/integrations' || itemPath === '/users' || itemPath === '/groups') {
+      return false;
+    }
+    
+    // For resource paths, check if current path contains the resource type
+    // Example: /clusters/my-cluster/nodes/node-1 should match /nodes
+    // But NOT match /clusters or /dashboard
+    const resourceName = itemPath.split('/').filter(Boolean).pop(); // Get last segment
+    if (resourceName) {
+      // Split current path and check if resource name is in the path
+      const pathSegments = currentPath.split('/').filter(Boolean);
+      return pathSegments.includes(resourceName);
+    }
+    
+    return false;
+  })();
 
   if (!item.href) {
     return null;

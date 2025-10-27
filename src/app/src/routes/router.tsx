@@ -26,6 +26,7 @@ import Namespaces from "../pages/Namespaces";
 import Profile from "../pages/Profile";
 import NetworkPolicies from "../pages/NetworkPolicies";
 import Nodes from "../pages/Nodes";
+import NodeDetails from "../pages/NodeDetails";
 import PDBs from "../pages/PDBs";
 import PersistentVolumeClaims from "../pages/PersistentVolumeClaims";
 import PersistentVolumes from "../pages/PersistentVolumes";
@@ -169,6 +170,11 @@ const routes = [
       },
       // Generate routes for all resource types
       ...Object.values(resourceTypes).flatMap(generateResourceRoutes),
+      // Node Details routes
+      {
+        path: "clusters/:cluster/nodes/:nodeName",
+        element: withClusterCheck(<NodeDetails />),
+      },
       // Custom Resources routes
       {
         path: "customresources/:group/:version/:resource",

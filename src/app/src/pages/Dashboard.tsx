@@ -115,7 +115,7 @@ export default function Dashboard() {
       {/* Header */}
       <div>
         <Breadcrumb items={[]} />
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
+        <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
           Dashboard
         </h1>
       </div>
@@ -161,7 +161,7 @@ export default function Dashboard() {
                   <div className="ml-4 flex-1 min-w-0">
                     <span className="text-sm text-gray-500 dark:text-gray-400">Nodes</span>
                     <div className="flex items-baseline gap-2 mt-1">
-                      <h4 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-white/90">
+                      <h4 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
                         {resourcesLoading ? '...' : resources?.totalNodes || 0}
                       </h4>
                       <div className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-green-600 bg-green-50 rounded dark:bg-green-900/20 dark:text-green-400">
@@ -185,7 +185,7 @@ export default function Dashboard() {
                   <div className="ml-4 flex-1 min-w-0">
                     <span className="text-sm text-gray-500 dark:text-gray-400">Pods</span>
                     <div className="flex items-baseline gap-2 mt-1">
-                      <h4 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-white/90">
+                      <h4 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
                         {resourcesLoading ? '...' : resources?.totalPods || 0}
                       </h4>
                       <div className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-green-600 bg-green-50 rounded dark:bg-green-900/20 dark:text-green-400">
@@ -209,7 +209,7 @@ export default function Dashboard() {
                   <div className="ml-4 flex-1 min-w-0">
                     <span className="text-sm text-gray-500 dark:text-gray-400">Namespaces</span>
                     <div className="flex items-baseline gap-2 mt-1">
-                      <h4 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-white/90">
+                      <h4 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
                         {resourcesLoading ? '...' : resources?.totalNamespaces || 0}
                       </h4>
                       <div className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-purple-600 bg-purple-50 rounded dark:bg-purple-900/20 dark:text-purple-400">
@@ -232,7 +232,7 @@ export default function Dashboard() {
                   <div className="ml-4 flex-1 min-w-0">
                     <span className="text-sm text-gray-500 dark:text-gray-400">Services</span>
                     <div className="flex items-baseline gap-2 mt-1">
-                      <h4 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-white/90">
+                      <h4 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
                         {resourcesLoading ? '...' : (resources?.totalServices ?? '-')}
                       </h4>
                       <div className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-orange-600 bg-orange-50 rounded dark:bg-orange-900/20 dark:text-orange-400">

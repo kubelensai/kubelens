@@ -34,8 +34,10 @@ const proxyOptions = {
   // Important: Do NOT parse body before proxying
   // The proxy will forward the raw request stream
   pathRewrite: (path, req) => {
-    // Express strips /api, add it back for the backend
-    const rewritten = `/api${path}`
+    // Express strips /api from the path when matching the /api route
+    // So /api/v1/... becomes /v1/... and we need to add /api back
+    // But if path already starts with /api (shouldn't happen but just in case), don't double it
+    const rewritten = path.startsWith('/api') ? path : `/api${path}`
     console.log(`🔀 Proxy: ${req.method} ${path} → ${rewritten}`)
     return rewritten
   },

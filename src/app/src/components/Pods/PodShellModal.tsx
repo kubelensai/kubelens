@@ -6,6 +6,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { useThemeStore } from '@/stores/themeStore'
+import { useAuthStore } from '@/stores/authStore'
 
 interface PodShellModalProps {
   isOpen: boolean
@@ -120,6 +121,7 @@ export default function PodShellModal({ isOpen, onClose, pod, clusterName }: Pod
   const fitAddon = useRef<FitAddon | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const { isDark: _isDark } = useThemeStore()
+  const { token } = useAuthStore()
   
   const [selectedContainer, setSelectedContainer] = useState<string>('')
   const [selectedTheme, setSelectedTheme] = useState<keyof typeof terminalThemes>('dracula')
@@ -224,9 +226,14 @@ export default function PodShellModal({ isOpen, onClose, pod, clusterName }: Pod
 
     // Connect WebSocket
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/api/v1/clusters/${clusterName}/namespaces/${pod?.metadata?.namespace}/pods/${pod?.metadata?.name}/shell?container=${encodeURIComponent(selectedContainer)}&shell=${encodeURIComponent(selectedShell)}`
+    let wsUrl = `${protocol}//${window.location.host}/api/v1/clusters/${clusterName}/namespaces/${pod?.metadata?.namespace}/pods/${pod?.metadata?.name}/shell?container=${encodeURIComponent(selectedContainer)}&shell=${encodeURIComponent(selectedShell)}`
+    
+    // Add authentication token
+    if (token) {
+      wsUrl += `&token=${encodeURIComponent(token)}`
+    }
 
-    console.log('🔌 Connecting to WebSocket:', wsUrl)
+    console.log('🔌 Connecting to WebSocket:', wsUrl.replace(/token=[^&]+/, 'token=***'))
     console.log('📋 Shell:', selectedShell)
     console.log('📋 Container:', selectedContainer)
 
