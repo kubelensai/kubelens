@@ -9,6 +9,87 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// CreateUser creates a new user (admin only)
+func (h *Handler) CreateUser(c *gin.Context) {
+	var req struct {
+		Email    string `json:"email" binding:"required,email"`
+		Username string `json:"username" binding:"required,min=3"`
+		Password string `json:"password" binding:"required,min=8"`
+		FullName string `json:"full_name"`
+		IsAdmin  bool   `json:"is_admin"`
+		GroupIDs []int  `json:"group_ids" binding:"required,min=1"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Check if user already exists
+	existingUser, _ := h.db.GetUserByEmail(req.Email)
+	if existingUser != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "email already registered"})
+		return
+	}
+
+	// Check username
+	existingUsers, _ := h.db.ListUsers()
+	for _, u := range existingUsers {
+		if u.Username == req.Username {
+			c.JSON(http.StatusConflict, gin.H{"error": "username already taken"})
+			return
+		}
+	}
+
+	// Validate all groups exist
+	for _, groupID := range req.GroupIDs {
+		if _, err := h.db.GetGroupByID(groupID); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("group %d not found", groupID)})
+			return
+		}
+	}
+
+	// Hash password
+	passwordHash, err := HashPassword(req.Password)
+	if err != nil {
+		log.Errorf("Failed to hash password: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
+		return
+	}
+
+	// Create user
+	user := &db.User{
+		Email:        req.Email,
+		Username:     req.Username,
+		PasswordHash: passwordHash,
+		FullName:     req.FullName,
+		AuthProvider: "local",
+		IsActive:     true,
+		IsAdmin:      req.IsAdmin,
+	}
+
+	if err := h.db.CreateUser(user); err != nil {
+		log.Errorf("Failed to create user: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
+		return
+	}
+
+	// Add user to groups
+	for _, groupID := range req.GroupIDs {
+		if err := h.db.AddUserToGroup(user.ID, groupID); err != nil {
+			log.Errorf("Failed to add user to group: %v", err)
+			// Continue with other groups even if one fails
+		}
+	}
+
+	log.Infof("User created by admin: %s (%s)", user.Email, user.Username)
+
+	c.JSON(http.StatusCreated, gin.H{
+		"message": "user created successfully",
+		"user":    user,
+	})
+}
+
 // ListUsers returns all users (admin only)
 func (h *Handler) ListUsers(c *gin.Context) {
 	users, err := h.db.ListUsers()
@@ -62,6 +143,7 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 		FullName string `json:"full_name"`
 		IsActive *bool  `json:"is_active"` // Pointer to distinguish between false and not provided
 		IsAdmin  *bool  `json:"is_admin"`
+		GroupIDs *[]int `json:"group_ids"` // Pointer to distinguish between empty array and not provided
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -84,6 +166,49 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 	}
 	if req.IsAdmin != nil {
 		user.IsAdmin = *req.IsAdmin
+	}
+
+	// Update groups if provided
+	if req.GroupIDs != nil {
+		groupIDs := *req.GroupIDs
+		
+		// Validate user must have at least one group
+		if len(groupIDs) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "user must have at least one group"})
+			return
+		}
+
+		// Validate all groups exist
+		for _, groupID := range groupIDs {
+			if _, err := h.db.GetGroupByID(groupID); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("group %d not found", groupID)})
+				return
+			}
+		}
+
+		// Get current groups
+		currentGroups, err := h.db.GetUserGroups(id)
+		if err != nil {
+			log.Errorf("Failed to get current user groups: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get current groups"})
+			return
+		}
+
+		// Remove all current groups
+		for _, group := range currentGroups {
+			if err := h.db.RemoveUserFromGroup(id, group.ID); err != nil {
+				log.Errorf("Failed to remove user from group: %v", err)
+			}
+		}
+
+		// Add new groups
+		for _, groupID := range groupIDs {
+			if err := h.db.AddUserToGroup(id, groupID); err != nil {
+				log.Errorf("Failed to add user to group: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to add user to group"})
+				return
+			}
+		}
 	}
 
 	if err := h.db.UpdateUser(user); err != nil {
@@ -125,48 +250,7 @@ func (h *Handler) DeleteUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "user deleted successfully"})
 }
 
-// ListGroups returns all groups (admin only)
-func (h *Handler) ListGroups(c *gin.Context) {
-	groups, err := h.db.ListGroups()
-	if err != nil {
-		log.Errorf("Failed to list groups: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list groups"})
-		return
-	}
-
-	c.JSON(http.StatusOK, groups)
-}
-
-// CreateGroup creates a new group (admin only)
-func (h *Handler) CreateGroup(c *gin.Context) {
-	var req struct {
-		Name        string `json:"name" binding:"required"`
-		Description string `json:"description"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	group := &db.Group{
-		Name:        req.Name,
-		Description: req.Description,
-		IsSystem:    false,
-	}
-
-	if err := h.db.CreateGroup(group); err != nil {
-		log.Errorf("Failed to create group: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create group"})
-		return
-	}
-
-	log.Infof("Group created: %s", group.Name)
-
-	c.JSON(http.StatusCreated, group)
-}
-
-// GetUserGroups returns groups for a user
+// GetUserGroups returns all groups for a user (admin only)
 func (h *Handler) GetUserGroups(c *gin.Context) {
 	userID := c.Param("id")
 	
@@ -186,8 +270,8 @@ func (h *Handler) GetUserGroups(c *gin.Context) {
 	c.JSON(http.StatusOK, groups)
 }
 
-// AddUserToGroup adds a user to a group (admin only)
-func (h *Handler) AddUserToGroup(c *gin.Context) {
+// UpdateUserGroups updates all groups for a user (admin only)
+func (h *Handler) UpdateUserGroups(c *gin.Context) {
 	userID := c.Param("id")
 	
 	var id int
@@ -197,48 +281,105 @@ func (h *Handler) AddUserToGroup(c *gin.Context) {
 	}
 
 	var req struct {
-		GroupID int `json:"group_id" binding:"required"`
+		GroupIDs []int `json:"group_ids" binding:"required,min=1"`
 	}
-
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "user must have at least one group"})
 		return
 	}
 
-	if err := h.db.AddUserToGroup(id, req.GroupID); err != nil {
-		log.Errorf("Failed to add user to group: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to add user to group"})
+	// Check if user exists
+	if _, err := h.db.GetUserByID(id); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return
 	}
 
-	log.Infof("User %d added to group %d", id, req.GroupID)
+	// Validate all groups exist
+	for _, groupID := range req.GroupIDs {
+		if _, err := h.db.GetGroupByID(groupID); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("group %d not found", groupID)})
+			return
+		}
+	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "user added to group successfully"})
+	// Get current groups
+	currentGroups, err := h.db.GetUserGroups(id)
+	if err != nil {
+		log.Errorf("Failed to get current user groups: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get current groups"})
+		return
+	}
+
+	// Remove all current groups
+	for _, group := range currentGroups {
+		if err := h.db.RemoveUserFromGroup(id, group.ID); err != nil {
+			log.Errorf("Failed to remove user from group: %v", err)
+		}
+	}
+
+	// Add new groups
+	for _, groupID := range req.GroupIDs {
+		if err := h.db.AddUserToGroup(id, groupID); err != nil {
+			log.Errorf("Failed to add user to group: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to add user to group"})
+			return
+		}
+	}
+
+	log.Infof("User %d groups updated", id)
+
+	c.JSON(http.StatusOK, gin.H{"message": "user groups updated successfully"})
 }
 
-// RemoveUserFromGroup removes a user from a group (admin only)
-func (h *Handler) RemoveUserFromGroup(c *gin.Context) {
+// ResetUserPassword resets a user's password (admin only)
+func (h *Handler) ResetUserPassword(c *gin.Context) {
 	userID := c.Param("id")
-	groupID := c.Param("group_id")
 	
-	var uid, gid int
-	if _, err := fmt.Sscanf(userID, "%d", &uid); err != nil {
+	var id int
+	if _, err := fmt.Sscanf(userID, "%d", &id); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user ID"})
 		return
 	}
-	if _, err := fmt.Sscanf(groupID, "%d", &gid); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid group ID"})
+
+	var req struct {
+		NewPassword string `json:"new_password" binding:"required,min=8"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "password must be at least 8 characters"})
 		return
 	}
 
-	if err := h.db.RemoveUserFromGroup(uid, gid); err != nil {
-		log.Errorf("Failed to remove user from group: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to remove user from group"})
+	// Check if user exists
+	user, err := h.db.GetUserByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return
 	}
 
-	log.Infof("User %d removed from group %d", uid, gid)
+	// Only allow reset for local auth users
+	if user.AuthProvider != "local" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "can only reset password for local authentication users"})
+		return
+	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "user removed from group successfully"})
+	// Hash new password
+	passwordHash, err := HashPassword(req.NewPassword)
+	if err != nil {
+		log.Errorf("Failed to hash password: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset password"})
+		return
+	}
+
+	// Update password
+	user.PasswordHash = passwordHash
+	if err := h.db.UpdateUser(user); err != nil {
+		log.Errorf("Failed to update user password: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset password"})
+		return
+	}
+
+	log.Infof("Password reset for user %d by admin", id)
+
+	c.JSON(http.StatusOK, gin.H{"message": "password reset successfully"})
 }
 

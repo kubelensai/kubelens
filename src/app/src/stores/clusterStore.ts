@@ -1,22 +1,14 @@
-import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { useSessionStore } from './sessionStore'
 
-interface ClusterState {
-  selectedCluster: string | null
-  setSelectedCluster: (cluster: string | null) => void
-  clearSelectedCluster: () => void
+// Re-export session store methods for backward compatibility
+export const useClusterStore = () => {
+  const session = useSessionStore((state) => state.session)
+  const setSelectedCluster = useSessionStore((state) => state.setSelectedCluster)
+  
+  return {
+    selectedCluster: session?.selected_cluster || null,
+    setSelectedCluster,
+    clearSelectedCluster: () => setSelectedCluster(null),
+  }
 }
-
-export const useClusterStore = create<ClusterState>()(
-  persist(
-    (set) => ({
-      selectedCluster: null,
-      setSelectedCluster: (cluster) => set({ selectedCluster: cluster }),
-      clearSelectedCluster: () => set({ selectedCluster: null }),
-    }),
-    {
-      name: 'cluster-storage',
-    }
-  )
-)
 

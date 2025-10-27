@@ -158,13 +158,17 @@ func main() {
 		userRoutes.Use(auth.AuthMiddleware(jwtSecret), auth.AdminOnly())
 		{
 			userRoutes.GET("", authHandler.ListUsers)
+			userRoutes.POST("", authHandler.CreateUser)
 			userRoutes.GET("/:id", authHandler.GetUser)
 			userRoutes.PATCH("/:id", authHandler.UpdateUser)
 			userRoutes.DELETE("/:id", authHandler.DeleteUser)
 			userRoutes.GET("/:id/groups", authHandler.GetUserGroups)
-			userRoutes.POST("/:id/groups", authHandler.AddUserToGroup)
-			userRoutes.DELETE("/:id/groups/:group_id", authHandler.RemoveUserFromGroup)
+			userRoutes.PUT("/:id/groups", authHandler.UpdateUserGroups)
+			userRoutes.POST("/:id/reset-password", authHandler.ResetUserPassword)
 		}
+
+		// Permission options route (admin only)
+		v1.GET("/permissions/options", auth.AuthMiddleware(jwtSecret), auth.AdminOnly(), authHandler.GetPermissionOptions)
 
 		// Group management routes (admin only)
 		groupRoutes := v1.Group("/groups")
@@ -172,7 +176,38 @@ func main() {
 		{
 			groupRoutes.GET("", authHandler.ListGroups)
 			groupRoutes.POST("", authHandler.CreateGroup)
+			groupRoutes.GET("/:id", authHandler.GetGroup)
+			groupRoutes.PUT("/:id", authHandler.UpdateGroupHandler)
+			groupRoutes.DELETE("/:id", authHandler.DeleteGroup)
+			groupRoutes.GET("/:id/users", authHandler.ListGroupUsers)
+			groupRoutes.POST("/:id/users", authHandler.AddUserToGroupHandler)
+			groupRoutes.DELETE("/:id/users/:user_id", authHandler.RemoveUserFromGroupHandler)
 		}
+
+		// User session routes (authenticated users)
+		sessionRoutes := v1.Group("/session")
+		sessionRoutes.Use(auth.AuthMiddleware(jwtSecret))
+		{
+			sessionRoutes.GET("", authHandler.GetSession)
+			sessionRoutes.PUT("", authHandler.UpdateSession)
+		}
+
+		// Notification routes (authenticated users)
+		notificationRoutes := v1.Group("/notifications")
+		notificationRoutes.Use(auth.AuthMiddleware(jwtSecret))
+		{
+			notificationRoutes.GET("", authHandler.GetNotifications)
+			notificationRoutes.GET("/unread", authHandler.GetUnreadNotifications)
+			notificationRoutes.GET("/unread/count", authHandler.GetUnreadCount)
+			notificationRoutes.POST("", authHandler.CreateNotification) // Admin or internal use
+			notificationRoutes.PUT("/:id/read", authHandler.MarkNotificationAsRead)
+			notificationRoutes.PUT("/read-all", authHandler.MarkAllNotificationsAsRead)
+			notificationRoutes.DELETE("/:id", authHandler.DeleteNotification)
+			notificationRoutes.DELETE("", authHandler.ClearAllNotifications)
+		}
+
+		// User permissions route (authenticated users)
+		v1.GET("/permissions", auth.AuthMiddleware(jwtSecret), authHandler.GetUserPermissionsHandler)
 
 	// Protected routes - require authentication
 	protected := v1.Group("")

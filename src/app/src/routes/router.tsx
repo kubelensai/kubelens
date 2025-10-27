@@ -42,6 +42,7 @@ import Signup from "../pages/Signup";
 import StatefulSets from "../pages/StatefulSets";
 import StorageClasses from "../pages/StorageClasses";
 import Users from "../pages/Users";
+import Groups from "../pages/Groups";
 import ValidatingWebhookConfigurations from "../pages/ValidatingWebhookConfigurations";
 
 // Define common resource paths
@@ -157,6 +158,10 @@ const routes = [
       {
         path: "users",
         element: <Users />,
+      },
+      {
+        path: "groups",
+        element: <Groups />,
       },
       {
         path: "profile",

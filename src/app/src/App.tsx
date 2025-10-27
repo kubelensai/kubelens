@@ -4,6 +4,7 @@ import { useClusterStore } from "@/stores/clusterStore";
 import { useNamespaceStore } from "@/stores/namespaceStore";
 import { useThemeStore } from "@/stores/themeStore";
 import { useAuthStore } from "@/stores/authStore";
+import { useSessionStore } from "@/stores/sessionStore";
 import { lightTap } from "@/utils/haptics";
 import {
   AdjustmentsHorizontalIcon,
@@ -37,6 +38,7 @@ import {
   ServerIcon,
   ShieldCheckIcon,
   SunIcon,
+  UserGroupIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import clsx from "clsx";
@@ -63,11 +65,20 @@ export default function App() {
   const { selectedCluster } = useClusterStore();
   const { selectedNamespace } = useNamespaceStore();
   const { initializeAuth } = useAuthStore();
+  const fetchSession = useSessionStore((state) => state.fetchSession);
 
-  // Initialize auth on mount
+  // Initialize auth and session on mount
   useEffect(() => {
-    initializeAuth();
-  }, [initializeAuth]);
+    const initialize = async () => {
+      await initializeAuth();
+      // Only fetch session if user is authenticated
+      const token = localStorage.getItem('token');
+      if (token) {
+        await fetchSession();
+      }
+    };
+    initialize();
+  }, [initializeAuth, fetchSession]);
   const {
     groups: crdGroups,
     isLoading: crdLoading,
@@ -293,6 +304,7 @@ export default function App() {
     { name: "Cluster Management", href: "/clusters", icon: ServerIcon },
     { name: "Integrations", href: "/integrations", icon: PuzzlePieceIcon },
     { name: "Users", href: "/users", icon: IdentificationIcon },
+    { name: "Groups", href: "/groups", icon: UserGroupIcon },
     {
       name: "Nodes",
       // Nodes are cluster-level resources, no namespace filtering
@@ -641,8 +653,8 @@ export default function App() {
     let filteredItems = items;
 
     if (!hasEnabledClusters) {
-      // When no enabled clusters, only show Dashboard, Cluster Management, Integrations, and Users
-      filteredItems = items.filter((item) => item.name === "Dashboard" || item.name === "Cluster Management" || item.name === "Integrations" || item.name === "Users");
+      // When no enabled clusters, only show Dashboard, Cluster Management, Integrations, Users, and Groups
+      filteredItems = items.filter((item) => item.name === "Dashboard" || item.name === "Cluster Management" || item.name === "Integrations" || item.name === "Users" || item.name === "Groups");
     }
 
     // Then filter by search query

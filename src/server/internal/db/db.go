@@ -120,14 +120,65 @@ type User struct {
 	UpdatedAt      string `json:"updated_at"`
 }
 
-// Group represents a user group
+// Group represents a user group with RBAC permissions
 type Group struct {
 	ID          int    `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	IsSystem    bool   `json:"is_system"` // System groups (admin, users, etc.)
+	Permissions string `json:"-"` // JSON array of permissions (stored as string in DB)
 	CreatedAt   string `json:"created_at"`
 	UpdatedAt   string `json:"updated_at"`
+}
+
+// MarshalJSON customizes JSON marshalling for Group to parse permissions
+func (g Group) MarshalJSON() ([]byte, error) {
+	type Alias Group
+	var permissions []Permission
+	if g.Permissions != "" {
+		if err := json.Unmarshal([]byte(g.Permissions), &permissions); err != nil {
+			permissions = []Permission{} // Return empty array on error
+		}
+	} else {
+		permissions = []Permission{}
+	}
+	
+	return json.Marshal(&struct {
+		Permissions []Permission `json:"permissions"`
+		*Alias
+	}{
+		Permissions: permissions,
+		Alias:       (*Alias)(&g),
+	})
+}
+
+// Permission represents a single permission entry
+type Permission struct {
+	Resource   string   `json:"resource"`   // "clusters", "pods", "deployments", etc.
+	Actions    []string `json:"actions"`    // ["read", "create", "update", "delete"]
+	Clusters   []string `json:"clusters"`   // ["*"] for all or specific cluster names
+	Namespaces []string `json:"namespaces"` // ["*"] for all or specific namespace names
+}
+
+// UserSession represents user's current session state
+type UserSession struct {
+	ID                int    `json:"id"`
+	UserID            int    `json:"user_id"`
+	SelectedCluster   string `json:"selected_cluster,omitempty"`
+	SelectedNamespace string `json:"selected_namespace,omitempty"`
+	SelectedTheme     string `json:"selected_theme,omitempty"` // "light" or "dark"
+	UpdatedAt         string `json:"updated_at"`
+}
+
+// Notification represents a user notification
+type Notification struct {
+	ID        int    `json:"id"`
+	UserID    int    `json:"user_id"`
+	Type      string `json:"type"` // success, error, warning, info
+	Title     string `json:"title"`
+	Message   string `json:"message"`
+	Read      bool   `json:"read"`
+	CreatedAt string `json:"created_at"`
 }
 
 // UserGroup represents the many-to-many relationship between users and groups
@@ -267,6 +318,7 @@ func (db *DB) init() error {
 		name TEXT UNIQUE NOT NULL,
 		description TEXT,
 		is_system BOOLEAN DEFAULT 0,
+		permissions TEXT DEFAULT '[]',
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -290,12 +342,35 @@ func (db *DB) init() error {
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	);
 
+	CREATE TABLE IF NOT EXISTS user_sessions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id INTEGER UNIQUE NOT NULL,
+		selected_cluster TEXT,
+		selected_namespace TEXT,
+		selected_theme TEXT DEFAULT 'dark',
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS notifications (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id INTEGER NOT NULL,
+		type TEXT NOT NULL CHECK(type IN ('success', 'error', 'warning', 'info')),
+		title TEXT NOT NULL,
+		message TEXT NOT NULL,
+		read BOOLEAN NOT NULL DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_clusters_auth_type ON clusters(auth_type);
 	CREATE INDEX IF NOT EXISTS idx_clusters_enabled ON clusters(enabled);
 	CREATE INDEX IF NOT EXISTS idx_integrations_type ON integrations(type);
 	CREATE INDEX IF NOT EXISTS idx_integrations_configured ON integrations(is_configured);
 	CREATE INDEX IF NOT EXISTS idx_integration_clusters_integration_id ON integration_clusters(integration_id);
 	CREATE INDEX IF NOT EXISTS idx_oauth2_tokens_integration_id ON oauth2_tokens(integration_id);
+	CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
+	CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read);
 	CREATE INDEX IF NOT EXISTS idx_oauth2_tokens_provider ON oauth2_tokens(provider);
 	CREATE INDEX IF NOT EXISTS idx_oauth2_tokens_expiry ON oauth2_tokens(expiry);
 	CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -305,6 +380,7 @@ func (db *DB) init() error {
 	CREATE INDEX IF NOT EXISTS idx_user_groups_group_id ON user_groups(group_id);
 	CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 	CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+	CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
 	`
 
 	// Check if table exists with old schema
@@ -1239,13 +1315,20 @@ func (db *DB) DeleteUser(id int) error {
 // CreateGroup creates a new group
 func (db *DB) CreateGroup(group *Group) error {
 	query := `
-	INSERT INTO groups (name, description, is_system)
-	VALUES (?, ?, ?)
+	INSERT INTO groups (name, description, is_system, permissions)
+	VALUES (?, ?, ?, ?)
 	`
+	
+	// Ensure permissions is valid JSON
+	if group.Permissions == "" {
+		group.Permissions = "[]"
+	}
+	
 	result, err := db.conn.Exec(query,
 		group.Name,
 		sql.NullString{String: group.Description, Valid: group.Description != ""},
 		group.IsSystem,
+		group.Permissions,
 	)
 	if err != nil {
 		return err
@@ -1264,13 +1347,14 @@ func (db *DB) GetGroupByID(id int) (*Group, error) {
 	var group Group
 	var descriptionSQL sql.NullString
 
-	query := `SELECT id, name, description, is_system, created_at, updated_at FROM groups WHERE id = ?`
+	query := `SELECT id, name, description, is_system, permissions, created_at, updated_at FROM groups WHERE id = ?`
 
 	err := db.conn.QueryRow(query, id).Scan(
 		&group.ID,
 		&group.Name,
 		&descriptionSQL,
 		&group.IsSystem,
+		&group.Permissions,
 		&group.CreatedAt,
 		&group.UpdatedAt,
 	)
@@ -1285,7 +1369,7 @@ func (db *DB) GetGroupByID(id int) (*Group, error) {
 
 // ListGroups retrieves all groups
 func (db *DB) ListGroups() ([]*Group, error) {
-	query := `SELECT id, name, description, is_system, created_at, updated_at FROM groups ORDER BY name ASC`
+	query := `SELECT id, name, description, is_system, permissions, created_at, updated_at FROM groups ORDER BY name ASC`
 
 	rows, err := db.conn.Query(query)
 	if err != nil {
@@ -1293,7 +1377,7 @@ func (db *DB) ListGroups() ([]*Group, error) {
 	}
 	defer rows.Close()
 
-	var groups []*Group
+	groups := make([]*Group, 0) // Initialize with empty slice instead of nil
 	for rows.Next() {
 		var group Group
 		var descriptionSQL sql.NullString
@@ -1303,6 +1387,7 @@ func (db *DB) ListGroups() ([]*Group, error) {
 			&group.Name,
 			&descriptionSQL,
 			&group.IsSystem,
+			&group.Permissions,
 			&group.CreatedAt,
 			&group.UpdatedAt,
 		); err != nil {
@@ -1314,6 +1399,35 @@ func (db *DB) ListGroups() ([]*Group, error) {
 	}
 
 	return groups, rows.Err()
+}
+
+// UpdateGroup updates a group's information
+func (db *DB) UpdateGroup(group *Group) error {
+	query := `
+	UPDATE groups 
+	SET name = ?, description = ?, permissions = ?, updated_at = CURRENT_TIMESTAMP
+	WHERE id = ?
+	`
+	
+	// Ensure permissions is valid JSON
+	if group.Permissions == "" {
+		group.Permissions = "[]"
+	}
+	
+	_, err := db.conn.Exec(query,
+		group.Name,
+		sql.NullString{String: group.Description, Valid: group.Description != ""},
+		group.Permissions,
+		group.ID,
+	)
+	return err
+}
+
+// DeleteGroup deletes a group (only non-system groups)
+func (db *DB) DeleteGroup(id int) error {
+	query := `DELETE FROM groups WHERE id = ? AND is_system = 0`
+	_, err := db.conn.Exec(query, id)
+	return err
 }
 
 // AddUserToGroup adds a user to a group
@@ -1380,25 +1494,68 @@ func (db *DB) InitializeDefaultData() error {
 
 	log.Info("🔐 Initializing default admin user and groups...")
 
-	// Create admin group
+	// Create admin group with full permissions
+	adminPermissions := []Permission{
+		{
+			Resource:   "*",
+			Actions:    []string{"*"},
+			Clusters:   []string{"*"},
+			Namespaces: []string{"*"},
+		},
+	}
+	adminPermissionsJSON, _ := json.Marshal(adminPermissions)
+	
 	adminGroup := &Group{
 		Name:        "admin",
 		Description: "Administrator group with full access",
 		IsSystem:    true,
+		Permissions: string(adminPermissionsJSON),
 	}
 	if err := db.CreateGroup(adminGroup); err != nil {
 		// Group might already exist
 		log.Warnf("Admin group creation: %v", err)
 	}
 
-	// Create users group
-	usersGroup := &Group{
-		Name:        "users",
-		Description: "Default user group",
-		IsSystem:    true,
+	// Create editor group with view and edit permissions
+	editorPermissions := []Permission{
+		{
+			Resource:   "*",
+			Actions:    []string{"read", "create", "update"},
+			Clusters:   []string{"*"},
+			Namespaces: []string{"*"},
+		},
 	}
-	if err := db.CreateGroup(usersGroup); err != nil {
-		log.Warnf("Users group creation: %v", err)
+	editorPermissionsJSON, _ := json.Marshal(editorPermissions)
+	
+	editorGroup := &Group{
+		Name:        "editor",
+		Description: "Editor group with view and edit access (no delete)",
+		IsSystem:    true,
+		Permissions: string(editorPermissionsJSON),
+	}
+	if err := db.CreateGroup(editorGroup); err != nil {
+		log.Warnf("Editor group creation: %v", err)
+	}
+
+	// Create viewer group with read-only permissions
+	viewerPermissions := []Permission{
+		{
+			Resource:   "*",
+			Actions:    []string{"read"},
+			Clusters:   []string{"*"},
+			Namespaces: []string{"*"},
+		},
+	}
+	viewerPermissionsJSON, _ := json.Marshal(viewerPermissions)
+	
+	viewerGroup := &Group{
+		Name:        "viewer",
+		Description: "Viewer group with read-only access",
+		IsSystem:    true,
+		Permissions: string(viewerPermissionsJSON),
+	}
+	if err := db.CreateGroup(viewerGroup); err != nil {
+		log.Warnf("Viewer group creation: %v", err)
 	}
 
 	// Create admin user with bcrypt hash of "admin123"
@@ -1427,4 +1584,252 @@ func (db *DB) InitializeDefaultData() error {
 	log.Info("   ⚠️  Please change the password after first login!")
 
 	return nil
+}
+
+// ========== User Session Management ==========
+
+// GetUserSession retrieves a user's session
+func (db *DB) GetUserSession(userID int) (*UserSession, error) {
+	var session UserSession
+	query := `SELECT id, user_id, selected_cluster, selected_namespace, selected_theme, updated_at FROM user_sessions WHERE user_id = ?`
+	
+	var selectedClusterSQL, selectedNamespaceSQL, selectedThemeSQL sql.NullString
+	err := db.conn.QueryRow(query, userID).Scan(
+		&session.ID,
+		&session.UserID,
+		&selectedClusterSQL,
+		&selectedNamespaceSQL,
+		&selectedThemeSQL,
+		&session.UpdatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// Create default session if not exists
+			return db.CreateUserSession(userID)
+		}
+		return nil, err
+	}
+	
+	session.SelectedCluster = selectedClusterSQL.String
+	session.SelectedNamespace = selectedNamespaceSQL.String
+	session.SelectedTheme = selectedThemeSQL.String
+	if session.SelectedTheme == "" {
+		session.SelectedTheme = "dark" // Default theme
+	}
+	
+	return &session, nil
+}
+
+// CreateUserSession creates a new user session
+func (db *DB) CreateUserSession(userID int) (*UserSession, error) {
+	query := `INSERT INTO user_sessions (user_id, selected_theme) VALUES (?, ?)`
+	result, err := db.conn.Exec(query, userID, "dark") // Default to dark theme
+	if err != nil {
+		return nil, err
+	}
+	
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+	
+	return &UserSession{
+		ID:            int(id),
+		UserID:        userID,
+		SelectedTheme: "dark",
+	}, nil
+}
+
+// UpdateUserSession updates a user's session
+func (db *DB) UpdateUserSession(session *UserSession) error {
+	query := `
+	UPDATE user_sessions 
+	SET selected_cluster = ?, selected_namespace = ?, selected_theme = ?, updated_at = CURRENT_TIMESTAMP
+	WHERE user_id = ?
+	`
+	
+	// Default theme if not provided
+	theme := session.SelectedTheme
+	if theme == "" {
+		theme = "dark"
+	}
+	
+	_, err := db.conn.Exec(query,
+		sql.NullString{String: session.SelectedCluster, Valid: session.SelectedCluster != ""},
+		sql.NullString{String: session.SelectedNamespace, Valid: session.SelectedNamespace != ""},
+		theme,
+		session.UserID,
+	)
+	return err
+}
+
+// GetUserPermissions retrieves all permissions for a user from their groups
+func (db *DB) GetUserPermissions(userID int) ([]Permission, error) {
+	query := `
+	SELECT DISTINCT g.permissions
+	FROM groups g
+	INNER JOIN user_groups ug ON g.id = ug.group_id
+	WHERE ug.user_id = ?
+	`
+	
+	rows, err := db.conn.Query(query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	
+	var allPermissions []Permission
+	for rows.Next() {
+		var permissionsJSON string
+		if err := rows.Scan(&permissionsJSON); err != nil {
+			return nil, err
+		}
+		
+		var perms []Permission
+		if err := json.Unmarshal([]byte(permissionsJSON), &perms); err != nil {
+			log.Warnf("Failed to unmarshal permissions: %v", err)
+			continue
+		}
+		
+		allPermissions = append(allPermissions, perms...)
+	}
+	
+	return allPermissions, rows.Err()
+}
+
+// ============================================================================
+// Notification Methods
+// ============================================================================
+
+// CreateNotification creates a new notification for a user
+func (db *DB) CreateNotification(notification *Notification) error {
+	result, err := db.conn.Exec(`
+		INSERT INTO notifications (user_id, type, title, message, read)
+		VALUES (?, ?, ?, ?, ?)
+	`, notification.UserID, notification.Type, notification.Title, notification.Message, notification.Read)
+	
+	if err != nil {
+		return err
+	}
+	
+	id, err := result.LastInsertId()
+	if err != nil {
+		return err
+	}
+	
+	notification.ID = int(id)
+	return nil
+}
+
+// GetNotifications retrieves all notifications for a user (most recent first)
+func (db *DB) GetNotifications(userID int, limit int) ([]*Notification, error) {
+	if limit <= 0 {
+		limit = 100 // Default limit
+	}
+	
+	rows, err := db.conn.Query(`
+		SELECT id, user_id, type, title, message, read, created_at
+		FROM notifications
+		WHERE user_id = ?
+		ORDER BY created_at DESC
+		LIMIT ?
+	`, userID, limit)
+	
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	
+	notifications := make([]*Notification, 0)
+	for rows.Next() {
+		var n Notification
+		if err := rows.Scan(&n.ID, &n.UserID, &n.Type, &n.Title, &n.Message, &n.Read, &n.CreatedAt); err != nil {
+			return nil, err
+		}
+		notifications = append(notifications, &n)
+	}
+	
+	return notifications, rows.Err()
+}
+
+// GetUnreadNotifications retrieves unread notifications for a user
+func (db *DB) GetUnreadNotifications(userID int) ([]*Notification, error) {
+	rows, err := db.conn.Query(`
+		SELECT id, user_id, type, title, message, read, created_at
+		FROM notifications
+		WHERE user_id = ? AND read = 0
+		ORDER BY created_at DESC
+	`, userID)
+	
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	
+	notifications := make([]*Notification, 0)
+	for rows.Next() {
+		var n Notification
+		if err := rows.Scan(&n.ID, &n.UserID, &n.Type, &n.Title, &n.Message, &n.Read, &n.CreatedAt); err != nil {
+			return nil, err
+		}
+		notifications = append(notifications, &n)
+	}
+	
+	return notifications, rows.Err()
+}
+
+// GetUnreadCount returns the count of unread notifications for a user
+func (db *DB) GetUnreadCount(userID int) (int, error) {
+	var count int
+	err := db.conn.QueryRow(`
+		SELECT COUNT(*) FROM notifications WHERE user_id = ? AND read = 0
+	`, userID).Scan(&count)
+	
+	return count, err
+}
+
+// MarkNotificationAsRead marks a specific notification as read
+func (db *DB) MarkNotificationAsRead(notificationID int, userID int) error {
+	_, err := db.conn.Exec(`
+		UPDATE notifications SET read = 1 WHERE id = ? AND user_id = ?
+	`, notificationID, userID)
+	
+	return err
+}
+
+// MarkAllNotificationsAsRead marks all notifications as read for a user
+func (db *DB) MarkAllNotificationsAsRead(userID int) error {
+	_, err := db.conn.Exec(`
+		UPDATE notifications SET read = 1 WHERE user_id = ? AND read = 0
+	`, userID)
+	
+	return err
+}
+
+// DeleteNotification deletes a specific notification
+func (db *DB) DeleteNotification(notificationID int, userID int) error {
+	_, err := db.conn.Exec(`
+		DELETE FROM notifications WHERE id = ? AND user_id = ?
+	`, notificationID, userID)
+	
+	return err
+}
+
+// ClearAllNotifications deletes all notifications for a user
+func (db *DB) ClearAllNotifications(userID int) error {
+	_, err := db.conn.Exec(`
+		DELETE FROM notifications WHERE user_id = ?
+	`, userID)
+	
+	return err
+}
+
+// CleanupOldNotifications removes notifications older than the specified days
+func (db *DB) CleanupOldNotifications(days int) error {
+	_, err := db.conn.Exec(`
+		DELETE FROM notifications 
+		WHERE created_at < datetime('now', '-' || ? || ' days')
+	`, days)
+	
+	return err
 }

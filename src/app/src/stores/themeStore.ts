@@ -1,39 +1,21 @@
-import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { useSessionStore } from './sessionStore'
 
-interface ThemeState {
-  isDark: boolean
-  toggleTheme: () => void
-  setTheme: (isDark: boolean) => void
+// Re-export session store methods for backward compatibility
+export const useThemeStore = () => {
+  const session = useSessionStore((state) => state.session)
+  const setTheme = useSessionStore((state) => state.setTheme)
+  
+  const isDark = session?.selected_theme === 'dark'
+  
+  return {
+    isDark,
+    toggleTheme: async () => {
+      const newTheme = isDark ? 'light' : 'dark'
+      await setTheme(newTheme)
+    },
+    setTheme: async (isDark: boolean) => {
+      await setTheme(isDark ? 'dark' : 'light')
+    },
+  }
 }
-
-export const useThemeStore = create<ThemeState>()(
-  persist(
-    (set) => ({
-      isDark: false, // Light mode by default
-      toggleTheme: () => set((state) => {
-        const newIsDark = !state.isDark
-        // Update document class
-        if (newIsDark) {
-          document.documentElement.classList.add('dark')
-        } else {
-          document.documentElement.classList.remove('dark')
-        }
-        return { isDark: newIsDark }
-      }),
-      setTheme: (isDark) => set(() => {
-        // Update document class
-        if (isDark) {
-          document.documentElement.classList.add('dark')
-        } else {
-          document.documentElement.classList.remove('dark')
-        }
-        return { isDark }
-      }),
-    }),
-    {
-      name: 'theme-storage',
-    }
-  )
-)
 

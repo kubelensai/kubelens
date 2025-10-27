@@ -1,22 +1,14 @@
-import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { useSessionStore } from './sessionStore'
 
-interface NamespaceState {
-  selectedNamespace: string | null
-  setSelectedNamespace: (namespace: string | null) => void
-  clearSelectedNamespace: () => void
+// Re-export session store methods for backward compatibility
+export const useNamespaceStore = () => {
+  const session = useSessionStore((state) => state.session)
+  const setSelectedNamespace = useSessionStore((state) => state.setSelectedNamespace)
+  
+  return {
+    selectedNamespace: session?.selected_namespace || null,
+    setSelectedNamespace,
+    clearSelectedNamespace: () => setSelectedNamespace(null),
+  }
 }
-
-export const useNamespaceStore = create<NamespaceState>()(
-  persist(
-    (set) => ({
-      selectedNamespace: null,
-      setSelectedNamespace: (namespace) => set({ selectedNamespace: namespace }),
-      clearSelectedNamespace: () => set({ selectedNamespace: null }),
-    }),
-    {
-      name: 'namespace-storage',
-    }
-  )
-)
 

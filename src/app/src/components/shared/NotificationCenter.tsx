@@ -29,12 +29,32 @@ const notificationColors = {
 }
 
 export default function NotificationCenter() {
-  const { notifications, removeNotification, markAsRead, markAllAsRead, clearAll, getUnreadCount } =
-    useNotificationStore()
+  const { 
+    notifications, 
+    unreadCount,
+    removeNotification, 
+    markAsRead, 
+    markAllAsRead, 
+    clearAll,
+    fetchNotifications,
+    fetchUnreadCount
+  } = useNotificationStore()
   
-  const unreadCount = getUnreadCount()
   const [showPulse, setShowPulse] = useState(false)
   const prevCountRef = useRef(unreadCount)
+
+  // Fetch notifications on mount
+  useEffect(() => {
+    fetchNotifications()
+    fetchUnreadCount()
+    
+    // Poll for new notifications every 30 seconds
+    const interval = setInterval(() => {
+      fetchUnreadCount()
+    }, 30000)
+    
+    return () => clearInterval(interval)
+  }, [fetchNotifications, fetchUnreadCount])
 
   // Trigger pulse animation when new notification arrives
   useEffect(() => {
@@ -46,7 +66,7 @@ export default function NotificationCenter() {
     prevCountRef.current = unreadCount
   }, [unreadCount])
 
-  const handleNotificationClick = (id: string) => {
+  const handleNotificationClick = (id: number) => {
     markAsRead(id)
   }
 
@@ -174,7 +194,7 @@ export default function NotificationCenter() {
                                 {notification.message}
                               </p>
                               <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                                {formatDistanceToNow(notification.timestamp, { addSuffix: true })}
+                                {formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}
                               </p>
 
                               {/* Action Button */}
