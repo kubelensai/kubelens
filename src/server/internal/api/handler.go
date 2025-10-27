@@ -397,19 +397,62 @@ func (h *Handler) UpdateClusterEnabled(c *gin.Context) {
 
 	// Update cluster manager based on enabled status
 	if req.Enabled {
-		// Add cluster to manager if enabling
-		if cluster.Server != "" && cluster.CA != "" && cluster.Token != "" {
-			if err := h.clusterManager.AddClusterFromConfig(name, cluster.Server, cluster.CA, cluster.Token); err != nil {
-				log.Warnf("Failed to add cluster to manager: %v", err)
+		// Re-add cluster to manager based on auth type
+		var addErr error
+		
+		switch cluster.AuthType {
+		case "kubeconfig":
+			// Parse auth_config to get kubeconfig and context
+			var authConfig map[string]interface{}
+			if err := json.Unmarshal([]byte(cluster.AuthConfig), &authConfig); err != nil {
+				log.Errorf("Failed to parse auth_config: %v", err)
 				h.db.UpdateClusterStatus(name, "error")
-			} else {
-				h.db.UpdateClusterStatus(name, "connected")
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse cluster configuration"})
+				return
 			}
+			
+			kubeconfigStr, ok := authConfig["kubeconfig"].(string)
+			if !ok || kubeconfigStr == "" {
+				log.Errorf("Invalid kubeconfig in auth_config")
+				h.db.UpdateClusterStatus(name, "error")
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid cluster configuration"})
+				return
+			}
+			
+			context, _ := authConfig["context"].(string)
+			addErr = h.clusterManager.AddClusterFromKubeconfigContent(name, kubeconfigStr, context)
+			
+		case "token":
+			// Use server, CA, token from database
+			if cluster.Server != "" && cluster.CA != "" && cluster.Token != "" {
+				addErr = h.clusterManager.AddClusterFromConfig(name, cluster.Server, cluster.CA, cluster.Token)
+			} else {
+				log.Errorf("Missing server, CA, or token for cluster %s", name)
+				h.db.UpdateClusterStatus(name, "error")
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Incomplete cluster configuration"})
+				return
+			}
+			
+		default:
+			log.Errorf("Unsupported auth type: %s", cluster.AuthType)
+			h.db.UpdateClusterStatus(name, "error")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Unsupported auth type: %s", cluster.AuthType)})
+			return
+		}
+		
+		// Update status based on connection result
+		if addErr != nil {
+			log.Warnf("Failed to add cluster to manager: %v", addErr)
+			h.db.UpdateClusterStatus(name, "error")
+		} else {
+			log.Infof("Successfully re-enabled cluster: %s", name)
+			h.db.UpdateClusterStatus(name, "connected")
 		}
 	} else {
 		// Remove cluster from manager if disabling
 		h.clusterManager.RemoveCluster(name)
 		h.db.UpdateClusterStatus(name, "disconnected")
+		log.Infof("Successfully disabled cluster: %s", name)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Cluster status updated successfully"})
