@@ -391,75 +391,75 @@ export default function ImportClusterModal({ isOpen, onClose }: ImportClusterMod
                         </p>
                       </div>
 
-                      {/* Cluster Name */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Cluster Name <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="text"
+                  {/* Cluster Name */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Cluster Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
                           value={tokenName}
                           onChange={(e) => setTokenName(e.target.value)}
-                          placeholder="e.g., production, staging, dev"
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                        />
-                      </div>
+                      placeholder="e.g., production, staging, dev"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    />
+                  </div>
 
                       {/* Server URL */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                           Server URL <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="text"
+                    </label>
+                    <input
+                      type="text"
                           value={tokenServer}
                           onChange={(e) => setTokenServer(e.target.value)}
-                          placeholder="https://kubernetes.example.com:6443"
+                      placeholder="https://kubernetes.example.com:6443"
                           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                        />
-                      </div>
+                    />
+                  </div>
 
                       {/* CA Certificate */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                           Certificate Authority (Base64) <span className="text-red-500">*</span>
-                        </label>
-                        <textarea
+                    </label>
+                    <textarea
                           value={tokenCA}
                           onChange={(e) => setTokenCA(e.target.value)}
                           placeholder="LS0tLS1CRUdJTi..."
                           rows={4}
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-xs"
-                        />
-                      </div>
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-xs"
+                    />
+                  </div>
 
-                      {/* Token */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  {/* Token */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                           Bearer Token <span className="text-red-500">*</span>
-                        </label>
-                        <textarea
+                    </label>
+                    <textarea
                           value={tokenValue}
                           onChange={(e) => setTokenValue(e.target.value)}
                           placeholder="eyJhbGciOiJSUzI1NiIs..."
-                          rows={4}
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-xs"
-                        />
-                      </div>
+                      rows={4}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-xs"
+                    />
+                </div>
 
                       {/* Submit Button */}
                       <div className="flex justify-end gap-3 pt-4">
-                        <button
-                          type="button"
-                          onClick={handleClose}
+                  <button
+                    type="button"
+                    onClick={handleClose}
                           className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
                           onClick={handleTokenSubmit}
-                          disabled={importMutation.isPending}
+                    disabled={importMutation.isPending}
                           className="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {importMutation.isPending ? 'Importing...' : 'Import Cluster'}
@@ -498,7 +498,7 @@ export default function ImportClusterModal({ isOpen, onClose }: ImportClusterMod
                               <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
                               <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
                               <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-                            </svg>
+                        </svg>
                             Sign in with Google
                           </button>
                         </div>
@@ -590,8 +590,8 @@ export default function ImportClusterModal({ isOpen, onClose }: ImportClusterMod
                               className="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               {importMutation.isPending ? 'Importing...' : `Import ${selectedGCPClusters.length} Cluster(s)`}
-                            </button>
-                          </div>
+                  </button>
+                </div>
                         </>
                       )}
                     </Tab.Panel>

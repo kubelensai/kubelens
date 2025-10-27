@@ -200,10 +200,20 @@ type Session struct {
 
 // New creates a new database connection and initializes tables
 func New(path string) (*DB, error) {
-	conn, err := sql.Open("sqlite", path)
+	// Enable WAL mode and other pragmas for better concurrency
+	// Reference: https://www.sqlite.org/pragma.html
+	dsn := path + "?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&_cache_size=1000"
+	
+	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
+
+	// Configure connection pool for better concurrency
+	// SQLite works best with single writer, multiple readers
+	conn.SetMaxOpenConns(1)  // Single writer to avoid SQLITE_BUSY
+	conn.SetMaxIdleConns(1)
+	conn.SetConnMaxLifetime(0)
 
 	db := &DB{conn: conn}
 

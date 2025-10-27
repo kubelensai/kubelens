@@ -6,15 +6,15 @@ import { useThemeStore } from "@/stores/themeStore";
 import { useAuthStore } from "@/stores/authStore";
 import { useSessionStore } from "@/stores/sessionStore";
 import { lightTap } from "@/utils/haptics";
+import { Sidebar } from "@/components/Sidebar";
+import { SidebarProvider, useSidebar } from "@/context/SidebarContext";
+import clsx from "clsx";
 import {
   AdjustmentsHorizontalIcon,
-  ArrowPathIcon,
   Bars3Icon,
   BellAlertIcon,
   BoltIcon,
   BriefcaseIcon,
-  ChevronDownIcon,
-  ChevronRightIcon,
   ChevronUpIcon,
   CircleStackIcon,
   ClockIcon,
@@ -28,7 +28,6 @@ import {
   IdentificationIcon,
   KeyIcon,
   LinkIcon,
-  MagnifyingGlassIcon,
   MoonIcon,
   PuzzlePieceIcon,
   QueueListIcon,
@@ -39,9 +38,7 @@ import {
   ShieldCheckIcon,
   SunIcon,
   UserGroupIcon,
-  XMarkIcon,
 } from "@heroicons/react/24/outline";
-import clsx from "clsx";
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import ClusterSelector from "./components/shared/ClusterSelector";
@@ -50,15 +47,9 @@ import NotificationCenter from "./components/shared/NotificationCenter";
 import SearchBar from "./components/shared/SearchBar";
 import UserProfileDropdown from "./components/shared/UserProfileDropdown";
 
-export default function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+function AppContent() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set([]));
   const [loadCRDGroups, setLoadCRDGroups] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = localStorage.getItem("sidebar-width");
-    return saved ? parseInt(saved) : 256; // default 256px (16rem)
-  });
-  const [isResizing, setIsResizing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const location = useLocation();
   const { isDark, toggleTheme } = useThemeStore();
@@ -66,6 +57,7 @@ export default function App() {
   const { selectedNamespace } = useNamespaceStore();
   const { initializeAuth } = useAuthStore();
   const fetchSession = useSessionStore((state) => state.fetchSession);
+  const { isExpanded, isHovered, isMobileOpen, toggleSidebar, toggleMobileSidebar } = useSidebar();
 
   // Initialize auth and session on mount
   useEffect(() => {
@@ -113,123 +105,7 @@ export default function App() {
     refetchCRDGroups();
   };
 
-  // Resize sidebar
-  const handleMouseDown = (e: React.MouseEvent) => {
-    setIsResizing(true);
-    e.preventDefault();
-  };
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing) return;
-      const newWidth = Math.min(Math.max(e.clientX, 200), 500); // min 200px, max 500px
-      setSidebarWidth(newWidth);
-      localStorage.setItem("sidebar-width", newWidth.toString());
-    };
-
-    const handleMouseUp = () => {
-      setIsResizing(false);
-    };
-
-    if (isResizing) {
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-    }
-
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-  }, [isResizing]);
-
-  // Render navigation item (supports nested groups)
-  const renderNavItem = (item: any, level: number = 0): JSX.Element => {
-    if (item.isGroup) {
-      const isExpanded = expandedGroups.has(item.name.toLowerCase());
-      return (
-        <div key={item.name}>
-          <div
-            onClick={() => toggleGroup(item.name.toLowerCase())}
-            className="w-full flex items-center py-2.5 rounded-lg text-sm font-medium transition-all text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer">
-            <div className="flex items-center gap-3 flex-1">
-              <item.icon className="h-5 w-5 flex-shrink-0" />
-              <span className="truncate">{item.name}</span>
-            </div>
-            <div className="flex items-center gap-1 flex-shrink-0">
-              {item.hasRefresh && isExpanded && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    item.onRefresh(e);
-                  }}
-                  className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                  title="Refresh CRD groups"
-                  disabled={item.isLoading}>
-                  <ArrowPathIcon className={clsx("h-3.5 w-3.5", item.isLoading && "animate-spin")} />
-                </button>
-              )}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleGroup(item.name.toLowerCase());
-                }}
-                className="p-0.5">
-                {isExpanded ? (
-                  <ChevronDownIcon className="h-4 w-4" />
-                ) : (
-                  <ChevronRightIcon className="h-4 w-4" />
-                )}
-              </button>
-            </div>
-          </div>
-          {isExpanded && (
-            <div className="mt-1 space-y-1 ml-4">
-              {item.children?.map((child: any) => renderNavItem(child, level + 1))}
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    return (
-      <Link
-        key={item.name}
-        to={item.href}
-        onClick={() => lightTap()}
-        className={clsx(
-          "block w-full",
-          location.pathname === item.href && "bg-primary-50 dark:bg-primary-900/50 shadow-sm"
-        )}>
-        <div className="flex items-center gap-3 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-50 dark:hover:bg-gray-700/50">
-          <item.icon
-            className={clsx(
-              "h-4 w-4 flex-shrink-0",
-              location.pathname === item.href
-                ? "text-primary-700 dark:text-primary-300"
-                : level === 0
-                ? "text-gray-700 dark:text-gray-300"
-                : "text-gray-600 dark:text-gray-400"
-            )}
-          />
-          <span
-            className={clsx(
-              "truncate",
-              location.pathname === item.href
-                ? "text-primary-700 dark:text-primary-300"
-                : level === 0
-                ? "text-gray-700 dark:text-gray-300"
-                : "text-gray-600 dark:text-gray-400"
-            )}>
-            {item.name}
-          </span>
-        </div>
-      </Link>
-    );
-  };
+  // Navigation rendering is now handled by Sidebar component
 
   // Auto-expand group based on current URL
   useEffect(() => {
@@ -272,51 +148,49 @@ export default function App() {
       path.includes("/persistentvolumeclaims")
     ) {
       setExpandedGroups((prev) => new Set([...prev, "storage"]));
-    } else if (
-      path.includes("/configmaps") ||
-      path.includes("/secrets") ||
-      path.includes("/hpas") ||
-      path.includes("/pdbs") ||
-      path.includes("/priorityclasses") ||
-      path.includes("/runtimeclasses") ||
-      path.includes("/leases") ||
-      path.includes("/mutatingwebhookconfigurations") ||
-      path.includes("/validatingwebhookconfigurations")
-    ) {
-      setExpandedGroups((prev) => new Set([...prev, "config"]));
-    } else if (
-      path.includes("/serviceaccounts") ||
-      path.includes("/role") ||
-      path.includes("/clusterrole") ||
-      path.includes("/rolebindings") ||
-      path.includes("/clusterrolebindings")
-    ) {
-      setExpandedGroups((prev) => new Set([...prev, "access control"]));
-    } else if (path.includes("/customresourcedefinition")) {
-      setExpandedGroups((prev) => new Set([...prev, "custom resources"]));
-      setLoadCRDGroups(true);
-    }
+        } else if (path.includes("/configmaps") || path.includes("/secrets")) {
+          setExpandedGroups((prev) => new Set([...prev, "configuration"]));
+        } else if (
+          path.includes("/serviceaccounts") ||
+          path.includes("/role") ||
+          path.includes("/rolebindings")
+        ) {
+          setExpandedGroups((prev) => new Set([...prev, "security"]));
+        } else if (path.includes("/customresourcedefinition")) {
+          setExpandedGroups((prev) => new Set([...prev, "custom resources"]));
+          setLoadCRDGroups(true);
+        } else if (
+          path.includes("/hpas") ||
+          path.includes("/pdbs") ||
+          path.includes("/priorityclasses") ||
+          path.includes("/runtimeclasses") ||
+          path.includes("/clusterrole") ||
+          path.includes("/clusterrolebindings") ||
+          path.includes("/leases") ||
+          path.includes("/mutatingwebhookconfigurations") ||
+          path.includes("/validatingwebhookconfigurations")
+        ) {
+          setExpandedGroups((prev) => new Set([...prev, "advanced"]));
+        }
   }, [location.pathname]);
 
   // Dynamic navigation based on selected cluster and namespace
-  const navigation = [
-    { name: "Dashboard", href: "/", icon: HomeIcon },
-    { name: "Cluster Management", href: "/clusters", icon: ServerIcon },
-    { name: "Integrations", href: "/integrations", icon: PuzzlePieceIcon },
-    { name: "Users", href: "/users", icon: IdentificationIcon },
-    { name: "Groups", href: "/groups", icon: UserGroupIcon },
+  // Organized into sections - simplified and tidied up
+  const navigationSections = [
     {
-      name: "Nodes",
-      // Nodes are cluster-level resources, no namespace filtering
-      href: selectedCluster ? `/clusters/${selectedCluster}/nodes` : "/nodes",
-      icon: CircleStackIcon,
-    },
-    {
-      name: "Namespaces",
-      // Namespaces are cluster-level resources
-      href: selectedCluster ? `/clusters/${selectedCluster}/namespaces` : "/namespaces",
-      icon: CubeIcon,
-    },
+      label: "MENU",
+      items: [
+        { name: "Dashboard", href: "/", icon: HomeIcon },
+        {
+          name: "Nodes",
+          href: selectedCluster ? `/clusters/${selectedCluster}/nodes` : "/nodes",
+          icon: CircleStackIcon,
+        },
+        {
+          name: "Namespaces",
+          href: selectedCluster ? `/clusters/${selectedCluster}/namespaces` : "/namespaces",
+          icon: CubeIcon,
+        },
     {
       name: "Workloads",
       icon: RectangleStackIcon,
@@ -447,7 +321,7 @@ export default function App() {
       ],
     },
     {
-      name: "Config",
+      name: "Configuration",
       icon: Cog6ToothIcon,
       isGroup: true,
       children: [
@@ -470,61 +344,6 @@ export default function App() {
               ? `/clusters/${selectedCluster}/secrets`
               : "/secrets",
           icon: KeyIcon,
-        },
-        {
-          name: "Horizontal Pod Autoscalers",
-          href:
-            selectedCluster && selectedNamespace
-              ? `/clusters/${selectedCluster}/namespaces/${selectedNamespace}/hpas`
-              : selectedCluster
-              ? `/clusters/${selectedCluster}/hpas`
-              : "/hpas",
-          icon: AdjustmentsHorizontalIcon,
-        },
-        {
-          name: "Pod Disruption Budgets",
-          href:
-            selectedCluster && selectedNamespace
-              ? `/clusters/${selectedCluster}/namespaces/${selectedNamespace}/pdbs`
-              : selectedCluster
-              ? `/clusters/${selectedCluster}/pdbs`
-              : "/pdbs",
-          icon: AdjustmentsHorizontalIcon,
-        },
-        {
-          name: "Priority Classes",
-          href: selectedCluster ? `/clusters/${selectedCluster}/priorityclasses` : "/priorityclasses",
-          icon: ChevronUpIcon,
-        },
-        {
-          name: "Runtime Classes",
-          href: selectedCluster ? `/clusters/${selectedCluster}/runtimeclasses` : "/runtimeclasses",
-          icon: CommandLineIcon,
-        },
-        {
-          name: "Leases",
-          href: selectedNamespace
-            ? selectedCluster
-              ? `/clusters/${selectedCluster}/namespaces/${selectedNamespace}/leases`
-              : `/leases`
-            : selectedCluster
-            ? `/clusters/${selectedCluster}/leases`
-            : "/leases",
-          icon: ClockIcon,
-        },
-        {
-          name: "Mutating Webhooks",
-          href: selectedCluster
-            ? `/clusters/${selectedCluster}/mutatingwebhookconfigurations`
-            : "/mutatingwebhookconfigurations",
-          icon: BoltIcon,
-        },
-        {
-          name: "Validating Webhooks",
-          href: selectedCluster
-            ? `/clusters/${selectedCluster}/validatingwebhookconfigurations`
-            : "/validatingwebhookconfigurations",
-          icon: ShieldCheckIcon,
         },
       ],
     },
@@ -556,8 +375,8 @@ export default function App() {
       ],
     },
     {
-      name: "Access Control",
-      icon: KeyIcon,
+      name: "Security",
+      icon: ShieldCheckIcon,
       isGroup: true,
       children: [
         {
@@ -571,11 +390,6 @@ export default function App() {
           icon: IdentificationIcon,
         },
         {
-          name: "Cluster Roles",
-          href: selectedCluster ? `/clusters/${selectedCluster}/clusterroles` : "/clusterroles",
-          icon: ShieldCheckIcon,
-        },
-        {
           name: "Roles",
           href:
             selectedCluster && selectedNamespace
@@ -583,12 +397,7 @@ export default function App() {
               : selectedCluster
               ? `/clusters/${selectedCluster}/roles`
               : "/roles",
-          icon: ShieldCheckIcon,
-        },
-        {
-          name: "Cluster Role Bindings",
-          href: selectedCluster ? `/clusters/${selectedCluster}/clusterrolebindings` : "/clusterrolebindings",
-          icon: ShieldCheckIcon,
+          icon: KeyIcon,
         },
         {
           name: "Role Bindings",
@@ -598,9 +407,19 @@ export default function App() {
               : selectedCluster
               ? `/clusters/${selectedCluster}/rolebindings`
               : "/rolebindings",
-          icon: ShieldCheckIcon,
+          icon: LinkIcon,
         },
       ],
+    },
+    {
+      name: "Events",
+      href:
+        selectedCluster && selectedNamespace
+          ? `/clusters/${selectedCluster}/namespaces/${selectedNamespace}/events`
+          : selectedCluster
+          ? `/clusters/${selectedCluster}/events`
+          : "/events",
+      icon: BellAlertIcon,
     },
     {
       name: "Custom Resources",
@@ -615,7 +434,7 @@ export default function App() {
           href: selectedCluster
             ? `/clusters/${selectedCluster}/customresourcedefinitions`
             : "/customresourcedefinitions",
-          icon: CubeIcon,
+          icon: DocumentTextIcon,
         },
         // Dynamic CRD groups (sorted A-Z)
         ...crdGroups.map((group) => ({
@@ -636,14 +455,87 @@ export default function App() {
       ],
     },
     {
-      name: "Events",
-      href:
-        selectedCluster && selectedNamespace
-          ? `/clusters/${selectedCluster}/namespaces/${selectedNamespace}/events`
-          : selectedCluster
-          ? `/clusters/${selectedCluster}/events`
-          : "/events",
-      icon: BellAlertIcon,
+      name: "Advanced",
+      icon: Cog6ToothIcon,
+      isGroup: true,
+      children: [
+        {
+          name: "HPAs",
+          href:
+            selectedCluster && selectedNamespace
+              ? `/clusters/${selectedCluster}/namespaces/${selectedNamespace}/hpas`
+              : selectedCluster
+              ? `/clusters/${selectedCluster}/hpas`
+              : "/hpas",
+          icon: AdjustmentsHorizontalIcon,
+        },
+        {
+          name: "Pod Disruption Budgets",
+          href:
+            selectedCluster && selectedNamespace
+              ? `/clusters/${selectedCluster}/namespaces/${selectedNamespace}/pdbs`
+              : selectedCluster
+              ? `/clusters/${selectedCluster}/pdbs`
+              : "/pdbs",
+          icon: ShieldCheckIcon,
+        },
+        {
+          name: "Priority Classes",
+          href: selectedCluster ? `/clusters/${selectedCluster}/priorityclasses` : "/priorityclasses",
+          icon: ChevronUpIcon,
+        },
+        {
+          name: "Runtime Classes",
+          href: selectedCluster ? `/clusters/${selectedCluster}/runtimeclasses` : "/runtimeclasses",
+          icon: CommandLineIcon,
+        },
+        {
+          name: "Cluster Roles",
+          href: selectedCluster ? `/clusters/${selectedCluster}/clusterroles` : "/clusterroles",
+          icon: ShieldCheckIcon,
+        },
+        {
+          name: "Cluster Role Bindings",
+          href: selectedCluster ? `/clusters/${selectedCluster}/clusterrolebindings` : "/clusterrolebindings",
+          icon: LinkIcon,
+        },
+        {
+          name: "Leases",
+          href: selectedNamespace
+            ? selectedCluster
+              ? `/clusters/${selectedCluster}/namespaces/${selectedNamespace}/leases`
+              : `/leases`
+            : selectedCluster
+            ? `/clusters/${selectedCluster}/leases`
+            : "/leases",
+          icon: ClockIcon,
+        },
+        {
+          name: "Mutating Webhooks",
+          href: selectedCluster
+            ? `/clusters/${selectedCluster}/mutatingwebhookconfigurations`
+            : "/mutatingwebhookconfigurations",
+          icon: BoltIcon,
+        },
+        {
+          name: "Validating Webhooks",
+          href: selectedCluster
+            ? `/clusters/${selectedCluster}/validatingwebhookconfigurations`
+            : "/validatingwebhookconfigurations",
+          icon: ShieldCheckIcon,
+        },
+      ],
+    },
+      ],
+    },
+    {
+      label: "SETTINGS",
+      items: [
+        { name: "Clusters", href: "/clusters", icon: ServerIcon },
+        { name: "Users", href: "/users", icon: IdentificationIcon },
+        { name: "Groups", href: "/groups", icon: UserGroupIcon },
+        { name: "Integrations", href: "/integrations", icon: PuzzlePieceIcon },
+      ],
     },
   ];
 
@@ -653,8 +545,8 @@ export default function App() {
     let filteredItems = items;
 
     if (!hasEnabledClusters) {
-      // When no enabled clusters, only show Dashboard, Cluster Management, Integrations, Users, and Groups
-      filteredItems = items.filter((item) => item.name === "Dashboard" || item.name === "Cluster Management" || item.name === "Integrations" || item.name === "Users" || item.name === "Groups");
+      // When no enabled clusters, only show Dashboard, Clusters, Integrations, Users, and Groups
+      filteredItems = items.filter((item) => item.name === "Dashboard" || item.name === "Clusters" || item.name === "Integrations" || item.name === "Users" || item.name === "Groups");
     }
 
     // Then filter by search query
@@ -676,7 +568,11 @@ export default function App() {
     }, []);
   };
 
-  const filteredNavigation = filterNavigation(navigation, searchQuery);
+  // Filter sections for rendering
+  const filteredNavigationSections = navigationSections.map(section => ({
+    ...section,
+    items: filterNavigation(section.items, searchQuery)
+  })).filter(section => section.items.length > 0);
 
   // Scroll to active item in sidebar
   useEffect(() => {
@@ -700,116 +596,51 @@ export default function App() {
     }
   }, [isDark]);
 
-  useEffect(() => {
-    if (window.matchMedia("(max-width: 1023px)").matches) {
-      setSidebarWidth(0);
-      localStorage.setItem("sidebar-width", "0");
-      return;
-    }
-    setSidebarWidth(256);
-    localStorage.setItem("sidebar-width", "256");
-  }, [setSidebarWidth]);
+  // Calculate sidebar width for main content padding
+  const sidebarWidth = isExpanded || isHovered ? 290 : 90;
 
   return (
-    <div className="min-h-screen bg-[#f9fafb] dark:bg-[#0f1828] transition-colors">
-      {/* Mobile sidebar backdrop */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-40 bg-gray-900/80 lg:hidden" onClick={() => setSidebarOpen(false)} />
+    <div className="min-h-screen xl:flex bg-[#f9fafb] dark:bg-[#0f1828] transition-colors">
+      {/* Mobile backdrop */}
+      {isMobileOpen && (
+        <div 
+          className="fixed inset-0 z-40 bg-gray-900/80 lg:hidden" 
+          onClick={toggleMobileSidebar}
+          aria-hidden="true"
+        />
       )}
 
-      {/* Mobile sidebar */}
-      <div
-        className={clsx(
-          "fixed inset-y-0 left-0 z-50 w-64 sm:w-72 bg-white dark:bg-[#0f1828] shadow-xl flex flex-col",
-          "transform transition-transform duration-300 ease-in-out lg:hidden",
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        )}>
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <Link
-            to="/"
-            onClick={() => setSidebarOpen(false)}
-            className="flex items-center gap-2.5 transition-transform hover:scale-105 group">
-            <div className="p-1.5 rounded-lg bg-gradient-to-br from-primary-500 to-primary-600 shadow-md group-hover:shadow-lg transition-all">
-              <CubeIcon className="h-6 w-6 text-white" />
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-primary-600 to-primary-400 bg-clip-text text-transparent cursor-pointer">
-              Kubelens
-            </h1>
-          </Link>
-          <button
-            onClick={() => setSidebarOpen(false)}
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
-            aria-label="Close menu">
-            <XMarkIcon className="h-6 w-6 text-gray-500 dark:text-gray-400" />
-          </button>
-        </div>
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {navigation.map((item: any) => renderNavItem(item))}
-        </nav>
-      </div>
-
-      {/* Desktop sidebar */}
-      <div
-        className="hidden lg:fixed lg:inset-y-0 lg:flex lg:flex-col"
-        style={{ width: `${sidebarWidth}px` }}>
-        <div className="flex min-h-0 flex-1 flex-col border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-[#0f1828] relative">
-          <div className="flex items-center h-16 px-4 border-b border-gray-200 dark:border-gray-700">
-            <Link to="/" className="flex items-center gap-3 transition-transform hover:scale-105 group">
-              <div className="p-2 rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 shadow-lg group-hover:shadow-xl transition-all">
-                <CubeIcon className="h-8 w-8 text-white" />
-              </div>
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-primary-600 to-primary-400 bg-clip-text text-transparent cursor-pointer">
-                Kubelens
-              </h1>
-            </Link>
-          </div>
-
-          {/* Sidebar Search */}
-          <div className="px-3 pt-3 pb-2">
-            <div className="relative">
-              <MagnifyingGlassIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search menu..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 pl-9 pr-3 py-1.5 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-500 dark:text-white"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-                  <XMarkIcon className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          <nav className="flex-1 space-y-1 px-3 pb-4 overflow-y-auto">
-            {filteredNavigation.map((item: any) => renderNavItem(item))}
-          </nav>
-
-          {/* Resize Handle */}
-          <div
-            onMouseDown={handleMouseDown}
-            className={clsx(
-              "absolute top-0 right-0 bottom-0 w-1 cursor-col-resize hover:bg-primary-500 transition-colors",
-              isResizing && "bg-primary-500"
-            )}
-            title="Drag to resize sidebar"
-          />
-        </div>
-      </div>
+      {/* Sidebar */}
+      <Sidebar
+        navigationSections={filteredNavigationSections}
+        expandedGroups={expandedGroups}
+        toggleGroup={toggleGroup}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+      />
 
       {/* Main content */}
-      <div className="w-full lg:w-auto" style={{ paddingLeft: `${sidebarWidth}px` }}>
+      <div
+        className={clsx(
+          'flex-1 transition-all duration-300 ease-in-out',
+          `lg:ml-[${sidebarWidth}px]`,
+          'ml-0'
+        )}
+        style={{ marginLeft: window.innerWidth >= 1024 ? `${sidebarWidth}px` : '0' }}
+      >
         {/* Top bar */}
         <div className="sticky top-0 z-30 flex h-14 sm:h-16 shrink-0 items-center gap-x-2 sm:gap-x-4 border-b border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-[#0f1828]/95 backdrop-blur-sm px-3 sm:px-4 shadow-sm">
           <button
             type="button"
-            className="lg:hidden p-2 -ml-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
-            onClick={() => setSidebarOpen(true)}
-            aria-label="Open menu">
+            className="p-2 -ml-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+            onClick={() => {
+              if (window.innerWidth < 1024) {
+                toggleMobileSidebar();
+              } else {
+                toggleSidebar();
+              }
+            }}
+            aria-label="Toggle sidebar">
             <Bars3Icon className="h-6 w-6 text-gray-700 dark:text-gray-300" />
           </button>
 
@@ -867,5 +698,13 @@ export default function App() {
         </main>
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <SidebarProvider>
+      <AppContent />
+    </SidebarProvider>
   );
 }

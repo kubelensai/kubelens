@@ -9,11 +9,11 @@ import {
   CircleStackIcon,
   ViewColumnsIcon,
   CpuChipIcon,
+  ArrowTrendingUpIcon,
 } from '@heroicons/react/24/outline'
 import Breadcrumb from '@/components/shared/Breadcrumb'
-import ResourceWidget from '@/components/dashboard/ResourceWidget'
-import UsageWidget from '@/components/dashboard/UsageWidget'
 import api from '@/services/api'
+import clsx from 'clsx'
 
 // Fetch cluster metrics with authentication
 const getClusterMetrics = async (clusterName: string) => {
@@ -71,146 +71,293 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       {/* Header */}
       <div>
         <Breadcrumb items={[]} />
-        <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-bold gradient-text">
-            Dashboard
-          </h1>
-        </div>
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
+          Dashboard
+        </h1>
       </div>
 
-      {/* Welcome Section */}
-      <div className="card p-6 sm:p-8 bg-gradient-to-br from-primary-50 via-white to-purple-50 dark:from-gray-800 dark:via-gray-800 dark:to-purple-900/20 border-primary-100 dark:border-gray-700">
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-              Welcome to Kubelens! 👋
-            </h2>
-            <p className="text-gray-600 dark:text-gray-400 mb-4 max-w-2xl">
-              Manage your Kubernetes resources with ease. 
-            </p>
+      {/* Welcome Section - Show when no clusters */}
+      {!hasCluster && (
+        <div className="rounded-2xl border border-primary-200 bg-gradient-to-br from-primary-50 via-white to-purple-50 dark:border-primary-800 dark:from-gray-800 dark:via-gray-800 dark:to-purple-900/20 p-6 sm:p-8">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+            <div className="flex-1">
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                Welcome to Kubelens! 👋
+              </h2>
+              <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 max-w-2xl">
+                Manage your Kubernetes resources with ease. Get started by adding your first cluster.
+              </p>
+            </div>
+            <Link
+              to="/clusters"
+              className="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-colors whitespace-nowrap"
+            >
+              Add Your First Cluster
+            </Link>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Cluster Widgets - Only show when at least one cluster is added */}
-      {hasCluster && clusterToShow && (
-        <>
+      {/* Grid Layout - TailAdmin inspired */}
+      <div className="grid grid-cols-12 gap-4 md:gap-6">
+        {/* Metrics Cards - Left Column */}
+        <div className="col-span-12 space-y-4 md:space-y-6 xl:col-span-7">
           {/* Resource Summary Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Link to={`/clusters/${clusterToShow}/nodes`} className="block transition-transform hover:scale-105">
-              <ResourceWidget
-                title="Nodes"
-                icon={<ServerIcon className="h-5 w-5" />}
-                value={resources?.totalNodes || 0}
-                subtitle={`${resources?.readyNodes || 0} All ready`}
-                color="blue"
-                isLoading={resourcesLoading}
-              />
-            </Link>
-            <Link to={`/clusters/${clusterToShow}/pods`} className="block transition-transform hover:scale-105">
-              <ResourceWidget
-                title="Pods"
-                icon={<CubeIcon className="h-5 w-5" />}
-                value={resources?.totalPods || 0}
-                subtitle={`${resources?.runningPods || 0} All ready`}
-                color="green"
-                isLoading={resourcesLoading}
-              />
-            </Link>
-            <Link to={`/clusters/${clusterToShow}/namespaces`} className="block transition-transform hover:scale-105">
-              <ResourceWidget
-                title="Namespaces"
-                icon={<ViewColumnsIcon className="h-5 w-5" />}
-                value={resources?.totalNamespaces || 5}
-                subtitle="All ready"
-                color="purple"
-                isLoading={resourcesLoading}
-              />
-            </Link>
-            <Link to={`/clusters/${clusterToShow}/services`} className="block transition-transform hover:scale-105">
-              <ResourceWidget
-                title="Services"
-                icon={<GlobeAltIcon className="h-5 w-5" />}
-                value={resources?.totalServices || 6}
-                subtitle="All ready"
-                color="orange"
-                isLoading={resourcesLoading}
-              />
-            </Link>
-          </div>
+          {hasCluster && clusterToShow && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:gap-6">
+              {/* Nodes Card */}
+              <Link 
+                to={`/clusters/${clusterToShow}/nodes`} 
+                className="group rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] hover:shadow-lg transition-all duration-200 overflow-hidden"
+              >
+                <div className="flex items-center p-5 md:p-6">
+                  <div className="flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 bg-blue-50 rounded-xl dark:bg-blue-900/20 group-hover:scale-110 transition-transform flex-shrink-0">
+                    <ServerIcon className="text-blue-600 w-6 h-6 sm:w-7 sm:h-7 dark:text-blue-400" />
+                  </div>
+                  <div className="ml-4 flex-1 min-w-0">
+                    <span className="text-sm text-gray-500 dark:text-gray-400">Nodes</span>
+                    <div className="flex items-baseline gap-2 mt-1">
+                      <h4 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-white/90">
+                        {resourcesLoading ? '...' : resources?.totalNodes || 0}
+                      </h4>
+                      <div className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-green-600 bg-green-50 rounded dark:bg-green-900/20 dark:text-green-400">
+                        <ArrowTrendingUpIcon className="w-3 h-3" />
+                        {resources?.readyNodes || 0} ready
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Link>
+
+              {/* Pods Card */}
+              <Link 
+                to={`/clusters/${clusterToShow}/pods`} 
+                className="group rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] hover:shadow-lg transition-all duration-200 overflow-hidden"
+              >
+                <div className="flex items-center p-5 md:p-6">
+                  <div className="flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 bg-green-50 rounded-xl dark:bg-green-900/20 group-hover:scale-110 transition-transform flex-shrink-0">
+                    <CubeIcon className="text-green-600 w-6 h-6 sm:w-7 sm:h-7 dark:text-green-400" />
+                  </div>
+                  <div className="ml-4 flex-1 min-w-0">
+                    <span className="text-sm text-gray-500 dark:text-gray-400">Pods</span>
+                    <div className="flex items-baseline gap-2 mt-1">
+                      <h4 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-white/90">
+                        {resourcesLoading ? '...' : resources?.totalPods || 0}
+                      </h4>
+                      <div className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-green-600 bg-green-50 rounded dark:bg-green-900/20 dark:text-green-400">
+                        <ArrowTrendingUpIcon className="w-3 h-3" />
+                        {resources?.runningPods || 0} running
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Link>
+
+              {/* Namespaces Card */}
+              <Link 
+                to={`/clusters/${clusterToShow}/namespaces`} 
+                className="group rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] hover:shadow-lg transition-all duration-200 overflow-hidden"
+              >
+                <div className="flex items-center p-5 md:p-6">
+                  <div className="flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 bg-purple-50 rounded-xl dark:bg-purple-900/20 group-hover:scale-110 transition-transform flex-shrink-0">
+                    <ViewColumnsIcon className="text-purple-600 w-6 h-6 sm:w-7 sm:h-7 dark:text-purple-400" />
+                  </div>
+                  <div className="ml-4 flex-1 min-w-0">
+                    <span className="text-sm text-gray-500 dark:text-gray-400">Namespaces</span>
+                    <div className="flex items-baseline gap-2 mt-1">
+                      <h4 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-white/90">
+                        {resourcesLoading ? '...' : resources?.totalNamespaces || 0}
+                      </h4>
+                      <div className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-purple-600 bg-purple-50 rounded dark:bg-purple-900/20 dark:text-purple-400">
+                        Active
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Link>
+
+              {/* Services Card */}
+              <Link 
+                to={`/clusters/${clusterToShow}/services`} 
+                className="group rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] hover:shadow-lg transition-all duration-200 overflow-hidden"
+              >
+                <div className="flex items-center p-5 md:p-6">
+                  <div className="flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 bg-orange-50 rounded-xl dark:bg-orange-900/20 group-hover:scale-110 transition-transform flex-shrink-0">
+                    <GlobeAltIcon className="text-orange-600 w-6 h-6 sm:w-7 sm:h-7 dark:text-orange-400" />
+                  </div>
+                  <div className="ml-4 flex-1 min-w-0">
+                    <span className="text-sm text-gray-500 dark:text-gray-400">Services</span>
+                    <div className="flex items-baseline gap-2 mt-1">
+                      <h4 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-white/90">
+                        {resourcesLoading ? '...' : (resources?.totalServices ?? '-')}
+                      </h4>
+                      <div className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-orange-600 bg-orange-50 rounded dark:bg-orange-900/20 dark:text-orange-400">
+                        Active
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            </div>
+          )}
 
           {/* CPU and Memory Usage */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <UsageWidget
-              title="CPU Usage"
-              icon={<CpuChipIcon className="h-6 w-6" />}
-              requests={`${formatCPU(metrics?.cpu?.requests || 0)} cores`}
-              limits={`${formatCPU(metrics?.cpu?.limits || 0)} cores`}
-              total={`${formatCPU(metrics?.cpu?.allocatable || 0)} cores`}
-              requestsPercent={calculatePercentage(metrics?.cpu?.requests || 0, metrics?.cpu?.allocatable || 0)}
-              limitsPercent={calculatePercentage(metrics?.cpu?.limits || 0, metrics?.cpu?.allocatable || 0)}
-              isLoading={metricsLoading}
-            />
-            <UsageWidget
-              title="Memory Usage"
-              icon={<CircleStackIcon className="h-6 w-6" />}
-              requests={formatBytes(metrics?.memory?.requests || 0)}
-              limits={formatBytes(metrics?.memory?.limits || 0)}
-              total={formatBytes(metrics?.memory?.allocatable || 0)}
-              requestsPercent={calculatePercentage(metrics?.memory?.requests || 0, metrics?.memory?.allocatable || 0)}
-              limitsPercent={calculatePercentage(metrics?.memory?.limits || 0, metrics?.memory?.allocatable || 0)}
-              isLoading={metricsLoading}
-            />
-          </div>
+          {hasCluster && clusterToShow && (
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
+                Resource Usage
+              </h3>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* CPU Usage */}
+                <div>
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="flex items-center justify-center w-10 h-10 bg-blue-50 rounded-lg dark:bg-blue-900/20">
+                      <CpuChipIcon className="text-blue-600 size-5 dark:text-blue-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">CPU Usage</p>
+                      <p className="text-lg font-bold text-gray-900 dark:text-white">
+                        {metricsLoading ? '...' : `${formatCPU(metrics?.cpu?.requests || 0)} / ${formatCPU(metrics?.cpu?.allocatable || 0)} cores`}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-gray-500 dark:text-gray-400">Requests</span>
+                        <span className="text-xs font-medium text-gray-900 dark:text-white">
+                          {calculatePercentage(metrics?.cpu?.requests || 0, metrics?.cpu?.allocatable || 0)}%
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
+                        <div 
+                          className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
+                          style={{ width: `${calculatePercentage(metrics?.cpu?.requests || 0, metrics?.cpu?.allocatable || 0)}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-gray-500 dark:text-gray-400">Limits</span>
+                        <span className="text-xs font-medium text-gray-900 dark:text-white">
+                          {calculatePercentage(metrics?.cpu?.limits || 0, metrics?.cpu?.allocatable || 0)}%
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
+                        <div 
+                          className="bg-purple-600 h-2 rounded-full transition-all duration-300" 
+                          style={{ width: `${calculatePercentage(metrics?.cpu?.limits || 0, metrics?.cpu?.allocatable || 0)}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
-          {/* Cluster Information */}
-          <div className="card p-6">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-              Cluster Information
-            </h3>
-            <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              <div>
-                <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Name</dt>
-                <dd className="mt-1 text-sm font-medium text-gray-900 dark:text-gray-100">{clusterToShow}</dd>
+                {/* Memory Usage */}
+                <div>
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="flex items-center justify-center w-10 h-10 bg-green-50 rounded-lg dark:bg-green-900/20">
+                      <CircleStackIcon className="text-green-600 size-5 dark:text-green-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Memory Usage</p>
+                      <p className="text-lg font-bold text-gray-900 dark:text-white">
+                        {metricsLoading ? '...' : `${formatBytes(metrics?.memory?.requests || 0)} / ${formatBytes(metrics?.memory?.allocatable || 0)}`}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-gray-500 dark:text-gray-400">Requests</span>
+                        <span className="text-xs font-medium text-gray-900 dark:text-white">
+                          {calculatePercentage(metrics?.memory?.requests || 0, metrics?.memory?.allocatable || 0)}%
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
+                        <div 
+                          className="bg-green-600 h-2 rounded-full transition-all duration-300" 
+                          style={{ width: `${calculatePercentage(metrics?.memory?.requests || 0, metrics?.memory?.allocatable || 0)}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-gray-500 dark:text-gray-400">Limits</span>
+                        <span className="text-xs font-medium text-gray-900 dark:text-white">
+                          {calculatePercentage(metrics?.memory?.limits || 0, metrics?.memory?.allocatable || 0)}%
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
+                        <div 
+                          className="bg-orange-600 h-2 rounded-full transition-all duration-300" 
+                          style={{ width: `${calculatePercentage(metrics?.memory?.limits || 0, metrics?.memory?.allocatable || 0)}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div>
-                <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Version</dt>
-                <dd className="mt-1 text-sm font-medium text-gray-900 dark:text-gray-100">
-                  {clusters?.find((c: any) => c.name === clusterToShow)?.version || 'N/A'}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Status</dt>
-                <dd className="mt-1">
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+            </div>
+          )}
+        </div>
+
+        {/* Right Column - Cluster Info */}
+        <div className="col-span-12 xl:col-span-5">
+          {hasCluster && clusterToShow ? (
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
+                Cluster Information
+              </h3>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl dark:bg-gray-800/50">
+                  <div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Cluster Name</p>
+                    <p className="mt-1 text-base font-semibold text-gray-900 dark:text-white">{clusterToShow}</p>
+                  </div>
+                  <ServerIcon className="w-8 h-8 text-gray-400" />
+                </div>
+                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl dark:bg-gray-800/50">
+                  <div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Version</p>
+                    <p className="mt-1 text-base font-semibold text-gray-900 dark:text-white">
+                      {clusters?.find((c: any) => c.name === clusterToShow)?.version || 'N/A'}
+                    </p>
+                  </div>
+                  <CubeIcon className="w-8 h-8 text-gray-400" />
+                </div>
+                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl dark:bg-gray-800/50">
+                  <div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Status</p>
+                    <div className="mt-2">
+                      <span className={clsx(
+                        'inline-flex items-center px-3 py-1 rounded-full text-xs font-medium',
+                        clusters?.find((c: any) => c.name === clusterToShow)?.status === 'connected' || 
+                        clusters?.find((c: any) => c.name === clusterToShow)?.status === 'healthy'
+                          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                          : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                      )}>
+                        {clusters?.find((c: any) => c.name === clusterToShow)?.status || 'Unknown'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className={clsx(
+                    'w-3 h-3 rounded-full',
                     clusters?.find((c: any) => c.name === clusterToShow)?.status === 'connected' || 
                     clusters?.find((c: any) => c.name === clusterToShow)?.status === 'healthy'
-                      ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                      : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                  }`}>
-                    {clusters?.find((c: any) => c.name === clusterToShow)?.status || 'Unknown'}
-                  </span>
-                </dd>
+                      ? 'bg-green-500 animate-pulse'
+                      : 'bg-red-500'
+                  )} />
+                </div>
               </div>
-            </dl>
-          </div>
-
-          {/* Recent Events */}
-          <div className="card p-6">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-              Recent Events
-            </h3>
-            <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-              <p className="text-sm">Latest cluster events</p>
-              <p className="text-sm mt-2">No recent events</p>
             </div>
-          </div>
-        </>
-      )}
+          ) : null}
+        </div>
+      </div>
     </div>
   )
 }

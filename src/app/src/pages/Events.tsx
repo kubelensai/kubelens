@@ -18,12 +18,12 @@ export default function Events() {
 
   // Resizable columns
   const { columnWidths, handleMouseDown: handleResizeStart } = useResizableColumns({
-    cluster: 150,
+    cluster: 120,
     type: 100,
-    reason: 150,
-    object: 200,
-    message: 300,
-    age: 120,
+    reason: 130,
+    object: 180,
+    message: 400,
+    age: 100,
   }, 'events-column-widths')
   
   const { data: clusters } = useQuery({
@@ -245,8 +245,11 @@ export default function Events() {
                         {event.involvedObject.kind}/{event.involvedObject.name}
                       </div>
                     </td>
-                    <td className="px-2 sm:px-4 py-3 sm:py-4 text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                      <div className="truncate max-w-[200px] lg:max-w-none">
+                    <td 
+                      className="px-2 sm:px-4 py-3 sm:py-4 text-xs sm:text-sm text-gray-500 dark:text-gray-400"
+                      style={{ maxWidth: `${columnWidths.message}px` }}
+                    >
+                      <div className="break-words">
                         {event.message}
                       </div>
                     </td>

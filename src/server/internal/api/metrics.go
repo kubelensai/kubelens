@@ -36,6 +36,7 @@ type ClusterResourcesSummary struct {
 	AvailableDeployments int `json:"availableDeployments"`
 	TotalNamespaces      int `json:"totalNamespaces"`
 	ActiveNamespaces     int `json:"activeNamespaces"`
+	TotalServices        int `json:"totalServices"`
 }
 
 // GetClusterMetrics returns CPU and Memory metrics for a cluster
@@ -227,6 +228,16 @@ func (h *Handler) GetClusterResourcesSummary(c *gin.Context) {
 		if ns.Status.Phase == corev1.NamespaceActive {
 			summary.ActiveNamespaces++
 		}
+	}
+
+	// Count services
+	services, err := client.CoreV1().Services(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		log.Errorf("Failed to list services: %v", err)
+		// Don't fail the entire request if services can't be listed
+		summary.TotalServices = 0
+	} else {
+		summary.TotalServices = len(services.Items)
 	}
 
 	c.JSON(http.StatusOK, summary)
