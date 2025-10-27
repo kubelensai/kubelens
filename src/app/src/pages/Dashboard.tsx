@@ -70,6 +70,46 @@ export default function Dashboard() {
     return ((used / total) * 100).toFixed(1)
   }
 
+  // Calculate bar width with smart scaling for values > 100%
+  const calculateBarWidth = (percentage: number) => {
+    if (percentage <= 100) {
+      return percentage
+    }
+    // For values > 100%, use logarithmic scaling to fit in the bar
+    // This allows showing 1000%+ while keeping it visually meaningful
+    // Formula: 100 + (log10(percentage - 100 + 1) * 20)
+    // This maps: 100% -> 100%, 200% -> 120%, 1000% -> 160%, 10000% -> 180%
+    const overflow = percentage - 100
+    const scaledOverflow = Math.log10(overflow + 1) * 20
+    return Math.min(100 + scaledOverflow, 200) // Cap at 200% visual width
+  }
+
+  // Get color class based on percentage
+  const getUsageColor = (percentage: number, type: 'requests' | 'limits') => {
+    if (type === 'requests') {
+      if (percentage >= 90) return 'bg-red-600 dark:bg-red-500'
+      if (percentage >= 75) return 'bg-orange-600 dark:bg-orange-500'
+      return 'bg-blue-600 dark:bg-blue-500'
+    } else {
+      if (percentage >= 150) return 'bg-red-600 dark:bg-red-500'
+      if (percentage >= 100) return 'bg-orange-600 dark:bg-orange-500'
+      return 'bg-purple-600 dark:bg-purple-500'
+    }
+  }
+
+  // Get memory color
+  const getMemoryColor = (percentage: number, type: 'requests' | 'limits') => {
+    if (type === 'requests') {
+      if (percentage >= 90) return 'bg-red-600 dark:bg-red-500'
+      if (percentage >= 75) return 'bg-orange-600 dark:bg-orange-500'
+      return 'bg-green-600 dark:bg-green-500'
+    } else {
+      if (percentage >= 150) return 'bg-red-600 dark:bg-red-500'
+      if (percentage >= 100) return 'bg-orange-600 dark:bg-orange-500'
+      return 'bg-orange-600 dark:bg-orange-500'
+    }
+  }
+
   return (
     <div className="space-y-4 md:space-y-6">
       {/* Header */}
@@ -233,25 +273,33 @@ export default function Dashboard() {
                           {calculatePercentage(metrics?.cpu?.requests || 0, metrics?.cpu?.allocatable || 0)}%
                         </span>
                       </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
+                      <div className="relative w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 overflow-hidden">
                         <div 
-                          className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
-                          style={{ width: `${calculatePercentage(metrics?.cpu?.requests || 0, metrics?.cpu?.allocatable || 0)}%` }}
-                        />
+                          className={`h-2.5 rounded-full transition-all duration-300 ${getUsageColor(parseFloat(calculatePercentage(metrics?.cpu?.requests || 0, metrics?.cpu?.allocatable || 0)), 'requests')}`}
+                          style={{ width: `${Math.min(calculateBarWidth(parseFloat(calculatePercentage(metrics?.cpu?.requests || 0, metrics?.cpu?.allocatable || 0))), 100)}%` }}
+                        >
+                          {parseFloat(calculatePercentage(metrics?.cpu?.requests || 0, metrics?.cpu?.allocatable || 0)) > 100 && (
+                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse" />
+                          )}
+                        </div>
                       </div>
                     </div>
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs text-gray-500 dark:text-gray-400">Limits</span>
-                        <span className="text-xs font-medium text-gray-900 dark:text-white">
+                        <span className={`text-xs font-medium ${parseFloat(calculatePercentage(metrics?.cpu?.limits || 0, metrics?.cpu?.allocatable || 0)) > 100 ? 'text-orange-600 dark:text-orange-400' : 'text-gray-900 dark:text-white'}`}>
                           {calculatePercentage(metrics?.cpu?.limits || 0, metrics?.cpu?.allocatable || 0)}%
                         </span>
                       </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
+                      <div className="relative w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 overflow-hidden">
                         <div 
-                          className="bg-purple-600 h-2 rounded-full transition-all duration-300" 
-                          style={{ width: `${calculatePercentage(metrics?.cpu?.limits || 0, metrics?.cpu?.allocatable || 0)}%` }}
-                        />
+                          className={`h-2.5 rounded-full transition-all duration-300 ${getUsageColor(parseFloat(calculatePercentage(metrics?.cpu?.limits || 0, metrics?.cpu?.allocatable || 0)), 'limits')}`}
+                          style={{ width: `${Math.min(calculateBarWidth(parseFloat(calculatePercentage(metrics?.cpu?.limits || 0, metrics?.cpu?.allocatable || 0))), 100)}%` }}
+                        >
+                          {parseFloat(calculatePercentage(metrics?.cpu?.limits || 0, metrics?.cpu?.allocatable || 0)) > 100 && (
+                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse" />
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -278,25 +326,33 @@ export default function Dashboard() {
                           {calculatePercentage(metrics?.memory?.requests || 0, metrics?.memory?.allocatable || 0)}%
                         </span>
                       </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
+                      <div className="relative w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 overflow-hidden">
                         <div 
-                          className="bg-green-600 h-2 rounded-full transition-all duration-300" 
-                          style={{ width: `${calculatePercentage(metrics?.memory?.requests || 0, metrics?.memory?.allocatable || 0)}%` }}
-                        />
+                          className={`h-2.5 rounded-full transition-all duration-300 ${getMemoryColor(parseFloat(calculatePercentage(metrics?.memory?.requests || 0, metrics?.memory?.allocatable || 0)), 'requests')}`}
+                          style={{ width: `${Math.min(calculateBarWidth(parseFloat(calculatePercentage(metrics?.memory?.requests || 0, metrics?.memory?.allocatable || 0))), 100)}%` }}
+                        >
+                          {parseFloat(calculatePercentage(metrics?.memory?.requests || 0, metrics?.memory?.allocatable || 0)) > 100 && (
+                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse" />
+                          )}
+                        </div>
                       </div>
                     </div>
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs text-gray-500 dark:text-gray-400">Limits</span>
-                        <span className="text-xs font-medium text-gray-900 dark:text-white">
+                        <span className={`text-xs font-medium ${parseFloat(calculatePercentage(metrics?.memory?.limits || 0, metrics?.memory?.allocatable || 0)) > 100 ? 'text-orange-600 dark:text-orange-400' : 'text-gray-900 dark:text-white'}`}>
                           {calculatePercentage(metrics?.memory?.limits || 0, metrics?.memory?.allocatable || 0)}%
                         </span>
                       </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
+                      <div className="relative w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 overflow-hidden">
                         <div 
-                          className="bg-orange-600 h-2 rounded-full transition-all duration-300" 
-                          style={{ width: `${calculatePercentage(metrics?.memory?.limits || 0, metrics?.memory?.allocatable || 0)}%` }}
-                        />
+                          className={`h-2.5 rounded-full transition-all duration-300 ${getMemoryColor(parseFloat(calculatePercentage(metrics?.memory?.limits || 0, metrics?.memory?.allocatable || 0)), 'limits')}`}
+                          style={{ width: `${Math.min(calculateBarWidth(parseFloat(calculatePercentage(metrics?.memory?.limits || 0, metrics?.memory?.allocatable || 0))), 100)}%` }}
+                        >
+                          {parseFloat(calculatePercentage(metrics?.memory?.limits || 0, metrics?.memory?.allocatable || 0)) > 100 && (
+                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse" />
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
