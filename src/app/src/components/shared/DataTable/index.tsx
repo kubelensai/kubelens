@@ -1,4 +1,4 @@
-import { ReactNode, useState, useMemo } from 'react'
+import { ReactNode, useState, useMemo, useRef, useEffect } from 'react'
 import {
   MagnifyingGlassIcon,
   ChevronUpIcon,
@@ -7,6 +7,7 @@ import {
   ChevronRightIcon,
   ChevronDoubleLeftIcon,
   ChevronDoubleRightIcon,
+  FunnelIcon,
 } from '@heroicons/react/24/outline'
 import clsx from 'clsx'
 
@@ -19,6 +20,9 @@ export interface Column<T> {
   searchValue?: (item: T) => string  // For custom search logic
   className?: string
   headerClassName?: string
+  filterable?: boolean  // Enable column filtering
+  filterOptions?: (data: T[]) => string[]  // Function to extract unique filter values
+  filterValue?: (item: T) => string  // Function to get filter value from item
 }
 
 export interface DataTableProps<T> {
@@ -58,14 +62,69 @@ export function DataTable<T>({
     direction: 'asc' | 'desc'
   } | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
+  const [openFilterColumn, setOpenFilterColumn] = useState<string | null>(null)
+  const filterDropdownRef = useRef<HTMLDivElement>(null)
 
-  // Filter data based on search term
+  // Close filter dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (filterDropdownRef.current && !filterDropdownRef.current.contains(event.target as Node)) {
+        setOpenFilterColumn(null)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Toggle filter value for a column
+  const toggleFilterValue = (columnKey: string, value: string) => {
+    setColumnFilters((prev) => {
+      const currentFilters = prev[columnKey] || []
+      const newFilters = currentFilters.includes(value)
+        ? currentFilters.filter((v) => v !== value)
+        : [...currentFilters, value]
+      
+      return {
+        ...prev,
+        [columnKey]: newFilters,
+      }
+    })
+  }
+
+  // Clear filters for a column
+  const clearColumnFilter = (columnKey: string) => {
+    setColumnFilters((prev) => {
+      const newFilters = { ...prev }
+      delete newFilters[columnKey]
+      return newFilters
+    })
+  }
+
+  // Filter data based on search term and column filters
   const filteredData = useMemo(() => {
-    if (!searchTerm) return data
+    let filtered = data
+
+    // Apply column filters first
+    Object.entries(columnFilters).forEach(([columnKey, selectedValues]) => {
+      if (selectedValues.length > 0) {
+        const column = columns.find(col => col.key === columnKey)
+        if (column && column.filterValue) {
+          filtered = filtered.filter((item) => {
+            const itemValue = column.filterValue!(item)
+            return selectedValues.includes(itemValue)
+          })
+        }
+      }
+    })
+
+    // Then apply search term
+    if (!searchTerm) return filtered
 
     const lowerSearch = searchTerm.toLowerCase()
 
-    return data.filter((item) => {
+    return filtered.filter((item) => {
       // Search across all columns that have searchValue defined
       return columns.some((column) => {
         if (column.searchValue) {
@@ -75,7 +134,7 @@ export function DataTable<T>({
         return false
       })
     })
-  }, [data, searchTerm, columns])
+  }, [data, searchTerm, columns, columnFilters])
 
   // Sort data
   const sortedData = useMemo(() => {
@@ -169,36 +228,104 @@ export function DataTable<T>({
             {/* Table Header */}
             <thead className="border-b border-gray-100 dark:border-white/[0.05]">
               <tr>
-                {columns.map((column) => (
-                  <th
-                    key={column.key}
-                    onClick={() => handleSort(column.key)}
-                    className={clsx(
-                      'px-3 py-3 font-medium text-gray-500 text-start text-xs uppercase tracking-wider dark:text-gray-400',
-                      column.headerClassName,
-                      column.sortable && 'cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200'
-                    )}
-                  >
-                    <div className="flex items-center gap-2">
-                      {column.header}
-                      {column.sortable && (
-                        <span className="flex flex-col">
-                          {sortConfig?.key === column.key ? (
-                            sortConfig.direction === 'asc' ? (
-                              <ChevronUpIcon className="w-4 h-4 text-primary-600 dark:text-primary-400" />
-                            ) : (
-                              <ChevronDownIcon className="w-4 h-4 text-primary-600 dark:text-primary-400" />
-                            )
-                          ) : (
-                            <div className="w-4 h-4 opacity-30">
-                              <ChevronUpIcon className="w-4 h-4" />
-                            </div>
-                          )}
-                        </span>
+                {columns.map((column) => {
+                  const filterOptions = column.filterable && column.filterOptions ? column.filterOptions(data) : []
+                  const activeFilters = columnFilters[column.key] || []
+                  const hasActiveFilter = activeFilters.length > 0
+
+                  return (
+                    <th
+                      key={column.key}
+                      className={clsx(
+                        'px-3 py-3 font-medium text-gray-500 text-start text-xs uppercase tracking-wider dark:text-gray-400',
+                        column.headerClassName
                       )}
-                    </div>
-                  </th>
-                ))}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div
+                          onClick={() => column.sortable && handleSort(column.key)}
+                          className={clsx(
+                            'flex items-center gap-2',
+                            column.sortable && 'cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200'
+                          )}
+                        >
+                          {column.header}
+                          {column.sortable && (
+                            <span className="flex flex-col">
+                              {sortConfig?.key === column.key ? (
+                                sortConfig.direction === 'asc' ? (
+                                  <ChevronUpIcon className="w-4 h-4 text-primary-600 dark:text-primary-400" />
+                                ) : (
+                                  <ChevronDownIcon className="w-4 h-4 text-primary-600 dark:text-primary-400" />
+                                )
+                              ) : (
+                                <div className="w-4 h-4 opacity-30">
+                                  <ChevronUpIcon className="w-4 h-4" />
+                                </div>
+                              )}
+                            </span>
+                          )}
+                        </div>
+                        
+                        {/* Filter Button */}
+                        {column.filterable && filterOptions.length > 0 && (
+                          <div className="relative" ref={openFilterColumn === column.key ? filterDropdownRef : null}>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setOpenFilterColumn(openFilterColumn === column.key ? null : column.key)
+                              }}
+                              className={clsx(
+                                'p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors',
+                                hasActiveFilter && 'text-primary-600 dark:text-primary-400'
+                              )}
+                              title="Filter"
+                            >
+                              <FunnelIcon className="w-4 h-4" />
+                            </button>
+
+                            {/* Filter Dropdown */}
+                            {openFilterColumn === column.key && (
+                              <div className="absolute left-0 top-full mt-1 z-50 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg py-2 max-h-64 overflow-y-auto">
+                                <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                                  <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                                    Filter Options
+                                  </span>
+                                  {hasActiveFilter && (
+                                    <button
+                                      onClick={() => clearColumnFilter(column.key)}
+                                      className="text-xs text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300"
+                                    >
+                                      Clear
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="py-1">
+                                  {filterOptions.map((option) => (
+                                    <label
+                                      key={option}
+                                      className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={activeFilters.includes(option)}
+                                        onChange={() => toggleFilterValue(column.key, option)}
+                                        className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700 dark:focus:ring-primary-600"
+                                      />
+                                      <span className="text-sm text-gray-700 dark:text-gray-300">
+                                        {option}
+                                      </span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </th>
+                  )
+                })}
               </tr>
             </thead>
 

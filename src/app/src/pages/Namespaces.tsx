@@ -202,6 +202,12 @@ export default function Namespaces() {
       sortable: true,
       sortValue: (ns) => ns.status?.phase || 'Active',
       searchValue: (ns) => ns.status?.phase || 'Active',
+      filterable: true,
+      filterOptions: (data) => {
+        const phases = new Set(data.map(ns => ns.status?.phase || 'Active'))
+        return Array.from(phases).sort()
+      },
+      filterValue: (ns) => ns.status?.phase || 'Active',
     },
     {
       key: 'cpu',

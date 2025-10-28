@@ -340,6 +340,29 @@ export default function Nodes() {
         ) || node.spec?.unschedulable === true
         return isCordoned ? `${ready} NoSchedule Cordoned` : ready
       },
+      filterable: true,
+      filterOptions: (data) => {
+        const statuses = new Set<string>()
+        data.forEach(node => {
+          const ready = isNodeReady(node) ? 'Ready' : 'Not Ready'
+          const isCordoned = node.spec?.taints?.some(
+            (taint: any) => taint.key === 'node.kubernetes.io/unschedulable' && taint.effect === 'NoSchedule'
+          ) || node.spec?.unschedulable === true
+          
+          statuses.add(ready)
+          if (isCordoned) {
+            statuses.add('NoSchedule')
+          }
+        })
+        return Array.from(statuses).sort()
+      },
+      filterValue: (node) => {
+        const ready = isNodeReady(node) ? 'Ready' : 'Not Ready'
+        const isCordoned = node.spec?.taints?.some(
+          (taint: any) => taint.key === 'node.kubernetes.io/unschedulable' && taint.effect === 'NoSchedule'
+        ) || node.spec?.unschedulable === true
+        return isCordoned ? `${ready} (NoSchedule)` : ready
+      },
     },
     {
       key: 'roles',

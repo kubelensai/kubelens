@@ -10,7 +10,7 @@ import {
   EyeIcon,
   CommandLineIcon,
   DocumentTextIcon,
-  PencilIcon,
+  PencilSquareIcon,
   TrashIcon
 } from '@heroicons/react/24/outline'
 import Breadcrumb from '@/components/shared/Breadcrumb'
@@ -399,6 +399,12 @@ export default function Pods() {
       sortable: true,
       sortValue: (pod) => getPodStatus(pod),
       searchValue: (pod) => getPodStatus(pod),
+      filterable: true,
+      filterOptions: (data) => {
+        const statuses = new Set(data.map(pod => getPodStatus(pod)))
+        return Array.from(statuses).sort()
+      },
+      filterValue: (pod) => getPodStatus(pod),
     },
     {
       key: 'containers',
@@ -638,7 +644,7 @@ export default function Pods() {
             className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
             title="Edit YAML"
           >
-            <PencilIcon className="w-4 h-4" />
+            <PencilSquareIcon className="w-4 h-4" />
           </button>
           <button
             onClick={(e) => {
@@ -810,7 +816,7 @@ export default function Pods() {
                   className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
                   title="Edit YAML"
                 >
-                  <PencilIcon className="w-4 h-4" />
+                  <PencilSquareIcon className="w-4 h-4" />
                 </button>
                 <button
                   onClick={(e) => {
