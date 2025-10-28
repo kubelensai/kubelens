@@ -18,13 +18,14 @@ const (
 	// Send pings to peer with this period. Must be less than pongWait
 	pingPeriod = (pongWait * 9) / 10
 
-	// Maximum message size allowed from peer
-	maxMessageSize = 512
+	// Maximum message size allowed from peer (increased for long log lines)
+	maxMessageSize = 1024 * 1024 // 1MB
 )
 
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
+	ReadBufferSize:    1024 * 64, // 64KB read buffer
+	WriteBufferSize:   1024 * 64, // 64KB write buffer
+	EnableCompression: false,      // Disable compression to avoid reserved bits error
 	CheckOrigin: func(r *http.Request) bool {
 		return true // Allow all origins for development
 	},

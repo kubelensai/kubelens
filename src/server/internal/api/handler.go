@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
@@ -626,6 +627,7 @@ func (h *Handler) DeleteNamespace(c *gin.Context) {
 func (h *Handler) ListPods(c *gin.Context) {
 	clusterName := c.Param("name")
 	namespace := c.Query("namespace")
+	deployment := c.Query("deployment")
 
 	if namespace == "" {
 		namespace = metav1.NamespaceAll
@@ -637,14 +639,36 @@ func (h *Handler) ListPods(c *gin.Context) {
 		return
 	}
 
-	pods, err := client.CoreV1().Pods(namespace).List(context.Background(), metav1.ListOptions{})
+	listOptions := metav1.ListOptions{}
+	
+	// If deployment is specified, filter pods by deployment
+	if deployment != "" {
+		// Get the deployment to find its selector
+		dep, err := client.AppsV1().Deployments(namespace).Get(context.Background(), deployment, metav1.GetOptions{})
+		if err != nil {
+			log.Errorf("Failed to get deployment: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		
+		// Convert label selector to string
+		if dep.Spec.Selector != nil && dep.Spec.Selector.MatchLabels != nil {
+			var labels []string
+			for k, v := range dep.Spec.Selector.MatchLabels {
+				labels = append(labels, fmt.Sprintf("%s=%s", k, v))
+			}
+			listOptions.LabelSelector = strings.Join(labels, ",")
+		}
+	}
+
+	pods, err := client.CoreV1().Pods(namespace).List(context.Background(), listOptions)
 	if err != nil {
 		log.Errorf("Failed to list pods: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"pods": pods.Items})
+	c.JSON(http.StatusOK, pods.Items)
 }
 
 // GetPod returns details of a specific pod
@@ -740,7 +764,9 @@ func (h *Handler) GetPodLogs(c *gin.Context) {
 	namespace := c.Param("namespace")
 	podName := c.Param("pod")
 	container := c.Query("container")
-	tailLines := c.Query("tail")
+	tailLines := c.Query("tailLines")
+	previous := c.Query("previous")
+	sinceTime := c.Query("sinceTime")
 
 	client, err := h.clusterManager.GetClient(clusterName)
 	if err != nil {
@@ -756,6 +782,16 @@ func (h *Handler) GetPodLogs(c *gin.Context) {
 	if tailLines != "" {
 		if lines, err := strconv.ParseInt(tailLines, 10, 64); err == nil {
 			logOptions.TailLines = &lines
+		}
+	}
+	if previous == "true" {
+		logOptions.Previous = true
+	}
+	if sinceTime != "" {
+		// Parse RFC3339 timestamp
+		if t, err := time.Parse(time.RFC3339, sinceTime); err == nil {
+			metaTime := metav1.NewTime(t)
+			logOptions.SinceTime = &metaTime
 		}
 	}
 
@@ -778,6 +814,100 @@ func (h *Handler) GetPodLogs(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"logs": string(logData)})
+}
+
+// GetMultiPodLogs returns logs from multiple pods
+func (h *Handler) GetMultiPodLogs(c *gin.Context) {
+	clusterName := c.Param("name")
+	namespace := c.Param("namespace")
+	
+	// Get query parameters
+	pods := c.QueryArray("pods")
+	container := c.Query("container")
+	tailLines := c.Query("tailLines")
+	previous := c.Query("previous")
+	sinceTime := c.Query("sinceTime")
+	timestamps := c.Query("timestamps") == "true"
+
+	if len(pods) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No pods specified"})
+		return
+	}
+
+	client, err := h.clusterManager.GetClient(clusterName)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Build log options
+	logOptions := &corev1.PodLogOptions{
+		Timestamps: timestamps,
+	}
+	if container != "" {
+		logOptions.Container = container
+	}
+	if tailLines != "" {
+		if lines, err := strconv.ParseInt(tailLines, 10, 64); err == nil {
+			logOptions.TailLines = &lines
+		}
+	}
+	if previous == "true" {
+		logOptions.Previous = true
+	}
+	if sinceTime != "" {
+		// Parse RFC3339 timestamp
+		if t, err := time.Parse(time.RFC3339, sinceTime); err == nil {
+			metaTime := metav1.NewTime(t)
+			logOptions.SinceTime = &metaTime
+		}
+	}
+
+	// Collect logs from all pods
+	type PodLogs struct {
+		PodName string `json:"podName"`
+		Logs    string `json:"logs"`
+		Error   string `json:"error,omitempty"`
+	}
+
+	results := make([]PodLogs, 0, len(pods))
+	
+	for _, podName := range pods {
+		podLog := PodLogs{PodName: podName}
+		
+		// Get logs for this pod
+		req := client.CoreV1().Pods(namespace).GetLogs(podName, logOptions)
+		logs, err := req.Stream(context.Background())
+		if err != nil {
+			log.Warnf("Failed to get logs for pod %s: %v", podName, err)
+			podLog.Error = err.Error()
+			results = append(results, podLog)
+			continue
+		}
+		
+		// Read logs
+		logData, err := io.ReadAll(logs)
+		logs.Close()
+		
+		if err != nil {
+			log.Warnf("Failed to read logs for pod %s: %v", podName, err)
+			podLog.Error = err.Error()
+		} else {
+			// Format logs with pod name prefix
+			logLines := strings.Split(string(logData), "\n")
+			formattedLines := make([]string, 0, len(logLines))
+			for _, line := range logLines {
+				if line != "" {
+					formattedLines = append(formattedLines, fmt.Sprintf("[%s] %s", podName, line))
+				}
+			}
+			podLog.Logs = strings.Join(formattedLines, "\n")
+		}
+		
+		results = append(results, podLog)
+	}
+
+	c.JSON(http.StatusOK, results)
 }
 
 // ListDeployments returns a list of deployments

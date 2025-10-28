@@ -14,7 +14,7 @@ import clsx from 'clsx'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import YamlEditor from '@/components/shared/YamlEditor'
 import Terminal from '@/components/shared/Terminal'
-import LogViewer from '@/components/shared/LogViewer'
+import EnhancedMultiPodLogViewer from '@/components/shared/EnhancedMultiPodLogViewer'
 import { DataTable, Column } from '@/components/shared/DataTable'
 import api from '@/services/api'
 import yaml from 'js-yaml'
@@ -634,12 +634,11 @@ export default function PodDetails({}: PodDetailsProps) {
 
         {activeTab === 'logs' && (
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-            {selectedContainer && (
-              <LogViewer
+            {pod && (
+              <EnhancedMultiPodLogViewer
                 cluster={cluster || ''}
                 namespace={namespace || ''}
-                resourceType="pods"
-                resourceName={podName || ''}
+                pods={[pod]}
                 container={selectedContainer}
                 containers={pod.spec?.containers || []}
                 onContainerChange={setSelectedContainer}

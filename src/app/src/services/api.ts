@@ -86,7 +86,7 @@ export const deleteNamespace = async (clusterName: string, namespaceName: string
 export const getPods = async (clusterName: string, namespace?: string): Promise<Pod[]> => {
   const params = namespace ? { namespace } : {}
   const { data } = await api.get(`/clusters/${clusterName}/pods`, { params })
-  return data.pods || []
+  return data || []
 }
 
 export const getPod = async (

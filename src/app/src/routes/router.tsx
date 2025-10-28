@@ -12,6 +12,7 @@ import GenericCRDPage from "../pages/CustomResources/GenericCRDPage";
 import DaemonSets from "../pages/DaemonSets";
 import Dashboard from "../pages/Dashboard";
 import Deployments from "../pages/Deployments";
+import DeploymentDetails from "../pages/DeploymentDetails";
 import Endpoints from "../pages/Endpoints";
 import Events from "../pages/Events";
 import HPAs from "../pages/HPAs";
@@ -181,6 +182,11 @@ const routes = [
       {
         path: "clusters/:cluster/namespaces/:namespace/pods/:podName",
         element: withClusterCheck(<PodDetails />),
+      },
+      // Deployment Details routes
+      {
+        path: "clusters/:cluster/namespaces/:namespace/deployments/:deploymentName",
+        element: withClusterCheck(<DeploymentDetails />),
       },
       // Custom Resources routes
       {

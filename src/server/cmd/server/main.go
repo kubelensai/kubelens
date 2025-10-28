@@ -260,6 +260,9 @@ func main() {
 		protected.DELETE("/clusters/:name/namespaces/:namespace/pods/:pod", apiHandler.DeletePod)
 		protected.POST("/clusters/:name/namespaces/:namespace/pods/:pod/evict", apiHandler.EvictPod)
 		protected.GET("/clusters/:name/namespaces/:namespace/pods/:pod/logs", apiHandler.GetPodLogs)
+		protected.GET("/clusters/:name/namespaces/:namespace/pods/logs", apiHandler.GetMultiPodLogs)
+		protected.GET("/clusters/:name/namespaces/:namespace/pods/:pod/logs/stream", apiHandler.PodLogsStream)
+		protected.GET("/clusters/:name/namespaces/:namespace/pods/logs/stream", apiHandler.MultiPodLogsStream)
 		protected.GET("/clusters/:name/namespaces/:namespace/pods/:pod/shell", apiHandler.PodShell)
 
 		// Deployments

@@ -701,18 +701,18 @@ export default function Pods() {
                 <div className="min-w-0">
                   <div className="font-semibold text-gray-900 dark:text-white truncate">
                     {pod.metadata.name}
-        </div>
+                  </div>
                   <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                     {pod.metadata.namespace}
-        </div>
+                  </div>
                   {!cluster && (
                     <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                       {pod.clusterName}
                     </div>
                   )}
-                        </div>
-                        </div>
-                        <span className={clsx(
+                </div>
+              </div>
+              <span className={clsx(
                 'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full shrink-0',
                 getPodStatus(pod) === 'Running' && isPodReady(pod)
                   ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
@@ -730,7 +730,7 @@ export default function Pods() {
                   'bg-yellow-600'
                 )} />
                 {getPodStatus(pod)}
-                        </span>
+              </span>
             </div>
             
             <div className="grid grid-cols-2 gap-2 text-sm">
@@ -740,7 +740,7 @@ export default function Pods() {
               </div>
               <div>
                 <span className="text-gray-500 dark:text-gray-400">Restarts:</span>
-                        <span className={clsx(
+                <span className={clsx(
                   'ml-1 font-medium',
                   getTotalRestarts(pod) > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-gray-900 dark:text-white'
                 )}>
@@ -763,15 +763,15 @@ export default function Pods() {
                     const metrics = podMetrics[`${pod.clusterName}-${pod.metadata.namespace}-${pod.metadata.name}`]
                     return metrics ? formatMemory(metrics.memoryUsage) : '-'
                   })()}
-                        </span>
-                        </div>
+                </span>
+              </div>
               <div className="col-span-2">
                 <span className="text-gray-500 dark:text-gray-400">Node:</span>
                 <span className="ml-1 text-gray-900 dark:text-white text-xs truncate">
                   {pod.spec?.nodeName || '-'}
                 </span>
-        </div>
-      </div>
+              </div>
+            </div>
 
             <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
               <span className="text-xs text-gray-500 dark:text-gray-400">
