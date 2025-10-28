@@ -2,12 +2,15 @@
 # This is a simplified configuration that works well in web terminals
 
 # Instant prompt mode
-typeset -g POWERLEVEL9K_INSTANT_PROMPT=quiet
+typeset -g POWERLEVEL9K_INSTANT_PROMPT=off
+
+# Disable gitstatusd (git status checking)
+typeset -g POWERLEVEL9K_VCS_DISABLED=true
 
 # Prompt elements
 typeset -g POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(
+  context                 # user@hostname
   dir                     # current directory
-  vcs                     # git status
   newline                 # \n
   prompt_char             # prompt symbol
 )
@@ -18,6 +21,12 @@ typeset -g POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS=(
   background_jobs         # presence of background jobs
   time                    # current time
 )
+
+# Context (user@hostname)
+typeset -g POWERLEVEL9K_CONTEXT_FOREGROUND=180
+typeset -g POWERLEVEL9K_CONTEXT_ROOT_FOREGROUND=227
+typeset -g POWERLEVEL9K_CONTEXT_TEMPLATE='%n@%m'
+typeset -g POWERLEVEL9K_CONTEXT_{DEFAULT,SUDO}_{CONTENT,VISUAL_IDENTIFIER}_EXPANSION=
 
 # Prompt character
 typeset -g POWERLEVEL9K_PROMPT_CHAR_OK_{VIINS,VICMD,VIVIS,VIOWR}_FOREGROUND=76
@@ -36,11 +45,6 @@ typeset -g POWERLEVEL9K_SHORTEN_DELIMITER=
 typeset -g POWERLEVEL9K_DIR_SHORTENED_FOREGROUND=103
 typeset -g POWERLEVEL9K_DIR_ANCHOR_FOREGROUND=39
 typeset -g POWERLEVEL9K_DIR_ANCHOR_BOLD=true
-
-# Git status
-typeset -g POWERLEVEL9K_VCS_CLEAN_FOREGROUND=76
-typeset -g POWERLEVEL9K_VCS_UNTRACKED_FOREGROUND=76
-typeset -g POWERLEVEL9K_VCS_MODIFIED_FOREGROUND=178
 
 # Status
 typeset -g POWERLEVEL9K_STATUS_EXTENDED_STATES=true
@@ -63,11 +67,12 @@ typeset -g POWERLEVEL9K_TIME_FOREGROUND=66
 typeset -g POWERLEVEL9K_TIME_FORMAT='%D{%H:%M:%S}'
 
 # Transient prompt
-typeset -g POWERLEVEL9K_TRANSIENT_PROMPT=always
-
-# Instant prompt mode
-typeset -g POWERLEVEL9K_INSTANT_PROMPT=quiet
+typeset -g POWERLEVEL9K_TRANSIENT_PROMPT=off
 
 # Disable configuration wizard
 typeset -g POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD=true
 
+typeset -g POWERLEVEL9K_PROMPT_ADD_NEWLINE=false
+typeset -g POWERLEVEL9K_MULTILINE_FIRST_PROMPT_PREFIX=''
+typeset -g POWERLEVEL9K_MULTILINE_LAST_PROMPT_PREFIX=''
+typeset -g POWERLEVEL9K_PROMPT_ON_NEWLINE=false
