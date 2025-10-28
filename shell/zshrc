@@ -1,9 +1,5 @@
-# Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
-# Initialization code that may require console input (password prompts, [y/n]
-# confirmations, etc.) must go above this block; everything else may go below.
-if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
-  source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
-fi
+# Disable instant prompt for web terminals (causes issues with escape sequences)
+# POWERLEVEL9K_INSTANT_PROMPT=off
 
 # If you come from bash you might have to change your $PATH.
 # export PATH=$HOME/bin:/usr/local/bin:$PATH
@@ -19,8 +15,9 @@ ZSH_THEME="powerlevel10k/powerlevel10k"
 
 ZSH_DISABLE_COMPFIX="true"
 
-# Powerlevel10k configuration - skip wizard, use instant prompt
+# Powerlevel10k configuration - skip wizard, disable instant prompt
 POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD=true
+POWERLEVEL9K_INSTANT_PROMPT=off
 
 # Set list of themes to load
 # Setting this variable when ZSH_THEME=random
