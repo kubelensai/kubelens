@@ -174,7 +174,7 @@ export function DataTable<T>({
                     key={column.key}
                     onClick={() => handleSort(column.key)}
                     className={clsx(
-                      'px-5 py-3 font-medium text-gray-500 text-start text-xs uppercase tracking-wider dark:text-gray-400',
+                      'px-3 py-3 font-medium text-gray-500 text-start text-xs uppercase tracking-wider dark:text-gray-400',
                       column.headerClassName,
                       column.sortable && 'cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200'
                     )}
@@ -206,7 +206,7 @@ export function DataTable<T>({
             <tbody className="divide-y divide-gray-100 dark:divide-white/[0.05]">
               {isLoading ? (
                 <tr>
-                  <td colSpan={columns.length} className="px-5 py-12 text-center">
+                  <td colSpan={columns.length} className="px-3 py-12 text-center">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin dark:border-gray-700 dark:border-t-primary-500" />
                       <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
@@ -215,7 +215,7 @@ export function DataTable<T>({
                 </tr>
               ) : paginatedData.length === 0 ? (
                 <tr>
-                  <td colSpan={columns.length} className="px-5 py-12 text-center">
+                  <td colSpan={columns.length} className="px-3 py-12 text-center">
                     <div className="flex flex-col items-center justify-center gap-3">
                       {emptyIcon || (
                         <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
@@ -240,7 +240,7 @@ export function DataTable<T>({
                       <td
                         key={column.key}
                         className={clsx(
-                          'px-5 py-4 text-gray-900 text-sm dark:text-white',
+                          'px-3 py-4 text-gray-900 text-sm dark:text-white',
                           column.className
                         )}
                       >

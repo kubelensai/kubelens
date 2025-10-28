@@ -206,9 +206,10 @@ export default function NodeDetails({}: NodeDetailsProps) {
   // Handle pod row click - navigate to Pod details page
   const handlePodClick = (pod: any) => {
     const podName = pod.metadata?.name
-    if (cluster && podName) {
-      // Navigate to pod details page (we'll implement this later)
-      navigate(`/clusters/${cluster}/pods/${podName}`)
+    const namespace = pod.metadata?.namespace
+    if (cluster && namespace && podName) {
+      // Navigate to pod details page with correct route pattern
+      navigate(`/clusters/${cluster}/namespaces/${namespace}/pods/${podName}`)
     }
   }
 

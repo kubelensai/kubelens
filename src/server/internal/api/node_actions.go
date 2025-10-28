@@ -347,6 +347,7 @@ func (h *Handler) NodeShell(c *gin.Context) {
 		Spec: corev1.PodSpec{
 			ServiceAccountName: "kubelens",  // Use kubelens ServiceAccount
 			AutomountServiceAccountToken: func() *bool { b := false; return &b }(), // Disable auto-mount
+			PriorityClassName:  "system-node-critical",  // Prevent eviction
 			NodeName:           nodeName,
 			HostPID:            hostPID,
 			HostNetwork:        hostNetwork,
@@ -437,7 +438,7 @@ func (h *Handler) NodeShell(c *gin.Context) {
 	// Create the debug pod only if it doesn't exist
 	if podToUse == nil {
 		log.Infof("Creating debug pod: %s on node: %s", debugPodName, nodeName)
-		ws.WriteMessage(1, []byte("\r\n\x1b[33m⏳ Creating debug pod on node...\x1b[0m\r\n"))
+		ws.WriteMessage(1, []byte("\r\n\x1b[33m⏳ Shell initializing...\x1b[0m\r\n"))
 		
 		createdPod, err := client.CoreV1().Pods(debugNamespace).Create(ctx, debugPod, metav1.CreateOptions{})
 		if err != nil {
@@ -471,7 +472,6 @@ func (h *Handler) NodeShell(c *gin.Context) {
 				}
 				if allReady {
 					log.Infof("Debug pod is running and ready")
-					ws.WriteMessage(1, []byte("\r\n\x1b[32m✓ Debug pod ready\x1b[0m\r\n"))
 					podReady = true
 					podToUse = pod
 					break
@@ -539,7 +539,7 @@ func (h *Handler) NodeShell(c *gin.Context) {
 	stderr := &wsWriter{conn: ws}
 
 	log.Infof("Starting shell execution...")
-	ws.WriteMessage(1, []byte("\r\n\x1b[32m✓ Connected to node shell\x1b[0m\r\n\r\n"))
+	ws.WriteMessage(1, []byte("\r\n\x1b[32m✓ Shell Ready\x1b[0m\r\n\r\n"))
 
 	// Execute shell
 	err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{

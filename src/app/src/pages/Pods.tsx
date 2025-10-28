@@ -1,67 +1,74 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useParams, useLocation } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { getClusters, getPods } from '@/services/api'
 import { useState, useEffect, useMemo } from 'react'
 import clsx from 'clsx'
-import { CommandLineIcon, PencilSquareIcon, TrashIcon, DocumentTextIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
+import { 
+  CubeIcon, 
+  CpuChipIcon, 
+  CircleStackIcon,
+  EyeIcon,
+  CommandLineIcon,
+  DocumentTextIcon,
+  PencilIcon,
+  TrashIcon
+} from '@heroicons/react/24/outline'
 import Breadcrumb from '@/components/shared/Breadcrumb'
-import PodDetailsModal from '@/components/Pods/PodDetailsModal'
-import PodShellModal from '@/components/Pods/PodShellModal'
-import PodLogsModal from '@/components/Pods/PodLogsModal'
-import EditPodModal from '@/components/Pods/EditPodModal'
-import DeletePodModal from '@/components/Pods/DeletePodModal'
-import ResizableTableHeader from '@/components/shared/ResizableTableHeader'
+import { DataTable, Column } from '@/components/shared/DataTable'
+import ConfirmationModal from '@/components/shared/ConfirmationModal'
 import api from '@/services/api'
 import { formatAge } from '@/utils/format'
-import { useTableSort } from '@/hooks/useTableSort'
-import { useResizableColumns } from '@/hooks/useResizableColumns'
-import { usePagination } from '@/hooks/usePagination'
-import Pagination from '@/components/shared/Pagination'
 
 interface PodMetrics {
   [podKey: string]: {
     cpuUsage: number
     memoryUsage: number
+    cpuRequests: number
+    memoryRequests: number
+    cpuLimits: number
+    memoryLimits: number
   }
 }
 
+interface PodData {
+  metadata: {
+    name: string
+    namespace: string
+    creationTimestamp: string
+    labels?: Record<string, string>
+  }
+  spec?: {
+    nodeName?: string
+    containers?: Array<{
+      name: string
+      resources?: {
+        requests?: Record<string, string>
+        limits?: Record<string, string>
+      }
+    }>
+  }
+  status?: {
+    phase?: string
+    conditions?: Array<{ type: string; status: string }>
+    containerStatuses?: Array<{
+      name: string
+      restartCount: number
+      state?: any
+    }>
+    qosClass?: string
+  }
+  clusterName: string
+}
+
 export default function Pods() {
-  const { cluster, namespace } = useParams<{ cluster?: string; namespace?: string }>()
-  const location = useLocation()
-  const queryClient = useQueryClient()
-  const [selectedPod, setSelectedPod] = useState<any>(null)
-  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false)
-  const [isShellModalOpen, setIsShellModalOpen] = useState(false)
-  const [isLogsModalOpen, setIsLogsModalOpen] = useState(false)
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+  const { cluster, namespace: namespaceFromRoute } = useParams<{ cluster?: string; namespace?: string }>()
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const namespaceFromQuery = searchParams.get('namespace')
+  // Use namespace from route params first, then fall back to query params
+  const namespace = namespaceFromRoute || namespaceFromQuery || undefined
   const [podMetrics, setPodMetrics] = useState<PodMetrics>({})
-  const [filterText, setFilterText] = useState('')
-
-  // Auto-fill filter from navigation state (from NodePodsModal)
-  useEffect(() => {
-    const state = location.state as any
-    if (state?.filterPodName) {
-      setFilterText(state.filterPodName)
-      // Clear the state after using it
-      window.history.replaceState({}, document.title)
-    }
-  }, [location.state])
-
-  // Resizable columns
-  const { columnWidths, handleMouseDown: handleResizeStart } = useResizableColumns({
-    name: 200,
-    namespace: 150,
-    containers: 120,
-    status: 100,
-    qos: 100,
-    restarts: 100,
-    cpu: 120,
-    memory: 120,
-    node: 150,
-    age: 120,
-    actions: 180,
-  }, 'pods-column-widths')
+  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; pod: PodData | null }>({ isOpen: false, pod: null })
   
   const { data: clusters } = useQuery({
     queryKey: ['clusters'],
@@ -69,7 +76,7 @@ export default function Pods() {
   })
 
   // Fetch pods from all clusters or specific cluster/namespace
-  const podQueries = useQuery({
+  const { data: allPods, isLoading, refetch } = useQuery({
     queryKey: namespace 
       ? ['pods', cluster, namespace]
       : cluster 
@@ -105,570 +112,731 @@ export default function Pods() {
       
       return allPods.flat()
     },
-    enabled: (cluster && namespace) ? true : cluster ? true : (!!clusters && clusters.length > 0),
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
-    refetchInterval: 5000,
-    staleTime: 0,
+    enabled: cluster ? true : (!!clusters && clusters.length > 0),
   })
 
-  const isLoading = podQueries.isLoading
-  const isError = podQueries.isError
-  const error = podQueries.error
-  const allPods = podQueries.data || []
-
-  // Filter pods by name
-  const filteredPods = useMemo(() => {
-    if (!filterText) return allPods
-    const lowerFilter = filterText.toLowerCase()
-    return allPods.filter((pod: any) =>
-      pod.metadata?.name?.toLowerCase().includes(lowerFilter)
-    )
-  }, [allPods, filterText])
-
-  // Apply sorting
-  const { sortedData: sortedPods, sortConfig, requestSort } = useTableSort(filteredPods, {
-    key: 'metadata.name',
-    direction: 'asc'
-  })
-
-  // Apply pagination
-  const {
-    paginatedData: pods,
-    currentPage,
-    totalPages,
-    pageSize,
-    totalItems,
-    goToPage,
-    goToNextPage,
-    goToPreviousPage,
-    changePageSize,
-    hasNextPage,
-    hasPreviousPage,
-  } = usePagination(sortedPods, 10, 'pods')
-
-  // Fetch metrics for all pods
+  // Fetch metrics for all pods when pods change
   useEffect(() => {
-    if (pods.length > 0) {
+    if (allPods && allPods.length > 0) {
       fetchAllPodMetrics()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pods])
+  }, [allPods])
 
   const fetchAllPodMetrics = async () => {
+    if (!allPods) return
     const metricsMap: PodMetrics = {}
     
-    await Promise.all(
-      pods.map(async (pod: any) => {
-        try {
-          const response = await api.get(
-            `/clusters/${pod.clusterName}/namespaces/${pod.metadata.namespace}/pods/${pod.metadata.name}/metrics`
-          )
-          const data = response.data
-          
-          if (data?.containers) {
-            // Sum up all container metrics
-            let totalCpu = 0
-            let totalMemory = 0
+    // Process in batches of 10 to avoid overwhelming the API
+    const batchSize = 10
+    for (let i = 0; i < allPods.length; i += batchSize) {
+      const batch = allPods.slice(i, i + batchSize)
+      
+      await Promise.all(
+        batch.map(async (pod: any) => {
+          try {
+            // Calculate requests and limits from pod spec (no API call needed)
+            let totalCpuRequests = 0
+            let totalMemoryRequests = 0
+            let totalCpuLimits = 0
+            let totalMemoryLimits = 0
             
-            data.containers.forEach((container: any) => {
-              if (container.usage) {
-                totalCpu += parseCPUToMillicores(container.usage.cpu)
-                totalMemory += parseMemoryToBytes(container.usage.memory)
+            pod.spec?.containers?.forEach((container: any) => {
+              if (container.resources?.requests?.cpu) {
+                const cpuStr = container.resources.requests.cpu
+                if (cpuStr.endsWith('m')) {
+                  totalCpuRequests += parseInt(cpuStr.replace('m', ''))
+                } else {
+                  totalCpuRequests += parseFloat(cpuStr) * 1000
+                }
+              }
+              
+              if (container.resources?.requests?.memory) {
+                const memStr = container.resources.requests.memory
+                if (memStr.endsWith('Ki')) {
+                  totalMemoryRequests += parseInt(memStr.replace('Ki', '')) * 1024
+                } else if (memStr.endsWith('Mi')) {
+                  totalMemoryRequests += parseInt(memStr.replace('Mi', '')) * 1024 * 1024
+                } else if (memStr.endsWith('Gi')) {
+                  totalMemoryRequests += parseInt(memStr.replace('Gi', '')) * 1024 * 1024 * 1024
+                } else {
+                  totalMemoryRequests += parseInt(memStr)
+                }
+              }
+              
+              if (container.resources?.limits?.cpu) {
+                const cpuStr = container.resources.limits.cpu
+                if (cpuStr.endsWith('m')) {
+                  totalCpuLimits += parseInt(cpuStr.replace('m', ''))
+                } else {
+                  totalCpuLimits += parseFloat(cpuStr) * 1000
+                }
+              }
+              
+              if (container.resources?.limits?.memory) {
+                const memStr = container.resources.limits.memory
+                if (memStr.endsWith('Ki')) {
+                  totalMemoryLimits += parseInt(memStr.replace('Ki', '')) * 1024
+                } else if (memStr.endsWith('Mi')) {
+                  totalMemoryLimits += parseInt(memStr.replace('Mi', '')) * 1024 * 1024
+                } else if (memStr.endsWith('Gi')) {
+                  totalMemoryLimits += parseInt(memStr.replace('Gi', '')) * 1024 * 1024 * 1024
+                } else {
+                  totalMemoryLimits += parseInt(memStr)
+                }
               }
             })
             
+            // Fetch actual usage from metrics API
+            let totalCpu = 0
+            let totalMemory = 0
+            
+            try {
+              const response = await api.get(`/clusters/${pod.clusterName}/namespaces/${pod.metadata.namespace}/pods/${pod.metadata.name}/metrics`)
+              const data = response.data
+              
+              if (data && data.containers) {
+                data.containers.forEach((container: any) => {
+                  if (container.usage) {
+                    // Parse CPU (e.g., "10m" or "0.01")
+                    const cpuStr = container.usage.cpu || '0'
+                    if (cpuStr.endsWith('m')) {
+                      totalCpu += parseInt(cpuStr.replace('m', ''))
+                    } else if (cpuStr.endsWith('n')) {
+                      totalCpu += parseInt(cpuStr.replace('n', '')) / 1000000
+                    } else {
+                      totalCpu += parseFloat(cpuStr) * 1000
+                    }
+                    
+                    // Parse Memory (e.g., "128Mi" or "134217728")
+                    const memStr = container.usage.memory || '0'
+                    if (memStr.endsWith('Ki')) {
+                      totalMemory += parseInt(memStr.replace('Ki', '')) * 1024
+                    } else if (memStr.endsWith('Mi')) {
+                      totalMemory += parseInt(memStr.replace('Mi', '')) * 1024 * 1024
+                    } else if (memStr.endsWith('Gi')) {
+                      totalMemory += parseInt(memStr.replace('Gi', '')) * 1024 * 1024 * 1024
+                    } else {
+                      totalMemory += parseInt(memStr)
+                    }
+                  }
+                })
+              }
+            } catch (error) {
+              // Metrics API might not be available, continue with 0 usage
+            }
+            
             metricsMap[`${pod.clusterName}-${pod.metadata.namespace}-${pod.metadata.name}`] = {
               cpuUsage: totalCpu,
-              memoryUsage: totalMemory
+              memoryUsage: totalMemory,
+              cpuRequests: totalCpuRequests,
+              memoryRequests: totalMemoryRequests,
+              cpuLimits: totalCpuLimits,
+              memoryLimits: totalMemoryLimits
             }
+          } catch (error) {
+            // Silently fail for individual pods
           }
-        } catch (error) {
-          // Ignore errors, metrics not available
+        })
+      )
+      
+      // Update metrics after each batch
+      setPodMetrics(prev => ({ ...prev, ...metricsMap }))
+    }
+  }
+
+  // Helper functions
+  const getPodStatus = (pod: PodData) => {
+    return pod.status?.phase || 'Unknown'
+  }
+
+  const isPodReady = (pod: PodData) => {
+    const conditions = pod.status?.conditions || []
+    return conditions.some((c) => c.type === 'Ready' && c.status === 'True')
+  }
+
+  const getTotalRestarts = (pod: PodData) => {
+    const containerStatuses = pod.status?.containerStatuses || []
+    return containerStatuses.reduce((sum, container) => sum + (container.restartCount || 0), 0)
+  }
+
+  const getContainerCount = (pod: PodData) => {
+    const containers = pod.spec?.containers || []
+    const containerStatuses = pod.status?.containerStatuses || []
+    const readyCount = containerStatuses.filter((c) => c.state?.running).length
+    return `${readyCount}/${containers.length}`
+  }
+
+  const formatCPU = (millicores: number): string => {
+    if (millicores >= 1000) {
+      return `${(millicores / 1000).toFixed(2)} cores`
+    }
+    return `${millicores.toFixed(0)}m`
+  }
+
+  const formatMemory = (bytes: number): string => {
+    if (bytes >= 1024 * 1024 * 1024) {
+      return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+    } else if (bytes >= 1024 * 1024) {
+      return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+    }
+    return `${(bytes / 1024).toFixed(2)} KB`
+  }
+
+  // Action handlers
+  const handleViewDetails = (pod: PodData) => {
+    navigate(`/clusters/${pod.clusterName}/namespaces/${pod.metadata.namespace}/pods/${pod.metadata.name}`)
+  }
+
+  const handleDelete = async () => {
+    if (!deleteModal.pod) return
+    
+    try {
+      await api.delete(`/clusters/${deleteModal.pod.clusterName}/namespaces/${deleteModal.pod.metadata.namespace}/pods/${deleteModal.pod.metadata.name}`)
+      setDeleteModal({ isOpen: false, pod: null })
+      refetch()
+    } catch (error: any) {
+      console.error('Failed to delete pod:', error)
+      alert(`Failed to delete pod: ${error.message || 'Unknown error'}`)
+    }
+  }
+
+  // Define columns
+  const columns = useMemo<Column<PodData>[]>(() => [
+    {
+      key: 'name',
+      header: 'Name',
+      accessor: (pod) => (
+        <div className="flex items-center gap-2">
+          <CubeIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+          <div className="min-w-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                navigate(`/clusters/${pod.clusterName}/namespaces/${pod.metadata.namespace}/pods/${pod.metadata.name}`)
+              }}
+              className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate text-left"
+            >
+              {pod.metadata.name}
+            </button>
+            {!cluster && (
+              <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                {pod.clusterName}
+              </div>
+            )}
+          </div>
+        </div>
+      ),
+      sortable: true,
+      sortValue: (pod) => pod.metadata.name,
+      searchValue: (pod) => `${pod.metadata.name} ${pod.clusterName}`,
+    },
+    {
+      key: 'namespace',
+      header: 'Namespace',
+      accessor: (pod) => (
+        <button
+          onClick={async (e) => {
+            e.stopPropagation()
+            try {
+              await api.put('/session', {
+                selected_cluster: pod.clusterName,
+                selected_namespace: pod.metadata.namespace
+              })
+              // Navigate to pods page with namespace in route
+              navigate(`/clusters/${pod.clusterName}/namespaces/${pod.metadata.namespace}/pods`)
+              // Force refetch after navigation
+              setTimeout(() => refetch(), 100)
+            } catch (error) {
+              console.error('Failed to update session:', error)
+            }
+          }}
+          className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
+        >
+          {pod.metadata.namespace}
+        </button>
+      ),
+      sortable: true,
+      sortValue: (pod) => pod.metadata.namespace,
+      searchValue: (pod) => pod.metadata.namespace,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      accessor: (pod) => {
+        const status = getPodStatus(pod)
+        const ready = isPodReady(pod)
+        const isRunning = status === 'Running'
+        const isSucceeded = status === 'Succeeded'
+        const isFailed = status === 'Failed'
+        const isPending = status === 'Pending'
+        
+        return (
+          <span className={clsx(
+            'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full',
+            isRunning && ready
+              ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+              : isSucceeded
+              ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400'
+              : isFailed
+              ? 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+              : isPending
+              ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400'
+              : 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400'
+          )}>
+            <span className={clsx(
+              'w-1.5 h-1.5 rounded-full',
+              isRunning && ready ? 'bg-green-600 dark:bg-green-400' :
+              isSucceeded ? 'bg-blue-600 dark:bg-blue-400' :
+              isFailed ? 'bg-red-600 dark:bg-red-400' :
+              isPending ? 'bg-yellow-600 dark:bg-yellow-400' :
+              'bg-gray-600 dark:bg-gray-400'
+            )} />
+            {status}
+          </span>
+        )
+      },
+      sortable: true,
+      sortValue: (pod) => getPodStatus(pod),
+      searchValue: (pod) => getPodStatus(pod),
+    },
+    {
+      key: 'containers',
+      header: 'Containers',
+      accessor: (pod) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {getContainerCount(pod)}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (pod) => {
+        const [ready, total] = getContainerCount(pod).split('/').map(Number)
+        return ready / (total || 1)
+      },
+      searchValue: (pod) => getContainerCount(pod),
+    },
+    {
+      key: 'restarts',
+      header: 'Restarts',
+      accessor: (pod) => {
+        const restarts = getTotalRestarts(pod)
+        return (
+          <span className={clsx(
+            'text-sm font-medium',
+            restarts > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-gray-700 dark:text-gray-300'
+          )}>
+            {restarts}
+          </span>
+        )
+      },
+      sortable: true,
+      sortValue: (pod) => getTotalRestarts(pod),
+      searchValue: (pod) => getTotalRestarts(pod).toString(),
+    },
+    {
+      key: 'cpu',
+      header: 'CPU',
+      accessor: (pod) => {
+        const metrics = podMetrics[`${pod.clusterName}-${pod.metadata.namespace}-${pod.metadata.name}`]
+        
+        if (!metrics) {
+          return <span className="text-sm text-gray-400 dark:text-gray-500">-</span>
         }
-      })
-    )
-    
-    setPodMetrics(metricsMap)
-  }
+        
+        const cpuUsage = metrics.cpuUsage || 0
+        const cpuLimit = metrics.cpuLimits || 0
+        
+        // Calculate utilization percentage (usage/limit)
+        const utilization = cpuLimit > 0 
+          ? Math.min((cpuUsage / cpuLimit) * 100, 100)
+          : 0
 
-  const parseCPUToMillicores = (cpu: string): number => {
-    if (!cpu) return 0
-    if (cpu.endsWith('m')) {
-      return parseInt(cpu.replace('m', ''))
-    } else if (cpu.endsWith('n')) {
-      return parseInt(cpu.replace('n', '')) / 1000000
-    } else {
-      return parseFloat(cpu) * 1000
-    }
-  }
-
-  const parseMemoryToBytes = (memory: string): number => {
-    if (!memory) return 0
-    if (memory.endsWith('Ki')) {
-      return parseInt(memory.replace('Ki', '')) * 1024
-    } else if (memory.endsWith('Mi')) {
-      return parseInt(memory.replace('Mi', '')) * 1024 * 1024
-    } else if (memory.endsWith('Gi')) {
-      return parseInt(memory.replace('Gi', '')) * 1024 * 1024 * 1024
-    } else {
-      return parseInt(memory)
-    }
-  }
-
-  const formatBytes = (bytes: number) => {
-    if (!bytes) return 'N/A'
-    const k = 1024
-    const sizes = ['B', 'KB', 'MB', 'GB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return `${(bytes / Math.pow(k, i)).toFixed(1)}${sizes[i]}`
-  }
-
-  const formatCPU = (millicores: number) => {
-    if (!millicores) return 'N/A'
-    const cores = millicores / 1000
-    if (cores < 0.01) {
-      return `${millicores.toFixed(0)}m` // Show millicores for very small values
-    }
-    if (cores < 1) {
-      return `${cores.toFixed(3)} cores`
-    }
-    return `${cores.toFixed(2)} cores`
-  }
-
-  const getTotalRestarts = (pod: any) => {
-    if (!pod.status?.containerStatuses) return 0
-    return pod.status.containerStatuses.reduce((sum: number, container: any) => sum + (container.restartCount || 0), 0)
-  }
-
-  const getContainerStatusSummary = (pod: any) => {
-    if (!pod.status?.containerStatuses) return { ready: 0, total: 0, waiting: 0, error: 0 }
-    
-    const total = pod.status.containerStatuses.length
-    const ready = pod.status.containerStatuses.filter((c: any) => c.ready).length
-    const waiting = pod.status.containerStatuses.filter((c: any) => c.state?.waiting).length
-    const error = pod.status.containerStatuses.filter((c: any) => c.state?.terminated?.reason === 'Error').length
-    
-    return { ready, total, waiting, error }
-  }
-
-  const handlePodClick = (pod: any) => {
-    setSelectedPod(pod)
-    setIsDetailsModalOpen(true)
-  }
-
-  const handleShellClick = (pod: any, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setSelectedPod(pod)
-    setIsShellModalOpen(true)
-  }
-
-  const handleLogsClick = (pod: any, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setSelectedPod(pod)
-    setIsLogsModalOpen(true)
-  }
-
-  const handleEditClick = (pod: any, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setSelectedPod(pod)
-    setIsEditModalOpen(true)
-  }
-
-  const handleDeleteClick = (pod: any, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setSelectedPod(pod)
-    setIsDeleteModalOpen(true)
-  }
-
-  const handleDeleteSuccess = async () => {
-    await queryClient.invalidateQueries({ queryKey: ['pods'] })
-    await queryClient.invalidateQueries({ queryKey: ['all-pods'] })
-    await queryClient.refetchQueries({ queryKey: ['pods'] })
-    await queryClient.refetchQueries({ queryKey: ['all-pods'] })
-    setIsDeleteModalOpen(false)
-    setSelectedPod(null)
-  }
-
-  if (isError) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <div className="text-center">
-          <div className="text-red-600 dark:text-red-400 text-lg font-semibold mb-2">
-            Error loading pods
+        return (
+          <div className="w-full min-w-[120px]">
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-1.5">
+                <CpuChipIcon className="w-4 h-4 text-blue-500 dark:text-blue-400" />
+                <span className="text-xs font-medium text-gray-700 dark:text-gray-300 font-mono">
+                  {formatCPU(cpuUsage)}
+                </span>
+              </div>
+              {cpuLimit > 0 ? (
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {utilization.toFixed(0)}%
+                </span>
+              ) : (
+                <span className="text-xs text-gray-400 dark:text-gray-500 italic">
+                  No Limit
+                </span>
+              )}
+            </div>
+            {cpuLimit > 0 && (
+              <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700 overflow-hidden">
+                <div
+                  className={clsx(
+                    'h-1.5 rounded-full transition-all duration-300',
+                    utilization >= 90 ? 'bg-red-600 dark:bg-red-500' :
+                    utilization >= 75 ? 'bg-orange-600 dark:bg-orange-500' :
+                    'bg-blue-600 dark:bg-blue-500'
+                  )}
+                  style={{ width: `${utilization}%` }}
+                />
+              </div>
+            )}
           </div>
-          <div className="text-gray-600 dark:text-gray-400 text-sm">
-            {error instanceof Error ? error.message : 'Unknown error occurred'}
+        )
+      },
+      sortable: true,
+      sortValue: (pod) => {
+        const metrics = podMetrics[`${pod.clusterName}-${pod.metadata.namespace}-${pod.metadata.name}`]
+        return metrics?.cpuUsage || 0
+      },
+      searchValue: (pod) => {
+        const metrics = podMetrics[`${pod.clusterName}-${pod.metadata.namespace}-${pod.metadata.name}`]
+        return metrics ? formatCPU(metrics.cpuUsage) : ''
+      },
+    },
+    {
+      key: 'memory',
+      header: 'Memory',
+      accessor: (pod) => {
+        const metrics = podMetrics[`${pod.clusterName}-${pod.metadata.namespace}-${pod.metadata.name}`]
+        
+        if (!metrics) {
+          return <span className="text-sm text-gray-400 dark:text-gray-500">-</span>
+        }
+        
+        const memoryUsage = metrics.memoryUsage || 0
+        const memoryLimit = metrics.memoryLimits || 0
+        
+        // Calculate utilization percentage (usage/limit)
+        const utilization = memoryLimit > 0 
+          ? Math.min((memoryUsage / memoryLimit) * 100, 100)
+          : 0
+
+        return (
+          <div className="w-full min-w-[120px]">
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-1.5">
+                <CircleStackIcon className="w-4 h-4 text-green-500 dark:text-green-400" />
+                <span className="text-xs font-medium text-gray-700 dark:text-gray-300 font-mono">
+                  {formatMemory(memoryUsage)}
+                </span>
+              </div>
+              {memoryLimit > 0 ? (
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {utilization.toFixed(0)}%
+                </span>
+              ) : (
+                <span className="text-xs text-gray-400 dark:text-gray-500 italic">
+                  No Limit
+                </span>
+              )}
+            </div>
+            {memoryLimit > 0 && (
+              <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700 overflow-hidden">
+                <div
+                  className={clsx(
+                    'h-1.5 rounded-full transition-all duration-300',
+                    utilization >= 90 ? 'bg-red-600 dark:bg-red-500' :
+                    utilization >= 75 ? 'bg-orange-600 dark:bg-orange-500' :
+                    'bg-green-600 dark:bg-green-500'
+                  )}
+                  style={{ width: `${utilization}%` }}
+                />
+              </div>
+            )}
           </div>
+        )
+      },
+      sortable: true,
+      sortValue: (pod) => {
+        const metrics = podMetrics[`${pod.clusterName}-${pod.metadata.namespace}-${pod.metadata.name}`]
+        return metrics?.memoryUsage || 0
+      },
+      searchValue: (pod) => {
+        const metrics = podMetrics[`${pod.clusterName}-${pod.metadata.namespace}-${pod.metadata.name}`]
+        return metrics ? formatMemory(metrics.memoryUsage) : ''
+      },
+    },
+    {
+      key: 'node',
+      header: 'Node',
+      accessor: (pod) => {
+        const nodeName = pod.spec?.nodeName
+        if (!nodeName) {
+          return <span className="text-sm text-gray-400 dark:text-gray-500">-</span>
+        }
+        return (
           <button
-            onClick={() => podQueries.refetch()}
-            className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+            onClick={(e) => {
+              e.stopPropagation()
+              navigate(`/clusters/${pod.clusterName}/nodes/${nodeName}`)
+            }}
+            className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate"
           >
-            Retry
+            {nodeName}
+          </button>
+        )
+      },
+      sortable: true,
+      sortValue: (pod) => pod.spec?.nodeName || '',
+      searchValue: (pod) => pod.spec?.nodeName || '',
+    },
+    {
+      key: 'age',
+      header: 'Age',
+      accessor: (pod) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {formatAge(pod.metadata.creationTimestamp)}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (pod) => new Date(pod.metadata.creationTimestamp).getTime(),
+      searchValue: (pod) => formatAge(pod.metadata.creationTimestamp),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      accessor: (pod) => (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              handleViewDetails(pod)
+            }}
+            className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+            title="View Details"
+          >
+            <EyeIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              navigate(`/clusters/${pod.clusterName}/namespaces/${pod.metadata.namespace}/pods/${pod.metadata.name}?tab=terminal`)
+            }}
+            className="p-1.5 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/20 rounded transition-colors"
+            title="Shell"
+          >
+            <CommandLineIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              navigate(`/clusters/${pod.clusterName}/namespaces/${pod.metadata.namespace}/pods/${pod.metadata.name}?tab=logs`)
+            }}
+            className="p-1.5 text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
+            title="Logs"
+          >
+            <DocumentTextIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              navigate(`/clusters/${pod.clusterName}/namespaces/${pod.metadata.namespace}/pods/${pod.metadata.name}?tab=yaml`)
+            }}
+            className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+            title="Edit YAML"
+          >
+            <PencilIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setDeleteModal({ isOpen: true, pod })
+            }}
+            className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+            title="Delete"
+          >
+            <TrashIcon className="w-4 h-4" />
           </button>
         </div>
-      </div>
-    )
-  }
+      ),
+      sortable: false,
+    },
+  ], [cluster, namespace, podMetrics, navigate, refetch])
 
   return (
-    <div className="space-y-4 sm:space-y-6">
+    <div className="space-y-4 md:space-y-6">
+      <Breadcrumb
+        items={[
+          ...(cluster ? [{ name: cluster, href: `/clusters/${cluster}` }] : []),
+          ...(namespace ? [{ name: namespace, href: `/clusters/${cluster}/namespaces/${namespace}` }] : []),
+          { name: 'Pods' }
+        ]}
+      />
+
       <div>
-           <Breadcrumb
-              items={
-                cluster
-                  ? [
-                      { name: cluster, href: "/dashboard" },
-                      { name: 'Pods' }
-                    ]
-                  : [{ name: 'Pods' }]
-              }
-            />
+        <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
+          Pods
+        </h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          Manage and monitor your Kubernetes pods
+        </p>
       </div>
       
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">Pods</h1>
-          <p className="mt-1 sm:mt-2 text-sm text-gray-600 dark:text-gray-400">
-            {cluster && namespace
-              ? `Pods in namespace "${namespace}" of cluster "${cluster}"`
-              : cluster 
-                ? `Pods in cluster: ${cluster}`
-                : `All pods across ${clusters?.length || 0} cluster(s)`
-            }
-          </p>
+      <DataTable
+        data={allPods || []}
+        columns={columns}
+        keyExtractor={(pod) => `${pod.clusterName}-${pod.metadata.namespace}-${pod.metadata.name}`}
+        searchPlaceholder="Search pods by name, cluster, namespace, status, node..."
+        isLoading={isLoading}
+        emptyMessage="No pods found"
+        emptyIcon={
+          <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
+            <CubeIcon className="w-6 h-6 text-gray-400 dark:text-gray-500" />
+          </div>
+        }
+        mobileCardRenderer={(pod) => (
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <CubeIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+                <div className="min-w-0">
+                  <div className="font-semibold text-gray-900 dark:text-white truncate">
+                    {pod.metadata.name}
         </div>
-        <div className="relative w-full sm:w-64">
-          <MagnifyingGlassIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Filter by name..."
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            className="w-full pl-11 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-          />
+                  <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                    {pod.metadata.namespace}
         </div>
-      </div>
-
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                <ResizableTableHeader
-                  label="Name"
-                  columnKey="name"
-                  sortKey="metadata.name"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.name}
-                />
-                <ResizableTableHeader
-                  label="Namespace"
-                  columnKey="namespace"
-                  sortKey="metadata.namespace"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.namespace}
-                />
-                <ResizableTableHeader
-                  label="Containers"
-                  columnKey="containers"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.containers}
-                  align="center"
-                />
-                <ResizableTableHeader
-                  label="Status"
-                  columnKey="status"
-                  sortKey="status.phase"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.status}
-                />
-                <ResizableTableHeader
-                  label="QoS"
-                  columnKey="qos"
-                  sortKey="status.qosClass"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.qos}
-                  align="center"
-                />
-                <ResizableTableHeader
-                  label="Restarts"
-                  columnKey="restarts"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.restarts}
-                  align="center"
-                />
-                <ResizableTableHeader
-                  label="CPU"
-                  columnKey="cpu"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.cpu}
-                />
-                <ResizableTableHeader
-                  label="Memory"
-                  columnKey="memory"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.memory}
-                />
-                <ResizableTableHeader
-                  label="Node"
-                  columnKey="node"
-                  sortKey="spec.nodeName"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.node}
-                />
-                <ResizableTableHeader
-                  label="Age"
-                  columnKey="age"
-                  sortKey="metadata.creationTimestamp"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.age}
-                />
-                <ResizableTableHeader
-                  label="Actions"
-                  columnKey="actions"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.actions}
-                  align="right"
-                />
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={11} className="px-6 py-12 text-center">
-                    <div className="flex items-center justify-center">
-                      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-primary-600"></div>
-                      <span className="ml-3 text-gray-500 dark:text-gray-400">Loading pods...</span>
+                  {!cluster && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      {pod.clusterName}
                     </div>
-                  </td>
-                </tr>
-              ) : pods.length === 0 ? (
-                <tr>
-                  <td colSpan={11} className="px-6 py-12 text-center">
-                    <p className="text-gray-500 dark:text-gray-400">No pods found</p>
-                  </td>
-                </tr>
-              ) : (
-                pods.map((pod) => {
-                  const containerStatus = getContainerStatusSummary(pod)
-                  const podKey = `${pod.clusterName}-${pod.metadata.namespace}-${pod.metadata.name}`
-                  const metrics = podMetrics[podKey]
-                  const restarts = getTotalRestarts(pod)
-                  
-                  return (
-                    <tr 
-                      key={podKey} 
-                      onClick={() => handlePodClick(pod)}
-                      className="hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer transition-colors"
-                    >
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 text-xs sm:text-sm font-medium text-gray-900 dark:text-white">
-                        <div className="truncate max-w-[150px] sm:max-w-none">
-                          {pod.metadata.name}
+                  )}
                         </div>
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {pod.metadata.namespace}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          {containerStatus.ready > 0 && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                              {containerStatus.ready}
-                            </span>
-                          )}
-                          {containerStatus.waiting > 0 && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
-                              {containerStatus.waiting}
-                            </span>
-                          )}
-                          {containerStatus.error > 0 && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
-                              {containerStatus.error}
-                            </span>
-                          )}
-                          <span className="text-xs text-gray-400">/{containerStatus.total}</span>
                         </div>
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap">
-                        <span
-                          className={clsx(
-                            'badge text-xs',
-                            pod.metadata.deletionTimestamp ? 'badge-error' : '',
-                            !pod.metadata.deletionTimestamp && pod.status.phase === 'Running' && 'badge-success',
-                            !pod.metadata.deletionTimestamp && pod.status.phase === 'Pending' && 'badge-warning',
-                            !pod.metadata.deletionTimestamp && pod.status.phase === 'Failed' && 'badge-error',
-                            !pod.metadata.deletionTimestamp && pod.status.phase === 'Succeeded' && 'badge-info'
-                          )}
-                        >
-                          {pod.metadata.deletionTimestamp ? 'Terminating' : pod.status.phase}
-                        </span>
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-center">
                         <span className={clsx(
-                          'text-xs px-2 py-0.5 rounded font-medium',
-                          pod.status?.qosClass === 'Guaranteed' && 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-                          pod.status?.qosClass === 'Burstable' && 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-                          pod.status?.qosClass === 'BestEffort' && 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400'
-                        )}>
-                          {pod.status?.qosClass || 'N/A'}
+                'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full shrink-0',
+                getPodStatus(pod) === 'Running' && isPodReady(pod)
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+                  : getPodStatus(pod) === 'Succeeded'
+                  ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400'
+                  : getPodStatus(pod) === 'Failed'
+                  ? 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+                  : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400'
+              )}>
+                <span className={clsx(
+                  'w-1.5 h-1.5 rounded-full',
+                  getPodStatus(pod) === 'Running' && isPodReady(pod) ? 'bg-green-600' :
+                  getPodStatus(pod) === 'Succeeded' ? 'bg-blue-600' :
+                  getPodStatus(pod) === 'Failed' ? 'bg-red-600' :
+                  'bg-yellow-600'
+                )} />
+                {getPodStatus(pod)}
                         </span>
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-center">
+            </div>
+            
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Containers:</span>
+                <span className="ml-1 text-gray-900 dark:text-white">{getContainerCount(pod)}</span>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Restarts:</span>
                         <span className={clsx(
-                          'text-xs sm:text-sm font-medium',
-                          restarts > 0 ? 'text-yellow-600 dark:text-yellow-400' : 'text-gray-500 dark:text-gray-400'
-                        )}>
-                          {restarts}
+                  'ml-1 font-medium',
+                  getTotalRestarts(pod) > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-gray-900 dark:text-white'
+                )}>
+                  {getTotalRestarts(pod)}
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">CPU:</span>
+                <span className="ml-1 text-gray-900 dark:text-white font-mono text-xs">
+                  {(() => {
+                    const metrics = podMetrics[`${pod.clusterName}-${pod.metadata.namespace}-${pod.metadata.name}`]
+                    return metrics ? formatCPU(metrics.cpuUsage) : '-'
+                  })()}
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Memory:</span>
+                <span className="ml-1 text-gray-900 dark:text-white font-mono text-xs">
+                  {(() => {
+                    const metrics = podMetrics[`${pod.clusterName}-${pod.metadata.namespace}-${pod.metadata.name}`]
+                    return metrics ? formatMemory(metrics.memoryUsage) : '-'
+                  })()}
                         </span>
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {metrics ? formatCPU(metrics.cpuUsage) : '-'}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {metrics ? formatBytes(metrics.memoryUsage) : '-'}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {pod.spec.nodeName || 'N/A'}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {formatAge(pod.metadata.creationTimestamp)}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={(e) => handleShellClick(pod, e)}
-                            className="p-1.5 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded transition-colors"
-                            title="Open Shell"
-                          >
-                            <CommandLineIcon className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                          </button>
-                          <button
-                            onClick={(e) => handleLogsClick(pod, e)}
-                            className="p-1.5 hover:bg-green-100 dark:hover:bg-green-900/30 rounded transition-colors"
-                            title="View Logs"
-                          >
-                            <DocumentTextIcon className="h-4 w-4 text-green-600 dark:text-green-400" />
-                          </button>
-                          <button
-                            onClick={(e) => handleEditClick(pod, e)}
-                            className="p-1.5 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 rounded transition-colors"
-                            title="Edit Pod"
-                          >
-                            <PencilSquareIcon className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
-                          </button>
-                          <button
-                            onClick={(e) => handleDeleteClick(pod, e)}
-                            className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition-colors"
-                            title="Delete Pod"
-                          >
-                            <TrashIcon className="h-4 w-4 text-red-600 dark:text-red-400" />
-                          </button>
                         </div>
-                      </td>
-                    </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
+              <div className="col-span-2">
+                <span className="text-gray-500 dark:text-gray-400">Node:</span>
+                <span className="ml-1 text-gray-900 dark:text-white text-xs truncate">
+                  {pod.spec?.nodeName || '-'}
+                </span>
         </div>
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          pageSize={pageSize}
-          totalItems={totalItems}
-          onPageChange={goToPage}
-          onPageSizeChange={changePageSize}
-          onNextPage={goToNextPage}
-          onPreviousPage={goToPreviousPage}
-          hasNextPage={hasNextPage}
-          hasPreviousPage={hasPreviousPage}
-        />
       </div>
 
-      {/* Pod Details Modal */}
-      <PodDetailsModal
-        isOpen={isDetailsModalOpen}
-        onClose={() => {
-          setIsDetailsModalOpen(false)
-          setSelectedPod(null)
-        }}
-        pod={selectedPod}
-        clusterName={selectedPod?.clusterName || ''}
+            <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {formatAge(pod.metadata.creationTimestamp)}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleViewDetails(pod)
+                  }}
+                  className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                  title="View Details"
+                >
+                  <EyeIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    navigate(`/clusters/${pod.clusterName}/namespaces/${pod.metadata.namespace}/pods/${pod.metadata.name}?tab=terminal`)
+                  }}
+                  className="p-1.5 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/20 rounded transition-colors"
+                  title="Shell"
+                >
+                  <CommandLineIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    navigate(`/clusters/${pod.clusterName}/namespaces/${pod.metadata.namespace}/pods/${pod.metadata.name}?tab=logs`)
+                  }}
+                  className="p-1.5 text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
+                  title="Logs"
+                >
+                  <DocumentTextIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    navigate(`/clusters/${pod.clusterName}/namespaces/${pod.metadata.namespace}/pods/${pod.metadata.name}?tab=yaml`)
+                  }}
+                  className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+                  title="Edit YAML"
+                >
+                  <PencilIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setDeleteModal({ isOpen: true, pod })
+                  }}
+                  className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                  title="Delete"
+                >
+                  <TrashIcon className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       />
 
-      {/* Pod Shell Modal */}
-      <PodShellModal
-        isOpen={isShellModalOpen}
-        onClose={() => {
-          setIsShellModalOpen(false)
-          setSelectedPod(null)
-        }}
-        pod={selectedPod}
-        clusterName={selectedPod?.clusterName || ''}
-      />
-
-      {/* Pod Logs Modal */}
-      <PodLogsModal
-        isOpen={isLogsModalOpen}
-        onClose={() => {
-          setIsLogsModalOpen(false)
-          setSelectedPod(null)
-        }}
-        pod={selectedPod}
-        clusterName={selectedPod?.clusterName || ''}
-      />
-
-      {/* Edit Pod Modal */}
-      <EditPodModal
-        isOpen={isEditModalOpen}
-        onClose={() => {
-          setIsEditModalOpen(false)
-          setSelectedPod(null)
-        }}
-        pod={selectedPod}
-        clusterName={selectedPod?.clusterName || ''}
-        onSuccess={() => {
-          queryClient.invalidateQueries({ queryKey: ['pods'] })
-          queryClient.invalidateQueries({ queryKey: ['all-pods'] })
-        }}
-      />
-
-      {/* Delete Pod Modal */}
-      <DeletePodModal
-        isOpen={isDeleteModalOpen}
-        onClose={() => {
-          setIsDeleteModalOpen(false)
-          setSelectedPod(null)
-        }}
-        pod={selectedPod}
-        onSuccess={handleDeleteSuccess}
+      <ConfirmationModal
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal({ isOpen: false, pod: null })}
+        onConfirm={handleDelete}
+        title="Delete Pod"
+        message={`Are you sure you want to delete pod "${deleteModal.pod?.metadata.name}"? This action cannot be undone.`}
+        confirmText="Delete"
+        type="danger"
       />
     </div>
   )
 }
-

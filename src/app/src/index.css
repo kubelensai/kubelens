@@ -264,5 +264,13 @@ html.dark body {
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
+  
+  /* Animation delays for 404 page */
+  .delay-100 {
+    animation-delay: 0.1s;
+  }
+  .delay-200 {
+    animation-delay: 0.2s;
+  }
 }
 

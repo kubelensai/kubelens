@@ -31,6 +31,7 @@ import PDBs from "../pages/PDBs";
 import PersistentVolumeClaims from "../pages/PersistentVolumeClaims";
 import PersistentVolumes from "../pages/PersistentVolumes";
 import Pods from "../pages/Pods";
+import PodDetails from "../pages/PodDetails";
 import PriorityClasses from "../pages/PriorityClasses";
 import ReplicaSets from "../pages/ReplicaSets";
 import RoleBindings from "../pages/RoleBindings";
@@ -45,6 +46,7 @@ import StorageClasses from "../pages/StorageClasses";
 import Users from "../pages/Users";
 import Groups from "../pages/Groups";
 import ValidatingWebhookConfigurations from "../pages/ValidatingWebhookConfigurations";
+import NotFound from "../pages/NotFound";
 
 // Define common resource paths
 const resourceTypes = {
@@ -175,6 +177,11 @@ const routes = [
         path: "clusters/:cluster/nodes/:nodeName",
         element: withClusterCheck(<NodeDetails />),
       },
+      // Pod Details routes
+      {
+        path: "clusters/:cluster/namespaces/:namespace/pods/:podName",
+        element: withClusterCheck(<PodDetails />),
+      },
       // Custom Resources routes
       {
         path: "customresources/:group/:version/:resource",
@@ -187,6 +194,11 @@ const routes = [
       {
         path: "clusters/:cluster/namespaces/:namespace/customresources/:group/:version/:resource",
         element: withClusterCheck(<GenericCRDPage />),
+      },
+      // 404 catch-all route (must be last)
+      {
+        path: "*",
+        element: <NotFound />,
       },
     ],
   },
