@@ -883,7 +883,7 @@ export default function NodeDetails({}: NodeDetailsProps) {
         {activeTab === 'terminal' && (
           <div className="card overflow-hidden" style={{ height: '600px' }}>
             <Terminal
-              wsUrl={`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/v1/clusters/${cluster}/nodes/${nodeName}/shell?shell=/bin/bash`}
+              wsUrl={`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/v1/clusters/${cluster}/nodes/${nodeName}/shell?shell=/bin/zsh`}
               title={`Node Shell: ${nodeName}`}
               subtitle={`Cluster: ${cluster}`}
             />

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { getClusters, getNodes, cordonNode, uncordonNode, drainNode, deleteNode } from '@/services/api'
+import { getClusters, getNodes, cordonNode, uncordonNode, deleteNode } from '@/services/api'
 import { 
   ServerIcon,
   LockClosedIcon,
@@ -15,6 +15,7 @@ import clsx from 'clsx'
 import { formatAge } from '@/utils/format'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import ConfirmationModal from '@/components/shared/ConfirmationModal'
+import TerminalModal from '@/components/shared/TerminalModal'
 import { DataTable, Column } from '@/components/shared/DataTable'
 import api from '@/services/api'
 import { notifyResourceAction } from '@/utils/notifications'
@@ -62,7 +63,11 @@ export default function Nodes() {
     node: null,
     action: 'cordon'
   })
-  const [drainModal, setDrainModal] = useState<{isOpen: boolean, node: any}>({
+  const [drainConfirmModal, setDrainConfirmModal] = useState<{isOpen: boolean, node: any}>({
+    isOpen: false,
+    node: null
+  })
+  const [drainTerminalModal, setDrainTerminalModal] = useState<{isOpen: boolean, node: any}>({
     isOpen: false,
     node: null
   })
@@ -223,27 +228,23 @@ export default function Nodes() {
   }
 
   const handleDrainClick = (node: any) => {
-    setDrainModal({ isOpen: true, node })
+    // Show confirmation modal first
+    setDrainConfirmModal({ isOpen: true, node })
   }
 
-  const handleDrainConfirm = async () => {
-    const { node } = drainModal
+  const handleDrainConfirm = () => {
+    const { node } = drainConfirmModal
     if (!node) return
-
-    const nodeName = node.metadata.name
-    setActioningNode(nodeName)
     
-    try {
-      await drainNode(node.clusterName, nodeName)
-      notifyResourceAction.updated('Node', nodeName)
-      refetch()
-    } catch (error: any) {
-      console.error('Failed to drain node:', error)
-      alert(`Failed to drain node: ${error.message || 'Unknown error'}`)
-    } finally {
-      setActioningNode(null)
-      setDrainModal({ isOpen: false, node: null })
-    }
+    // Close confirmation modal and open terminal modal
+    setDrainConfirmModal({ isOpen: false, node: null })
+    setDrainTerminalModal({ isOpen: true, node })
+  }
+
+  const handleDrainTerminalClose = () => {
+    setDrainTerminalModal({ isOpen: false, node: null })
+    // Refetch to update node status after drain
+    refetch()
   }
 
   const handleDeleteClick = (node: any) => {
@@ -299,21 +300,46 @@ export default function Nodes() {
       header: 'Status',
       accessor: (node) => {
         const ready = isNodeReady(node)
+        // Check if node is cordoned (has unschedulable taint)
+        const isCordoned = node.spec?.taints?.some(
+          (taint: any) => taint.key === 'node.kubernetes.io/unschedulable' && taint.effect === 'NoSchedule'
+        ) || node.spec?.unschedulable === true
+        
         return (
-          <span className={clsx(
-            'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full',
-            ready
-              ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
-              : 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400'
-          )}>
-            <span className={clsx('w-1.5 h-1.5 rounded-full', ready ? 'bg-green-600 dark:bg-green-400' : 'bg-red-600 dark:bg-red-400')} />
-            {ready ? 'Ready' : 'Not Ready'}
-          </span>
+          <div className="flex flex-col gap-1">
+            <span className={clsx(
+              'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full w-fit',
+              ready
+                ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+                : 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+            )}>
+              <span className={clsx('w-1.5 h-1.5 rounded-full', ready ? 'bg-green-600 dark:bg-green-400' : 'bg-red-600 dark:bg-red-400')} />
+              {ready ? 'Ready' : 'Not Ready'}
+            </span>
+            {isCordoned && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400 w-fit">
+                <span className="w-1.5 h-1.5 rounded-full bg-yellow-600 dark:bg-yellow-400" />
+                NoSchedule
+              </span>
+            )}
+          </div>
         )
       },
       sortable: true,
-      sortValue: (node) => isNodeReady(node) ? 'Ready' : 'Not Ready',
-      searchValue: (node) => isNodeReady(node) ? 'Ready' : 'Not Ready',
+      sortValue: (node) => {
+        const ready = isNodeReady(node) ? 'Ready' : 'Not Ready'
+        const isCordoned = node.spec?.taints?.some(
+          (taint: any) => taint.key === 'node.kubernetes.io/unschedulable' && taint.effect === 'NoSchedule'
+        ) || node.spec?.unschedulable === true
+        return isCordoned ? `${ready} (NoSchedule)` : ready
+      },
+      searchValue: (node) => {
+        const ready = isNodeReady(node) ? 'Ready' : 'Not Ready'
+        const isCordoned = node.spec?.taints?.some(
+          (taint: any) => taint.key === 'node.kubernetes.io/unschedulable' && taint.effect === 'NoSchedule'
+        ) || node.spec?.unschedulable === true
+        return isCordoned ? `${ready} NoSchedule Cordoned` : ready
+      },
     },
     {
       key: 'roles',
@@ -670,13 +696,25 @@ export default function Nodes() {
       />
 
       <ConfirmationModal
-        isOpen={drainModal.isOpen}
-        onClose={() => setDrainModal({ isOpen: false, node: null })}
+        isOpen={drainConfirmModal.isOpen}
+        onClose={() => setDrainConfirmModal({ isOpen: false, node: null })}
         onConfirm={handleDrainConfirm}
         title="Drain Node"
-        message={`Are you sure you want to drain node "${drainModal.node?.metadata?.name}"? This will evict all pods from the node.`}
-        confirmText="Drain"
+        message={`Are you sure you want to drain node "${drainConfirmModal.node?.metadata?.name}"? This will evict all pods from the node and may take several minutes.`}
+        confirmText="Start Drain"
         type="warning"
+      />
+
+      <TerminalModal
+        isOpen={drainTerminalModal.isOpen}
+        onClose={handleDrainTerminalClose}
+        wsUrl={
+          drainTerminalModal.node
+            ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/v1/clusters/${drainTerminalModal.node.clusterName}/nodes/${drainTerminalModal.node.metadata.name}/drain?force=true&grace-period=300&delete-local-data=true`
+            : ''
+        }
+        title={`Drain Node: ${drainTerminalModal.node?.metadata?.name || ''}`}
+        subtitle={`Cluster: ${drainTerminalModal.node?.clusterName || ''}`}
       />
 
       <ConfirmationModal

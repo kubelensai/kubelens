@@ -411,6 +411,7 @@ func main() {
 		protected.GET("/clusters/:name/nodes/:node", apiHandler.GetNode)
 		protected.GET("/clusters/:name/nodes/:node/metrics", apiHandler.GetNodeMetrics)
 		protected.GET("/clusters/:name/nodes/:node/shell", apiHandler.NodeShell)
+		protected.GET("/clusters/:name/nodes/:node/drain", apiHandler.NodeDrainInteractive)
 		protected.POST("/clusters/:name/nodes/:node/cordon", apiHandler.CordonNode)
 		protected.POST("/clusters/:name/nodes/:node/uncordon", apiHandler.UncordonNode)
 		protected.POST("/clusters/:name/nodes/:node/drain", apiHandler.DrainNode)

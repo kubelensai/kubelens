@@ -226,6 +226,12 @@ func (h *Handler) AddCluster(c *gin.Context) {
 		return
 	}
 
+	// Setup kubelens ServiceAccount in kube-system namespace
+	if err := h.setupKubelensServiceAccount(req.Name); err != nil {
+		log.Warnf("Failed to setup kubelens ServiceAccount for cluster %s: %v", req.Name, err)
+		// Don't fail the cluster import if SA setup fails
+	}
+
 	c.JSON(http.StatusCreated, gin.H{
 		"message":   "Cluster added successfully",
 		"name":      req.Name,
@@ -2026,240 +2032,6 @@ func (h *Handler) GetEndpoint(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, endpoint)
-}
-
-// ListNodes returns a list of nodes
-func (h *Handler) ListNodes(c *gin.Context) {
-	clusterName := c.Param("name")
-
-	client, err := h.clusterManager.GetClient(clusterName)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-
-	nodes, err := client.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
-	if err != nil {
-		log.Errorf("Failed to list nodes: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"nodes": nodes.Items})
-}
-
-// GetNode returns details of a specific node
-func (h *Handler) GetNode(c *gin.Context) {
-	clusterName := c.Param("name")
-	nodeName := c.Param("node")
-
-	client, err := h.clusterManager.GetClient(clusterName)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-
-	node, err := client.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
-	if err != nil {
-		log.Errorf("Failed to get node: %v", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, node)
-}
-
-// CordonNode marks a node as unschedulable
-func (h *Handler) CordonNode(c *gin.Context) {
-	clusterName := c.Param("name")
-	nodeName := c.Param("node")
-
-	client, err := h.clusterManager.GetClient(clusterName)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Get the node first
-	node, err := client.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
-	if err != nil {
-		log.Errorf("Failed to get node: %v", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Check if already cordoned
-	if node.Spec.Unschedulable {
-		c.JSON(http.StatusOK, gin.H{"message": "Node is already cordoned"})
-		return
-	}
-
-	// Patch node to set unschedulable
-	node.Spec.Unschedulable = true
-	_, err = client.CoreV1().Nodes().Update(context.Background(), node, metav1.UpdateOptions{})
-	if err != nil {
-		log.Errorf("Failed to cordon node: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	log.Infof("Successfully cordoned node: %s", nodeName)
-	c.JSON(http.StatusOK, gin.H{"message": "Node cordoned successfully"})
-}
-
-// UncordonNode marks a node as schedulable
-func (h *Handler) UncordonNode(c *gin.Context) {
-	clusterName := c.Param("name")
-	nodeName := c.Param("node")
-
-	client, err := h.clusterManager.GetClient(clusterName)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Get the node first
-	node, err := client.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
-	if err != nil {
-		log.Errorf("Failed to get node: %v", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Check if already uncordoned
-	if !node.Spec.Unschedulable {
-		c.JSON(http.StatusOK, gin.H{"message": "Node is already uncordoned"})
-		return
-	}
-
-	// Patch node to set schedulable
-	node.Spec.Unschedulable = false
-	_, err = client.CoreV1().Nodes().Update(context.Background(), node, metav1.UpdateOptions{})
-	if err != nil {
-		log.Errorf("Failed to uncordon node: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	log.Infof("Successfully uncordoned node: %s", nodeName)
-	c.JSON(http.StatusOK, gin.H{"message": "Node uncordoned successfully"})
-}
-
-// DrainNode evicts all pods from a node
-func (h *Handler) DrainNode(c *gin.Context) {
-	clusterName := c.Param("name")
-	nodeName := c.Param("node")
-
-	client, err := h.clusterManager.GetClient(clusterName)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-
-	// First, cordon the node
-	node, err := client.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
-	if err != nil {
-		log.Errorf("Failed to get node: %v", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-
-	if !node.Spec.Unschedulable {
-		node.Spec.Unschedulable = true
-		_, err = client.CoreV1().Nodes().Update(context.Background(), node, metav1.UpdateOptions{})
-		if err != nil {
-			log.Errorf("Failed to cordon node before drain: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to cordon node: %v", err)})
-			return
-		}
-	}
-
-	// Get all pods on this node
-	pods, err := client.CoreV1().Pods(metav1.NamespaceAll).List(context.Background(), metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("spec.nodeName=%s", nodeName),
-	})
-	if err != nil {
-		log.Errorf("Failed to list pods on node: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	evictedCount := 0
-	failedCount := 0
-	skippedCount := 0
-
-	// Evict each pod
-	for _, pod := range pods.Items {
-		// Skip DaemonSet pods (they can't be evicted)
-		if pod.OwnerReferences != nil {
-			isDaemonSet := false
-			for _, owner := range pod.OwnerReferences {
-				if owner.Kind == "DaemonSet" {
-					isDaemonSet = true
-					break
-				}
-			}
-			if isDaemonSet {
-				skippedCount++
-				continue
-			}
-		}
-
-		// Skip pods that are already terminating
-		if pod.DeletionTimestamp != nil {
-			skippedCount++
-			continue
-		}
-
-		// Create eviction
-		eviction := &policyv1.Eviction{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      pod.Name,
-				Namespace: pod.Namespace,
-			},
-			DeleteOptions: &metav1.DeleteOptions{
-				GracePeriodSeconds: pod.Spec.TerminationGracePeriodSeconds,
-			},
-		}
-
-		err := client.CoreV1().Pods(pod.Namespace).EvictV1(context.Background(), eviction)
-		if err != nil {
-			log.Warnf("Failed to evict pod %s/%s: %v", pod.Namespace, pod.Name, err)
-			failedCount++
-		} else {
-			evictedCount++
-		}
-	}
-
-	log.Infof("Drained node %s: %d evicted, %d failed, %d skipped (DaemonSets)", nodeName, evictedCount, failedCount, skippedCount)
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Node drain initiated",
-		"evicted": evictedCount,
-		"failed":  failedCount,
-		"skipped": skippedCount,
-	})
-}
-
-// DeleteNode deletes a node from the cluster
-func (h *Handler) DeleteNode(c *gin.Context) {
-	clusterName := c.Param("name")
-	nodeName := c.Param("node")
-
-	client, err := h.clusterManager.GetClient(clusterName)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-
-	err = client.CoreV1().Nodes().Delete(context.Background(), nodeName, metav1.DeleteOptions{})
-	if err != nil {
-		log.Errorf("Failed to delete node: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	log.Infof("Successfully deleted node: %s", nodeName)
-	c.JSON(http.StatusOK, gin.H{"message": "Node deleted successfully"})
 }
 
 // ListEvents returns a list of events
@@ -5684,4 +5456,95 @@ func (h *Handler) UpdateIntegration(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, integration)
+}
+
+// setupKubelensServiceAccount creates a ServiceAccount in kube-system namespace
+// and binds it to cluster-admin ClusterRole for node operations
+func (h *Handler) setupKubelensServiceAccount(clusterName string) error {
+	client, err := h.clusterManager.GetClient(clusterName)
+	if err != nil {
+		return fmt.Errorf("failed to get client: %v", err)
+	}
+
+	ctx := context.Background()
+	namespace := "kube-system"
+	serviceAccountName := "kubelens"
+	clusterRoleBindingName := "kubelens-cluster-admin"
+
+	// 1. Create ServiceAccount if it doesn't exist
+	_, err = client.CoreV1().ServiceAccounts(namespace).Get(ctx, serviceAccountName, metav1.GetOptions{})
+	if err != nil {
+		log.Infof("Creating ServiceAccount %s in namespace %s for cluster %s", serviceAccountName, namespace, clusterName)
+		sa := &corev1.ServiceAccount{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      serviceAccountName,
+				Namespace: namespace,
+				Labels: map[string]string{
+					"app.kubernetes.io/name":       "kubelens",
+					"app.kubernetes.io/managed-by": "kubelens",
+				},
+			},
+		}
+		_, err = client.CoreV1().ServiceAccounts(namespace).Create(ctx, sa, metav1.CreateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create ServiceAccount: %v", err)
+		}
+		log.Infof("ServiceAccount %s created successfully in cluster %s", serviceAccountName, clusterName)
+	} else {
+		log.Infof("ServiceAccount %s already exists in cluster %s", serviceAccountName, clusterName)
+	}
+
+	// 2. Find cluster-admin ClusterRole (or fallback to rbac-defaults)
+	clusterRoleName := "cluster-admin"
+	_, err = client.RbacV1().ClusterRoles().Get(ctx, clusterRoleName, metav1.GetOptions{})
+	if err != nil {
+		// Fallback: try to find a ClusterRole with label kubernetes.io/bootstrapping=rbac-defaults
+		log.Warnf("cluster-admin ClusterRole not found, searching for rbac-defaults labeled roles")
+		roles, err := client.RbacV1().ClusterRoles().List(ctx, metav1.ListOptions{
+			LabelSelector: "kubernetes.io/bootstrapping=rbac-defaults",
+		})
+		if err != nil || len(roles.Items) == 0 {
+			return fmt.Errorf("no suitable ClusterRole found")
+		}
+		// Use the first rbac-defaults role
+		clusterRoleName = roles.Items[0].Name
+		log.Infof("Using ClusterRole: %s", clusterRoleName)
+	}
+
+	// 3. Create ClusterRoleBinding if it doesn't exist
+	_, err = client.RbacV1().ClusterRoleBindings().Get(ctx, clusterRoleBindingName, metav1.GetOptions{})
+	if err != nil {
+		log.Infof("Creating ClusterRoleBinding %s for cluster %s", clusterRoleBindingName, clusterName)
+		crb := &rbacv1.ClusterRoleBinding{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: clusterRoleBindingName,
+				Labels: map[string]string{
+					"app.kubernetes.io/name":       "kubelens",
+					"app.kubernetes.io/managed-by": "kubelens",
+				},
+			},
+			RoleRef: rbacv1.RoleRef{
+				APIGroup: "rbac.authorization.k8s.io",
+				Kind:     "ClusterRole",
+				Name:     clusterRoleName,
+			},
+			Subjects: []rbacv1.Subject{
+				{
+					Kind:      "ServiceAccount",
+					Name:      serviceAccountName,
+					Namespace: namespace,
+				},
+			},
+		}
+		_, err = client.RbacV1().ClusterRoleBindings().Create(ctx, crb, metav1.CreateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create ClusterRoleBinding: %v", err)
+		}
+		log.Infof("ClusterRoleBinding %s created successfully in cluster %s", clusterRoleBindingName, clusterName)
+	} else {
+		log.Infof("ClusterRoleBinding %s already exists in cluster %s", clusterRoleBindingName, clusterName)
+	}
+
+	log.Infof("Kubelens ServiceAccount setup completed for cluster %s", clusterName)
+	return nil
 }

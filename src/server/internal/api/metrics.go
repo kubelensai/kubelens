@@ -11,6 +11,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ============================================================================
+// Metrics Types & Structures
+// ============================================================================
+
 // ClusterMetrics represents cluster-wide metrics
 type ClusterMetrics struct {
 	CPU    ResourceMetrics `json:"cpu"`
@@ -38,6 +42,33 @@ type ClusterResourcesSummary struct {
 	ActiveNamespaces     int `json:"activeNamespaces"`
 	TotalServices        int `json:"totalServices"`
 }
+
+// NodeMetrics represents metrics for a single node
+type NodeMetrics struct {
+	Usage    NodeResourceUsage `json:"usage"`
+	Capacity NodeResourceUsage `json:"capacity"`
+}
+
+// NodeResourceUsage represents resource usage for a node
+type NodeResourceUsage struct {
+	CPU    int64 `json:"cpu"`    // in millicores
+	Memory int64 `json:"memory"` // in bytes
+}
+
+// PodMetrics represents CPU and Memory metrics for a pod
+type PodMetrics struct {
+	Containers []ContainerMetrics `json:"containers"`
+}
+
+// ContainerMetrics represents CPU and Memory metrics for a container
+type ContainerMetrics struct {
+	Name  string                 `json:"name"`
+	Usage map[string]interface{} `json:"usage"`
+}
+
+// ============================================================================
+// Cluster-Level Metrics
+// ============================================================================
 
 // GetClusterMetrics returns CPU and Memory metrics for a cluster
 func (h *Handler) GetClusterMetrics(c *gin.Context) {
@@ -243,8 +274,115 @@ func (h *Handler) GetClusterResourcesSummary(c *gin.Context) {
 	c.JSON(http.StatusOK, summary)
 }
 
+// ============================================================================
+// Node-Level Metrics
+// ============================================================================
+
+// GetNodeMetrics returns metrics for a specific node
+func (h *Handler) GetNodeMetrics(c *gin.Context) {
+	clusterName := c.Param("name")
+	nodeName := c.Param("node")
+
+	client, err := h.clusterManager.GetClient(clusterName)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx := context.Background()
+
+	// Get node info for capacity
+	node, err := client.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+	if err != nil {
+		log.Errorf("Failed to get node: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	metrics := NodeMetrics{
+		Usage:    NodeResourceUsage{},
+		Capacity: NodeResourceUsage{},
+	}
+
+	// Get capacity from node status
+	cpuCapacity := node.Status.Capacity[corev1.ResourceCPU]
+	memCapacity := node.Status.Capacity[corev1.ResourceMemory]
+	metrics.Capacity.CPU = cpuCapacity.MilliValue()
+	metrics.Capacity.Memory = memCapacity.Value()
+
+	// Try to get usage from metrics-server
+	metricsClient, err := h.clusterManager.GetMetricsClient(clusterName)
+	if err != nil {
+		log.Warnf("Metrics server not available for cluster %s: %v", clusterName, err)
+		// Return with only capacity data
+		c.JSON(http.StatusOK, metrics)
+		return
+	}
+
+	// Get node metrics using the typed client
+	nodeMetrics, err := metricsClient.MetricsV1beta1().NodeMetricses().Get(ctx, nodeName, metav1.GetOptions{})
+	if err != nil {
+		log.Warnf("Failed to get node metrics: %v", err)
+		// Return with only capacity data
+		c.JSON(http.StatusOK, metrics)
+		return
+	}
+
+	// Extract usage from metrics
+	cpuUsage := nodeMetrics.Usage[corev1.ResourceCPU]
+	memUsage := nodeMetrics.Usage[corev1.ResourceMemory]
+	metrics.Usage.CPU = cpuUsage.MilliValue()
+	metrics.Usage.Memory = memUsage.Value()
+
+	c.JSON(http.StatusOK, metrics)
+}
+
+// ============================================================================
+// Pod-Level Metrics
+// ============================================================================
+
+// GetPodMetrics returns CPU and Memory metrics for a specific pod
+func (h *Handler) GetPodMetrics(c *gin.Context) {
+	clusterName := c.Param("name")
+	namespace := c.Param("namespace")
+	podName := c.Param("pod")
+
+	metricsClient, err := h.clusterManager.GetMetricsClient(clusterName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get metrics client"})
+		return
+	}
+
+	// Get pod metrics from metrics-server
+	podMetrics, err := metricsClient.MetricsV1beta1().PodMetricses(namespace).Get(context.Background(), podName, metav1.GetOptions{})
+	if err != nil {
+		// If metrics-server is not available or pod metrics not found, return empty metrics
+		c.JSON(http.StatusOK, PodMetrics{Containers: []ContainerMetrics{}})
+		return
+	}
+
+	// Build response
+	containers := make([]ContainerMetrics, 0, len(podMetrics.Containers))
+	for _, container := range podMetrics.Containers {
+		containers = append(containers, ContainerMetrics{
+			Name: container.Name,
+			Usage: map[string]interface{}{
+				"cpu":    container.Usage.Cpu().String(),
+				"memory": container.Usage.Memory().String(),
+			},
+		})
+	}
+
+	c.JSON(http.StatusOK, PodMetrics{
+		Containers: containers,
+	})
+}
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
 // Helper function to parse resource quantities
 func parseQuantity(q resource.Quantity) int64 {
 	return q.Value()
 }
-

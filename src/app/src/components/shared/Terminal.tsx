@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
+import { Unicode11Addon } from '@xterm/addon-unicode11'
+import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import { useThemeStore } from '@/stores/themeStore'
 import { useAuthStore } from '@/stores/authStore'
@@ -99,24 +101,61 @@ export default function Terminal({ wsUrl, onClose, title = 'Terminal', subtitle 
   useEffect(() => {
     if (!terminalRef.current) return
 
-    // Initialize terminal
+    // Initialize terminal with enhanced settings for Powerlevel10k/Zsh
     const term = new XTerm({
       cursorBlink: true,
       fontSize: 14,
-      fontFamily: '"Cascadia Code", "Fira Code", "Courier New", monospace',
+      // Use fonts that support Powerline glyphs and ligatures
+      fontFamily: '"MesloLGS NF", "Cascadia Code PL", "Fira Code", "JetBrains Mono", "Courier New", monospace',
+      fontWeight: 'normal',
+      fontWeightBold: 'bold',
+      letterSpacing: 0,
+      lineHeight: 1.0,
       theme: isDark ? terminalThemes.dracula : terminalThemes.light,
       allowProposedApi: true,
       scrollback: 10000,
       convertEol: true,
+      // Enable proper rendering for Unicode characters (emojis, powerline symbols)
+      allowTransparency: false,
+      drawBoldTextInBrightColors: true,
+      fastScrollModifier: 'shift',
+      fastScrollSensitivity: 5,
+      scrollSensitivity: 1,
+      // Enable proper cursor rendering
+      cursorStyle: 'block',
+      cursorWidth: 1,
+      // Improve rendering for complex characters
+      windowsMode: false,
+      macOptionIsMeta: true,
+      // Enable proper alt key handling for Zsh
+      altClickMovesCursor: true,
     })
 
     const fitAddon = new FitAddon()
     const webLinksAddon = new WebLinksAddon()
+    const unicode11Addon = new Unicode11Addon()
 
+    // Load addons
     term.loadAddon(fitAddon)
     term.loadAddon(webLinksAddon)
+    term.loadAddon(unicode11Addon)
 
     term.open(terminalRef.current)
+
+    // Enable Unicode 11 for better emoji and powerline symbol support
+    term.unicode.activeVersion = '11'
+
+    // Try to load WebGL addon for better performance (fallback to canvas if fails)
+    try {
+      const webglAddon = new WebglAddon()
+      webglAddon.onContextLoss(() => {
+        webglAddon.dispose()
+      })
+      term.loadAddon(webglAddon)
+    } catch (e) {
+      console.warn('WebGL addon failed to load, using canvas renderer:', e)
+    }
+
     fitAddon.fit()
 
     termRef.current = term
