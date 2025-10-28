@@ -379,6 +379,109 @@ func (h *Handler) GetPodMetrics(c *gin.Context) {
 }
 
 // ============================================================================
+// Namespace-Level Metrics
+// ============================================================================
+
+// NamespaceMetrics represents metrics for a single namespace
+type NamespaceMetrics struct {
+	Usage    NamespaceResourceUsage `json:"usage"`
+	Requests NamespaceResourceUsage `json:"requests"`
+	Limits   NamespaceResourceUsage `json:"limits"`
+}
+
+// NamespaceResourceUsage represents resource usage for a namespace
+type NamespaceResourceUsage struct {
+	CPU    int64 `json:"cpu"`    // in millicores
+	Memory int64 `json:"memory"` // in bytes
+}
+
+// GetNamespaceMetrics returns metrics for a specific namespace by aggregating pod metrics
+func (h *Handler) GetNamespaceMetrics(c *gin.Context) {
+	clusterName := c.Param("name")
+	namespace := c.Param("namespace")
+
+	client, err := h.clusterManager.GetClient(clusterName)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx := context.Background()
+	metrics := NamespaceMetrics{
+		Usage:    NamespaceResourceUsage{},
+		Requests: NamespaceResourceUsage{},
+		Limits:   NamespaceResourceUsage{},
+	}
+
+	// Get all pods in the namespace to calculate requests and limits
+	pods, err := client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		log.Errorf("Failed to list pods in namespace %s: %v", namespace, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Calculate requests and limits from all pod containers
+	for _, pod := range pods.Items {
+		// Skip terminated pods
+		if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
+			continue
+		}
+
+		for _, container := range pod.Spec.Containers {
+			// CPU requests and limits
+			if cpuRequest, ok := container.Resources.Requests[corev1.ResourceCPU]; ok {
+				metrics.Requests.CPU += cpuRequest.MilliValue()
+			}
+			if cpuLimit, ok := container.Resources.Limits[corev1.ResourceCPU]; ok {
+				metrics.Limits.CPU += cpuLimit.MilliValue()
+			}
+
+			// Memory requests and limits
+			if memRequest, ok := container.Resources.Requests[corev1.ResourceMemory]; ok {
+				metrics.Requests.Memory += memRequest.Value()
+			}
+			if memLimit, ok := container.Resources.Limits[corev1.ResourceMemory]; ok {
+				metrics.Limits.Memory += memLimit.Value()
+			}
+		}
+	}
+
+	// Try to get actual usage from metrics-server
+	metricsClient, err := h.clusterManager.GetMetricsClient(clusterName)
+	if err != nil {
+		log.Warnf("Metrics server not available for cluster %s: %v", clusterName, err)
+		// Return with only requests and limits
+		c.JSON(http.StatusOK, metrics)
+		return
+	}
+
+	// Get all pod metrics in the namespace
+	podMetricsList, err := metricsClient.MetricsV1beta1().PodMetricses(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		log.Warnf("Failed to get pod metrics for namespace %s: %v", namespace, err)
+		// Return with only requests and limits
+		c.JSON(http.StatusOK, metrics)
+		return
+	}
+
+	// Aggregate usage metrics from all pods
+	for _, podMetrics := range podMetricsList.Items {
+		for _, container := range podMetrics.Containers {
+			// CPU usage
+			cpuUsage := container.Usage[corev1.ResourceCPU]
+			metrics.Usage.CPU += cpuUsage.MilliValue()
+
+			// Memory usage
+			memUsage := container.Usage[corev1.ResourceMemory]
+			metrics.Usage.Memory += memUsage.Value()
+		}
+	}
+
+	c.JSON(http.StatusOK, metrics)
+}
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 

@@ -248,6 +248,7 @@ func main() {
 		// Namespaces (cluster-scoped)
 		protected.GET("/clusters/:name/namespaces", apiHandler.ListNamespaces)
 		protected.GET("/clusters/:name/namespaces/:namespace", apiHandler.GetNamespace)
+		protected.GET("/clusters/:name/namespaces/:namespace/metrics", apiHandler.GetNamespaceMetrics)
 		protected.PUT("/clusters/:name/namespaces/:namespace", apiHandler.UpdateNamespace)
 		protected.DELETE("/clusters/:name/namespaces/:namespace", apiHandler.DeleteNamespace)
 
