@@ -26,14 +26,27 @@ export const SidebarItem = ({ item }: SidebarItemProps) => {
       return false;
     }
     
-    // For resource paths, check if current path contains the resource type
-    // Example: /clusters/my-cluster/nodes/node-1 should match /nodes
-    // But NOT match /clusters or /dashboard
-    const resourceName = itemPath.split('/').filter(Boolean).pop(); // Get last segment
-    if (resourceName) {
-      // Split current path and check if resource name is in the path
-      const pathSegments = currentPath.split('/').filter(Boolean);
-      return pathSegments.includes(resourceName);
+    // For resource paths, extract the resource type from the item href
+    // Example: /clusters/my-cluster/nodes -> "nodes"
+    // Example: /clusters/my-cluster/namespaces/my-ns/services -> "services"
+    const itemSegments = itemPath.split('/').filter(Boolean);
+    const currentSegments = currentPath.split('/').filter(Boolean);
+    
+    // Find the resource type (last segment of item path)
+    const resourceType = itemSegments[itemSegments.length - 1];
+    
+    // Check if current path contains the resource type at the correct position
+    const resourceIndex = currentSegments.indexOf(resourceType);
+    
+    if (resourceIndex !== -1) {
+      // Only match if:
+      // 1. It's the last segment (list page): /clusters/staging/pods
+      // 2. It's followed by exactly one more segment (detail page): /clusters/staging/pods/my-pod
+      // This prevents matching when the resource is in the middle of the path
+      const isLastSegment = resourceIndex === currentSegments.length - 1;
+      const isDetailPage = resourceIndex === currentSegments.length - 2;
+      
+      return isLastSegment || isDetailPage;
     }
     
     return false;

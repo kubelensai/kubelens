@@ -59,12 +59,18 @@ export default function NamespaceSelector() {
     enabled: !!effectiveCluster && clusterExists,
   })
 
-  // Sync URL param with store (URL is source of truth)
+  // Sync URL param with store (URL is source of truth when present)
+  // But also sync session data when URL param is not present
   useEffect(() => {
     const urlNamespace = namespaceParam || null
-    if (urlNamespace !== selectedNamespace) {
+    
+    // If URL has namespace, use it (URL is source of truth)
+    if (urlNamespace !== null && urlNamespace !== selectedNamespace) {
       setSelectedNamespace(urlNamespace)
     }
+    // If URL doesn't have namespace but session has one, the UI should still show it
+    // (This happens when user navigates to a page without namespace in URL)
+    // The selectedNamespace will be from session via the store
   }, [namespaceParam, selectedNamespace, setSelectedNamespace])
 
   // Clear namespace when cluster changes

@@ -57,6 +57,8 @@ function AppContent() {
   const { selectedNamespace } = useNamespaceStore();
   const { initializeAuth } = useAuthStore();
   const fetchSession = useSessionStore((state) => state.fetchSession);
+  const session = useSessionStore((state) => state.session);
+  const isSessionInitialized = useSessionStore((state) => state.isInitialized);
   const { isExpanded, isHovered, isMobileOpen, toggleSidebar, toggleMobileSidebar } = useSidebar();
 
   // Initialize auth and session on mount
@@ -71,6 +73,16 @@ function AppContent() {
     };
     initialize();
   }, [initializeAuth, fetchSession]);
+
+  // Sync session data with UI on every page load/navigation
+  useEffect(() => {
+    if (isSessionInitialized && session) {
+      console.log('[App] Session loaded, syncing with UI:', session);
+      // Session data is already synced through the stores (clusterStore and namespaceStore)
+      // which are wrappers around sessionStore, so the UI will automatically update
+      // when the session is loaded
+    }
+  }, [isSessionInitialized, session]);
   const {
     groups: crdGroups,
     isLoading: crdLoading,
