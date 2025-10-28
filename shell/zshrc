@@ -11,13 +11,11 @@ export ZSH=$HOME/.oh-my-zsh
 # it'll load a random theme each time that oh-my-zsh is loaded.
 # See https://github.com/robbyrussell/oh-my-zsh/wiki/Themes
 export TERM="xterm-256color"
-ZSH_THEME="powerlevel10k/powerlevel10k"
+
+# Use a simple theme for web terminals (Powerlevel10k causes escape sequence issues)
+ZSH_THEME="robbyrussell"
 
 ZSH_DISABLE_COMPFIX="true"
-
-# Powerlevel10k configuration - skip wizard, disable instant prompt for web terminals
-POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD=true
-POWERLEVEL9K_INSTANT_PROMPT=off
 
 # Set list of themes to load
 # Setting this variable when ZSH_THEME=random
@@ -118,7 +116,6 @@ source $ZSH/oh-my-zsh.sh
 # Reload the plugin to highlight the commands each time Iterm2 starts
 #source /usr/local/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 
-
-
-# Load Powerlevel10k configuration
-[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
+# Custom prompt for web terminals (simple and clean)
+# Format: user@hostname:directory $
+PROMPT='%F{green}%n@%m%f:%F{blue}%~%f %# '
