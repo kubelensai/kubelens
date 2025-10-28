@@ -17,6 +17,7 @@ env:
   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
   SERVER_IMAGE: kubelensai/kubelens-server
   APP_IMAGE: kubelensai/kubelens-app
+  SHELL_IMAGE: kubelensai/kubelens-shell
 
 jobs:
   build-and-push:
@@ -66,6 +67,32 @@ jobs:
             type=semver,pattern={{major}}
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Extract metadata for Shell
+        id: meta-shell
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.SHELL_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr,prefix=pr-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Shell image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./shell
+          file: ./shell/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-shell.outputs.tags }}
+          labels: ${{ steps.meta-shell.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.SHELL_IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.SHELL_IMAGE }}:buildcache,mode=max
+          platforms: linux/amd64,linux/arm64
 
       - name: Build and push Server image
         uses: docker/build-push-action@v5
