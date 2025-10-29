@@ -116,18 +116,18 @@ export default function Dashboard() {
       <div>
         <Breadcrumb items={[]} />
         <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
-          Dashboard
-        </h1>
+            Dashboard
+          </h1>
       </div>
 
       {/* Welcome Section - Show when no clusters */}
       {!hasCluster && (
         <div className="rounded-2xl border border-primary-200 bg-gradient-to-br from-primary-50 via-white to-purple-50 dark:border-primary-800 dark:from-gray-800 dark:via-gray-800 dark:to-purple-900/20 p-6 sm:p-8">
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-            <div className="flex-1">
+          <div className="flex-1">
               <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white mb-2">
-                Welcome to Kubelens! 👋
-              </h2>
+              Welcome to Kubelens! 👋
+            </h2>
               <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 max-w-2xl">
                 Manage your Kubernetes resources with ease. Get started by adding your first cluster.
               </p>
@@ -271,7 +271,7 @@ export default function Dashboard() {
                         <span className="text-xs text-gray-500 dark:text-gray-400">Requests</span>
                         <span className="text-xs font-medium text-gray-900 dark:text-white">
                           {calculatePercentage(metrics?.cpu?.requests || 0, metrics?.cpu?.allocatable || 0)}%
-                        </span>
+                </span>
                       </div>
                       <div className="relative w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 overflow-hidden">
                         <div 
@@ -289,7 +289,7 @@ export default function Dashboard() {
                         <span className="text-xs text-gray-500 dark:text-gray-400">Limits</span>
                         <span className={`text-xs font-medium ${parseFloat(calculatePercentage(metrics?.cpu?.limits || 0, metrics?.cpu?.allocatable || 0)) > 100 ? 'text-orange-600 dark:text-orange-400' : 'text-gray-900 dark:text-white'}`}>
                           {calculatePercentage(metrics?.cpu?.limits || 0, metrics?.cpu?.allocatable || 0)}%
-                        </span>
+                    </span>
                       </div>
                       <div className="relative w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 overflow-hidden">
                         <div 
@@ -298,8 +298,8 @@ export default function Dashboard() {
                         >
                           {parseFloat(calculatePercentage(metrics?.cpu?.limits || 0, metrics?.cpu?.allocatable || 0)) > 100 && (
                             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse" />
-                          )}
-                        </div>
+                )}
+              </div>
                       </div>
                     </div>
                   </div>
@@ -333,10 +333,10 @@ export default function Dashboard() {
                         >
                           {parseFloat(calculatePercentage(metrics?.memory?.requests || 0, metrics?.memory?.allocatable || 0)) > 100 && (
                             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse" />
-                          )}
-                        </div>
-                      </div>
-                    </div>
+            )}
+          </div>
+        </div>
+      </div>
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs text-gray-500 dark:text-gray-400">Limits</span>
@@ -360,7 +360,7 @@ export default function Dashboard() {
               </div>
             </div>
           )}
-        </div>
+              </div>
 
         {/* Right Column - Cluster Info */}
         <div className="col-span-12 xl:col-span-5">
@@ -368,7 +368,7 @@ export default function Dashboard() {
             <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
                 Cluster Information
-              </h3>
+                </h3>
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl dark:bg-gray-800/50">
                   <div>
@@ -382,8 +382,8 @@ export default function Dashboard() {
                     <p className="text-sm text-gray-500 dark:text-gray-400">Version</p>
                     <p className="mt-1 text-base font-semibold text-gray-900 dark:text-white">
                       {clusters?.find((c: any) => c.name === clusterToShow)?.version || 'N/A'}
-                    </p>
-                  </div>
+                </p>
+              </div>
                   <CubeIcon className="w-8 h-8 text-gray-400" />
                 </div>
                 <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl dark:bg-gray-800/50">

@@ -10,12 +10,19 @@ import {
   ExclamationCircleIcon,
   ChevronDownIcon,
   ChevronUpIcon,
+  CommandLineIcon,
+  DocumentTextIcon,
+  PencilSquareIcon,
+  CpuChipIcon,
+  CircleStackIcon,
+  EyeIcon,
 } from '@heroicons/react/24/outline'
 import clsx from 'clsx'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import YamlEditor from '@/components/shared/YamlEditor'
 import Terminal from '@/components/shared/Terminal'
 import EnhancedMultiPodLogViewer from '@/components/shared/EnhancedMultiPodLogViewer'
+import PodDetailContent from '@/components/shared/PodDetailContent'
 import { DataTable, Column } from '@/components/shared/DataTable'
 import ScaleDeploymentModal from '@/components/Deployments/ScaleDeploymentModal'
 import ConfirmationModal from '@/components/shared/ConfirmationModal'
@@ -47,19 +54,35 @@ export default function DeploymentDetails({}: DeploymentDetailsProps) {
     labels: false,
     annotations: false,
     falseConditions: false,
+    nodeSelector: false,
+    tolerations: false,
+    affinity: false,
   })
+  const [podMetrics, setPodMetrics] = useState<Record<string, any>>({})
 
   // Modal states
   const [isScaleModalOpen, setIsScaleModalOpen] = useState(false)
   const [isSaveYamlModalOpen, setIsSaveYamlModalOpen] = useState(false)
   const [isRestartModalOpen, setIsRestartModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+  const [podDetailModal, setPodDetailModal] = useState<{ isOpen: boolean; pod: any | null }>({ isOpen: false, pod: null })
+  const [podShellModal, setPodShellModal] = useState<{ isOpen: boolean; pod: any | null }>({ isOpen: false, pod: null })
+  const [podLogsModal, setPodLogsModal] = useState<{ isOpen: boolean; pod: any | null }>({ isOpen: false, pod: null })
+  const [podYamlModal, setPodYamlModal] = useState<{ isOpen: boolean; pod: any | null; yaml: string }>({ isOpen: false, pod: null, yaml: '' })
+  const [podDeleteModal, setPodDeleteModal] = useState<{ isOpen: boolean; pod: any | null }>({ isOpen: false, pod: null })
 
   useEffect(() => {
     if (cluster && namespace && deploymentName) {
       fetchDeploymentDetails()
     }
   }, [cluster, namespace, deploymentName])
+
+  useEffect(() => {
+    if (pods && pods.length > 0) {
+      fetchPodMetrics()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pods])
 
   const fetchDeploymentDetails = async () => {
     try {
@@ -117,6 +140,135 @@ export default function DeploymentDetails({}: DeploymentDetailsProps) {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const fetchPodMetrics = async () => {
+    if (!pods || !cluster) return
+    const metricsMap: Record<string, any> = {}
+    
+    await Promise.all(
+      pods.map(async (pod: any) => {
+        try {
+          // Calculate requests and limits
+          let totalCpuRequests = 0
+          let totalMemoryRequests = 0
+          let totalCpuLimits = 0
+          let totalMemoryLimits = 0
+          
+          pod.spec?.containers?.forEach((container: any) => {
+            if (container.resources?.requests?.cpu) {
+              const cpuStr = container.resources.requests.cpu
+              if (cpuStr.endsWith('m')) {
+                totalCpuRequests += parseInt(cpuStr.replace('m', ''))
+              } else {
+                totalCpuRequests += parseFloat(cpuStr) * 1000
+              }
+            }
+            
+            if (container.resources?.requests?.memory) {
+              const memStr = container.resources.requests.memory
+              if (memStr.endsWith('Ki')) {
+                totalMemoryRequests += parseInt(memStr.replace('Ki', '')) * 1024
+              } else if (memStr.endsWith('Mi')) {
+                totalMemoryRequests += parseInt(memStr.replace('Mi', '')) * 1024 * 1024
+              } else if (memStr.endsWith('Gi')) {
+                totalMemoryRequests += parseInt(memStr.replace('Gi', '')) * 1024 * 1024 * 1024
+              } else {
+                totalMemoryRequests += parseInt(memStr)
+              }
+            }
+            
+            if (container.resources?.limits?.cpu) {
+              const cpuStr = container.resources.limits.cpu
+              if (cpuStr.endsWith('m')) {
+                totalCpuLimits += parseInt(cpuStr.replace('m', ''))
+              } else {
+                totalCpuLimits += parseFloat(cpuStr) * 1000
+              }
+            }
+            
+            if (container.resources?.limits?.memory) {
+              const memStr = container.resources.limits.memory
+              if (memStr.endsWith('Ki')) {
+                totalMemoryLimits += parseInt(memStr.replace('Ki', '')) * 1024
+              } else if (memStr.endsWith('Mi')) {
+                totalMemoryLimits += parseInt(memStr.replace('Mi', '')) * 1024 * 1024
+              } else if (memStr.endsWith('Gi')) {
+                totalMemoryLimits += parseInt(memStr.replace('Gi', '')) * 1024 * 1024 * 1024
+              } else {
+                totalMemoryLimits += parseInt(memStr)
+              }
+            }
+          })
+          
+          // Fetch actual usage
+          let totalCpu = 0
+          let totalMemory = 0
+          
+          try {
+            const response = await api.get(`/clusters/${cluster}/namespaces/${namespace}/pods/${pod.metadata.name}/metrics`)
+            const data = response.data
+            
+            if (data && data.containers) {
+              data.containers.forEach((container: any) => {
+                if (container.usage) {
+                  const cpuStr = container.usage.cpu || '0'
+                  if (cpuStr.endsWith('m')) {
+                    totalCpu += parseInt(cpuStr.replace('m', ''))
+                  } else if (cpuStr.endsWith('n')) {
+                    totalCpu += parseInt(cpuStr.replace('n', '')) / 1000000
+                  } else {
+                    totalCpu += parseFloat(cpuStr) * 1000
+                  }
+                  
+                  const memStr = container.usage.memory || '0'
+                  if (memStr.endsWith('Ki')) {
+                    totalMemory += parseInt(memStr.replace('Ki', '')) * 1024
+                  } else if (memStr.endsWith('Mi')) {
+                    totalMemory += parseInt(memStr.replace('Mi', '')) * 1024 * 1024
+                  } else if (memStr.endsWith('Gi')) {
+                    totalMemory += parseInt(memStr.replace('Gi', '')) * 1024 * 1024 * 1024
+                  } else {
+                    totalMemory += parseInt(memStr)
+                  }
+                }
+              })
+            }
+          } catch (error) {
+            // Metrics API might not be available
+          }
+          
+          metricsMap[pod.metadata.name] = {
+            cpuUsage: totalCpu,
+            memoryUsage: totalMemory,
+            cpuRequests: totalCpuRequests,
+            memoryRequests: totalMemoryRequests,
+            cpuLimits: totalCpuLimits,
+            memoryLimits: totalMemoryLimits
+          }
+        } catch (error) {
+          // Silently fail for individual pods
+        }
+      })
+    )
+    
+    setPodMetrics(metricsMap)
+  }
+
+  const formatCPU = (millicores: number): string => {
+    if (millicores >= 1000) {
+      return `${(millicores / 1000).toFixed(2)} cores`
+    }
+    return `${millicores.toFixed(0)}m`
+  }
+
+  const formatMemory = (bytes: number): string => {
+    if (bytes >= 1024 * 1024 * 1024) {
+      return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+    } else if (bytes >= 1024 * 1024) {
+      return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+    }
+    return `${(bytes / 1024).toFixed(2)} KB`
   }
 
   const toggleSection = (section: keyof typeof expandedSections) => {
@@ -181,6 +333,69 @@ export default function DeploymentDetails({}: DeploymentDetailsProps) {
     }
   }
 
+  const handlePodYaml = async (pod: any) => {
+    try {
+      const response = await api.get(`/clusters/${cluster}/namespaces/${namespace}/pods/${pod.metadata.name}`)
+      const podData = response.data
+      const k8sManifest = {
+        apiVersion: podData.apiVersion || 'v1',
+        kind: podData.kind || 'Pod',
+        metadata: podData.metadata,
+        spec: podData.spec,
+        status: podData.status,
+      }
+      const yamlStr = yaml.dump(k8sManifest, { indent: 2, lineWidth: -1, sortKeys: false })
+      setPodYamlModal({ isOpen: true, pod, yaml: yamlStr })
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: `Failed to load pod YAML: ${error.message || 'Unknown error'}`,
+      })
+    }
+  }
+
+  const handleSavePodYaml = async () => {
+    if (!podYamlModal.pod) return
+    try {
+      const updatedManifest = yaml.load(podYamlModal.yaml)
+      await api.put(`/clusters/${cluster}/namespaces/${namespace}/pods/${podYamlModal.pod.metadata.name}`, updatedManifest)
+      addNotification({
+        type: 'success',
+        title: 'Success',
+        message: 'Pod updated successfully',
+      })
+      fetchDeploymentDetails()
+      setPodYamlModal({ isOpen: false, pod: null, yaml: '' })
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: `Failed to update pod: ${error.message || 'Unknown error'}`,
+      })
+    }
+  }
+
+  const handleDeletePod = async () => {
+    if (!podDeleteModal.pod) return
+    try {
+      await api.delete(`/clusters/${cluster}/namespaces/${namespace}/pods/${podDeleteModal.pod.metadata.name}`)
+      addNotification({
+        type: 'success',
+        title: 'Success',
+        message: 'Pod deleted successfully',
+      })
+      setPodDeleteModal({ isOpen: false, pod: null })
+      fetchDeploymentDetails()
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: `Failed to delete pod: ${error.message || 'Unknown error'}`,
+      })
+    }
+  }
+
   const getDeploymentStatus = () => {
     if (!deployment) return 'Unknown'
     
@@ -241,9 +456,15 @@ export default function DeploymentDetails({}: DeploymentDetailsProps) {
       key: 'name',
       header: 'Name',
       accessor: (pod) => (
-        <span className="text-sm font-medium text-gray-900 dark:text-white">
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            navigate(`/clusters/${cluster}/namespaces/${namespace}/pods/${pod.metadata.name}`)
+          }}
+          className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-left"
+        >
           {pod.metadata.name}
-        </span>
+        </button>
       ),
       sortable: true,
       sortValue: (pod) => pod.metadata.name,
@@ -285,13 +506,149 @@ export default function DeploymentDetails({}: DeploymentDetailsProps) {
       searchValue: (pod) => pod.status?.phase || 'Unknown',
     },
     {
+      key: 'cpu',
+      header: 'CPU',
+      accessor: (pod) => {
+        const metrics = podMetrics[pod.metadata.name]
+        
+        if (!metrics) {
+          return <span className="text-sm text-gray-400 dark:text-gray-500">-</span>
+        }
+        
+        const cpuUsage = metrics.cpuUsage || 0
+        const cpuLimit = metrics.cpuLimits || 0
+        
+        const utilization = cpuLimit > 0 
+          ? Math.min((cpuUsage / cpuLimit) * 100, 100)
+          : 0
+
+        return (
+          <div className="w-full min-w-[120px]">
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-1.5">
+                <CpuChipIcon className="w-4 h-4 text-blue-500 dark:text-blue-400" />
+                <span className="text-xs font-medium text-gray-700 dark:text-gray-300 font-mono">
+                  {formatCPU(cpuUsage)}
+                </span>
+              </div>
+              {cpuLimit > 0 ? (
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {utilization.toFixed(0)}%
+                </span>
+              ) : (
+                <span className="text-xs text-gray-400 dark:text-gray-500 italic">
+                  No Limit
+                </span>
+              )}
+            </div>
+            {cpuLimit > 0 && (
+              <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700 overflow-hidden">
+                <div
+                  className={clsx(
+                    'h-1.5 rounded-full transition-all duration-300',
+                    utilization >= 90 ? 'bg-red-600 dark:bg-red-500' :
+                    utilization >= 75 ? 'bg-orange-600 dark:bg-orange-500' :
+                    'bg-blue-600 dark:bg-blue-500'
+                  )}
+                  style={{ width: `${utilization}%` }}
+                />
+              </div>
+            )}
+          </div>
+        )
+      },
+      sortable: true,
+      sortValue: (pod) => {
+        const metrics = podMetrics[pod.metadata.name]
+        return metrics?.cpuUsage || 0
+      },
+      searchValue: (pod) => {
+        const metrics = podMetrics[pod.metadata.name]
+        return metrics ? formatCPU(metrics.cpuUsage) : ''
+      },
+    },
+    {
+      key: 'memory',
+      header: 'Memory',
+      accessor: (pod) => {
+        const metrics = podMetrics[pod.metadata.name]
+        
+        if (!metrics) {
+          return <span className="text-sm text-gray-400 dark:text-gray-500">-</span>
+        }
+        
+        const memoryUsage = metrics.memoryUsage || 0
+        const memoryLimit = metrics.memoryLimits || 0
+        
+        const utilization = memoryLimit > 0 
+          ? Math.min((memoryUsage / memoryLimit) * 100, 100)
+          : 0
+
+        return (
+          <div className="w-full min-w-[120px]">
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-1.5">
+                <CircleStackIcon className="w-4 h-4 text-green-500 dark:text-green-400" />
+                <span className="text-xs font-medium text-gray-700 dark:text-gray-300 font-mono">
+                  {formatMemory(memoryUsage)}
+                </span>
+              </div>
+              {memoryLimit > 0 ? (
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {utilization.toFixed(0)}%
+                </span>
+              ) : (
+                <span className="text-xs text-gray-400 dark:text-gray-500 italic">
+                  No Limit
+                </span>
+              )}
+            </div>
+            {memoryLimit > 0 && (
+              <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700 overflow-hidden">
+                <div
+                  className={clsx(
+                    'h-1.5 rounded-full transition-all duration-300',
+                    utilization >= 90 ? 'bg-red-600 dark:bg-red-500' :
+                    utilization >= 75 ? 'bg-orange-600 dark:bg-orange-500' :
+                    'bg-green-600 dark:bg-green-500'
+                  )}
+                  style={{ width: `${utilization}%` }}
+                />
+              </div>
+            )}
+          </div>
+        )
+      },
+      sortable: true,
+      sortValue: (pod) => {
+        const metrics = podMetrics[pod.metadata.name]
+        return metrics?.memoryUsage || 0
+      },
+      searchValue: (pod) => {
+        const metrics = podMetrics[pod.metadata.name]
+        return metrics ? formatMemory(metrics.memoryUsage) : ''
+      },
+    },
+    {
       key: 'node',
       header: 'Node',
-      accessor: (pod) => (
-        <span className="text-sm text-gray-700 dark:text-gray-300">
-          {pod.spec?.nodeName || 'N/A'}
-        </span>
-      ),
+      accessor: (pod) => {
+        const nodeName = pod.spec?.nodeName
+        if (!nodeName) {
+          return <span className="text-sm text-gray-400 dark:text-gray-500">-</span>
+        }
+        return (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              navigate(`/clusters/${cluster}/nodes/${nodeName}`)
+            }}
+            className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
+          >
+            {nodeName}
+          </button>
+        )
+      },
       sortable: true,
       sortValue: (pod) => pod.spec?.nodeName || '',
       searchValue: (pod) => pod.spec?.nodeName || '',
@@ -308,7 +665,66 @@ export default function DeploymentDetails({}: DeploymentDetailsProps) {
       sortValue: (pod) => new Date(pod.metadata.creationTimestamp).getTime(),
       searchValue: (pod) => formatAge(pod.metadata.creationTimestamp),
     },
-  ], [])
+    {
+      key: 'actions',
+      header: 'Actions',
+      accessor: (pod) => (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setPodDetailModal({ isOpen: true, pod })
+            }}
+            className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+            title="View Details"
+          >
+            <EyeIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setPodShellModal({ isOpen: true, pod })
+            }}
+            className="p-1.5 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/20 rounded transition-colors"
+            title="Shell"
+          >
+            <CommandLineIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setPodLogsModal({ isOpen: true, pod })
+            }}
+            className="p-1.5 text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
+            title="Logs"
+          >
+            <DocumentTextIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              handlePodYaml(pod)
+            }}
+            className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+            title="Edit YAML"
+          >
+            <PencilSquareIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setPodDeleteModal({ isOpen: true, pod })
+            }}
+            className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+            title="Delete"
+          >
+            <TrashIcon className="w-4 h-4" />
+          </button>
+        </div>
+      ),
+      sortable: false,
+    },
+  ], [podMetrics, cluster, namespace, navigate])
 
   // Event columns
   const eventColumns = useMemo<Column<any>[]>(() => [
@@ -584,6 +1000,139 @@ export default function DeploymentDetails({}: DeploymentDetailsProps) {
                   )}
                 </div>
               )}
+
+              {/* Node Selector */}
+              {deployment.spec?.template?.spec?.nodeSelector && Object.keys(deployment.spec.template.spec.nodeSelector).length > 0 && (
+                <div className="mt-4">
+                  <button
+                    onClick={() => toggleSection('nodeSelector')}
+                    className="flex items-center gap-2 text-sm font-semibold text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300"
+                  >
+                    {expandedSections.nodeSelector ? (
+                      <ChevronUpIcon className="w-4 h-4" />
+                    ) : (
+                      <ChevronDownIcon className="w-4 h-4" />
+                    )}
+                    Node Selector ({Object.keys(deployment.spec.template.spec.nodeSelector).length})
+                  </button>
+                  {expandedSections.nodeSelector && (
+                    <div className="mt-3 p-4 bg-cyan-50 dark:bg-cyan-900/10 rounded-lg border border-cyan-200 dark:border-cyan-800">
+                      <div className="space-y-2">
+                        {Object.entries(deployment.spec.template.spec.nodeSelector).map(([key, value]) => (
+                          <div key={key} className="flex items-center gap-2">
+                            <span className="text-xs font-semibold text-cyan-700 dark:text-cyan-300">{key}:</span>
+                            <span className="text-sm font-mono text-gray-900 dark:text-white bg-white dark:bg-gray-800 px-2 py-1 rounded border border-cyan-200 dark:border-cyan-700">
+                              {value as string}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Tolerations */}
+              {deployment.spec?.template?.spec?.tolerations && deployment.spec.template.spec.tolerations.length > 0 && (
+                <div className="mt-4">
+                  <button
+                    onClick={() => toggleSection('tolerations')}
+                    className="flex items-center gap-2 text-sm font-semibold text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300"
+                  >
+                    {expandedSections.tolerations ? (
+                      <ChevronUpIcon className="w-4 h-4" />
+                    ) : (
+                      <ChevronDownIcon className="w-4 h-4" />
+                    )}
+                    Tolerations ({deployment.spec.template.spec.tolerations.length})
+                  </button>
+                  {expandedSections.tolerations && (
+                    <div className="mt-3 p-4 bg-orange-50 dark:bg-orange-900/10 rounded-lg border border-orange-200 dark:border-orange-800 space-y-2 max-h-60 overflow-y-auto">
+                      {deployment.spec.template.spec.tolerations.map((toleration: any, index: number) => (
+                        <div key={index} className="p-3 bg-white dark:bg-gray-800 rounded border border-orange-200 dark:border-orange-700">
+                          <div className="space-y-1 text-sm">
+                            {toleration.key && (
+                              <div>
+                                <span className="text-gray-500 dark:text-gray-400">Key:</span>
+                                <span className="ml-2 font-mono text-gray-900 dark:text-white">{toleration.key}</span>
+                              </div>
+                            )}
+                            {toleration.operator && (
+                              <div>
+                                <span className="text-gray-500 dark:text-gray-400">Operator:</span>
+                                <span className="ml-2 font-mono text-gray-900 dark:text-white">{toleration.operator}</span>
+                              </div>
+                            )}
+                            {toleration.value && (
+                              <div>
+                                <span className="text-gray-500 dark:text-gray-400">Value:</span>
+                                <span className="ml-2 font-mono text-gray-900 dark:text-white">{toleration.value}</span>
+                              </div>
+                            )}
+                            {toleration.effect && (
+                              <div>
+                                <span className="text-gray-500 dark:text-gray-400">Effect:</span>
+                                <span className="ml-2 font-mono text-gray-900 dark:text-white">{toleration.effect}</span>
+                              </div>
+                            )}
+                            {toleration.tolerationSeconds !== undefined && (
+                              <div>
+                                <span className="text-gray-500 dark:text-gray-400">Toleration Seconds:</span>
+                                <span className="ml-2 font-mono text-gray-900 dark:text-white">{toleration.tolerationSeconds}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Affinity */}
+              {deployment.spec?.template?.spec?.affinity && (
+                <div className="mt-4">
+                  <button
+                    onClick={() => toggleSection('affinity')}
+                    className="flex items-center gap-2 text-sm font-semibold text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300"
+                  >
+                    {expandedSections.affinity ? (
+                      <ChevronUpIcon className="w-4 h-4" />
+                    ) : (
+                      <ChevronDownIcon className="w-4 h-4" />
+                    )}
+                    Affinity
+                  </button>
+                  {expandedSections.affinity && (
+                    <div className="mt-3 p-4 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-200 dark:border-green-800 space-y-3 max-h-60 overflow-y-auto">
+                      {deployment.spec.template.spec.affinity.nodeAffinity && (
+                        <div>
+                          <h5 className="text-sm font-semibold text-green-700 dark:text-green-300 mb-2">Node Affinity</h5>
+                          <pre className="text-xs font-mono text-gray-900 dark:text-white bg-white dark:bg-gray-800 p-2 rounded border border-green-200 dark:border-green-700 overflow-x-auto">
+                            {JSON.stringify(deployment.spec.template.spec.affinity.nodeAffinity, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+                      {deployment.spec.template.spec.affinity.podAffinity && (
+                        <div>
+                          <h5 className="text-sm font-semibold text-green-700 dark:text-green-300 mb-2">Pod Affinity</h5>
+                          <pre className="text-xs font-mono text-gray-900 dark:text-white bg-white dark:bg-gray-800 p-2 rounded border border-green-200 dark:border-green-700 overflow-x-auto">
+                            {JSON.stringify(deployment.spec.template.spec.affinity.podAffinity, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+                      {deployment.spec.template.spec.affinity.podAntiAffinity && (
+                        <div>
+                          <h5 className="text-sm font-semibold text-green-700 dark:text-green-300 mb-2">Pod Anti-Affinity</h5>
+                          <pre className="text-xs font-mono text-gray-900 dark:text-white bg-white dark:bg-gray-800 p-2 rounded border border-green-200 dark:border-green-700 overflow-x-auto">
+                            {JSON.stringify(deployment.spec.template.spec.affinity.podAntiAffinity, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Replica Status */}
@@ -845,6 +1394,184 @@ export default function DeploymentDetails({}: DeploymentDetailsProps) {
             onConfirm={handleDeleteDeployment}
             title="Delete Deployment"
             message={`Are you sure you want to delete deployment "${deploymentName}"? This action cannot be undone.`}
+            confirmText="Delete"
+            type="danger"
+          />
+
+          {/* Pod Detail Modal */}
+          {podDetailModal.isOpen && podDetailModal.pod && (
+            <div className="fixed inset-0 z-50 overflow-y-auto">
+              <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+                <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75 dark:bg-gray-900 dark:bg-opacity-75" onClick={() => setPodDetailModal({ isOpen: false, pod: null })} />
+                <div className="inline-block w-full max-w-4xl my-8 overflow-hidden text-left align-middle transition-all transform bg-white dark:bg-gray-800 shadow-xl rounded-lg">
+                  <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                      Pod Details: {podDetailModal.pod.metadata.name}
+                    </h3>
+                  </div>
+                  <div className="p-6 max-h-[70vh] overflow-y-auto">
+                    <PodDetailContent 
+                      pod={podDetailModal.pod} 
+                      podMetrics={podMetrics[podDetailModal.pod.metadata.name]}
+                    />
+                  </div>
+                  <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+                    <button
+                      onClick={() => setPodDetailModal({ isOpen: false, pod: null })}
+                      className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Pod Shell Modal */}
+          {podShellModal.isOpen && podShellModal.pod && (
+            <div className="fixed inset-0 z-50 overflow-y-auto">
+              <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+                <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75 dark:bg-gray-900 dark:bg-opacity-75" onClick={() => setPodShellModal({ isOpen: false, pod: null })} />
+                <div className="inline-block w-full max-w-6xl my-8 overflow-hidden text-left align-middle transition-all transform bg-white dark:bg-gray-800 shadow-xl rounded-lg">
+                  <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                      Pod Shell: {podShellModal.pod.metadata.name}
+                    </h3>
+                  </div>
+                  <div className="p-6">
+                    <div className="mb-4 flex gap-4">
+                      <div className="flex-1">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                          Container
+                        </label>
+                        <select
+                          value={selectedContainer}
+                          onChange={(e) => setSelectedContainer(e.target.value)}
+                          className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                        >
+                          {podShellModal.pod.spec?.containers?.map((container: any) => (
+                            <option key={container.name} value={container.name}>
+                              {container.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex-1">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                          Shell
+                        </label>
+                        <select
+                          value={selectedShell}
+                          onChange={(e) => setSelectedShell(e.target.value)}
+                          className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                        >
+                          <option value="/bin/sh">sh (default)</option>
+                          <option value="/bin/bash">Bash</option>
+                          <option value="/bin/zsh">Zsh</option>
+                          <option value="/bin/ash">Ash</option>
+                          <option value="/bin/dash">Dash</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="bg-gray-900 rounded-lg overflow-hidden">
+                      <Terminal
+                        wsUrl={`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/v1/clusters/${cluster}/namespaces/${namespace}/pods/${podShellModal.pod.metadata.name}/shell?container=${selectedContainer}&shell=${encodeURIComponent(selectedShell)}`}
+                        key={`${podShellModal.pod.metadata.name}-${selectedContainer}-${selectedShell}`}
+                      />
+                    </div>
+                  </div>
+                  <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+                    <button
+                      onClick={() => setPodShellModal({ isOpen: false, pod: null })}
+                      className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Pod Logs Modal */}
+          {podLogsModal.isOpen && podLogsModal.pod && (
+            <div className="fixed inset-0 z-50 overflow-y-auto">
+              <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+                <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75 dark:bg-gray-900 dark:bg-opacity-75" onClick={() => setPodLogsModal({ isOpen: false, pod: null })} />
+                <div className="inline-block w-full max-w-6xl my-8 overflow-hidden text-left align-middle transition-all transform bg-white dark:bg-gray-800 shadow-xl rounded-lg">
+                  <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                      Pod Logs: {podLogsModal.pod.metadata.name}
+                    </h3>
+                  </div>
+                  <div className="p-6">
+                    <EnhancedMultiPodLogViewer
+                      cluster={cluster || ''}
+                      namespace={namespace || ''}
+                      pods={[podLogsModal.pod]}
+                      container={selectedContainer}
+                      containers={podLogsModal.pod.spec?.containers || []}
+                      onContainerChange={setSelectedContainer}
+                    />
+                  </div>
+                  <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+                    <button
+                      onClick={() => setPodLogsModal({ isOpen: false, pod: null })}
+                      className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Pod YAML Modal */}
+          {podYamlModal.isOpen && podYamlModal.pod && (
+            <div className="fixed inset-0 z-50 overflow-y-auto">
+              <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+                <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75 dark:bg-gray-900 dark:bg-opacity-75" onClick={() => setPodYamlModal({ isOpen: false, pod: null, yaml: '' })} />
+                <div className="inline-block w-full max-w-6xl my-8 overflow-hidden text-left align-middle transition-all transform bg-white dark:bg-gray-800 shadow-xl rounded-lg">
+                  <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                      Edit YAML: {podYamlModal.pod.metadata.name}
+                    </h3>
+                  </div>
+                  <div className="p-6">
+                    <YamlEditor 
+                      value={podYamlModal.yaml} 
+                      onChange={(value) => setPodYamlModal(prev => ({ ...prev, yaml: value }))} 
+                      readOnly={false}
+                    />
+                  </div>
+                  <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-2">
+                    <button
+                      onClick={() => setPodYamlModal({ isOpen: false, pod: null, yaml: '' })}
+                      className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSavePodYaml}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+                    >
+                      Save Changes
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Pod Delete Modal */}
+          <ConfirmationModal
+            isOpen={podDeleteModal.isOpen}
+            onClose={() => setPodDeleteModal({ isOpen: false, pod: null })}
+            onConfirm={handleDeletePod}
+            title="Delete Pod"
+            message={`Are you sure you want to delete pod "${podDeleteModal.pod?.metadata.name}"? This action cannot be undone.`}
             confirmText="Delete"
             type="danger"
           />

@@ -2,8 +2,6 @@ import { useState, useEffect, useMemo } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import {
   CubeIcon,
-  CpuChipIcon,
-  CircleStackIcon,
   ChevronDownIcon,
   ChevronUpIcon,
   CheckCircleIcon,
@@ -15,6 +13,7 @@ import Breadcrumb from '@/components/shared/Breadcrumb'
 import YamlEditor from '@/components/shared/YamlEditor'
 import Terminal from '@/components/shared/Terminal'
 import EnhancedMultiPodLogViewer from '@/components/shared/EnhancedMultiPodLogViewer'
+import PodDetailContent from '@/components/shared/PodDetailContent'
 import { DataTable, Column } from '@/components/shared/DataTable'
 import api from '@/services/api'
 import yaml from 'js-yaml'
@@ -37,8 +36,6 @@ export default function PodDetails({}: PodDetailsProps) {
   const [selectedContainer, setSelectedContainer] = useState<string>('')
   const [selectedShell, setSelectedShell] = useState<string>('/bin/sh')
   const [expandedSections, setExpandedSections] = useState({
-    labels: false,
-    annotations: false,
     falseConditions: false,
   })
 
@@ -103,49 +100,6 @@ export default function PodDetails({}: PodDetailsProps) {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }))
   }
 
-  const parseK8sResource = (value: string): number => {
-    if (!value) return 0
-    // Handle CPU: "4" or "4000m"
-    if (value.endsWith('m')) {
-      return parseInt(value.replace('m', ''))
-    }
-    if (value.endsWith('n')) {
-      return parseInt(value.replace('n', '')) / 1000000
-    }
-    // Handle Memory: "16Gi", "1024Mi", "1048576Ki"
-    if (value.endsWith('Ki')) {
-      return parseInt(value.replace('Ki', '')) * 1024
-    }
-    if (value.endsWith('Mi')) {
-      return parseInt(value.replace('Mi', '')) * 1024 * 1024
-    }
-    if (value.endsWith('Gi')) {
-      return parseInt(value.replace('Gi', '')) * 1024 * 1024 * 1024
-    }
-    // Plain number (CPU cores or bytes)
-    const num = parseFloat(value)
-    return isNaN(num) ? 0 : num * 1000 // Convert cores to millicores for CPU
-  }
-
-  const formatBytes = (bytes: number) => {
-    if (!bytes || bytes === 0) return '0 B'
-    const k = 1024
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`
-  }
-
-  const formatCPU = (millicores: number) => {
-    if (!millicores || millicores === 0) return '0m'
-    if (millicores < 1000) return `${millicores}m`
-    return `${(millicores / 1000).toFixed(2)} cores`
-  }
-
-  const calculatePercentage = (used: number, total: number) => {
-    if (!total || total === 0) return 0
-    return Math.min((used / total) * 100, 100)
-  }
-
   const getConditionIcon = (status: string) => {
     if (status === 'True') {
       return <CheckCircleIcon className="w-5 h-5 text-green-500" />
@@ -153,21 +107,6 @@ export default function PodDetails({}: PodDetailsProps) {
       return <XCircleIcon className="w-5 h-5 text-red-500" />
     }
     return <ExclamationCircleIcon className="w-5 h-5 text-yellow-500" />
-  }
-
-  const getStatusColor = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'running':
-        return 'text-green-600 dark:text-green-400'
-      case 'succeeded':
-        return 'text-blue-600 dark:text-blue-400'
-      case 'failed':
-        return 'text-red-600 dark:text-red-400'
-      case 'pending':
-        return 'text-yellow-600 dark:text-yellow-400'
-      default:
-        return 'text-gray-600 dark:text-gray-400'
-    }
   }
 
   // Event columns
@@ -312,240 +251,14 @@ export default function PodDetails({}: PodDetailsProps) {
       <div className="mt-6">
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            {/* Pod Information - 3 Columns */}
+            {/* Pod Detail Content - Using Reusable Component */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Pod Information</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <span className="text-sm text-gray-500 dark:text-gray-400">Name:</span>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">{pod.metadata.name}</p>
-                </div>
-                <div>
-                  <span className="text-sm text-gray-500 dark:text-gray-400">Namespace:</span>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">{pod.metadata.namespace}</p>
-                </div>
-                <div>
-                  <span className="text-sm text-gray-500 dark:text-gray-400">Status:</span>
-                  <p className={clsx('text-sm font-medium', getStatusColor(pod.status?.phase || 'Unknown'))}>
-                    {pod.status?.phase || 'Unknown'}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-sm text-gray-500 dark:text-gray-400">Node:</span>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">{pod.spec?.nodeName || 'N/A'}</p>
-                </div>
-                <div>
-                  <span className="text-sm text-gray-500 dark:text-gray-400">QoS Class:</span>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">{pod.status?.qosClass || 'N/A'}</p>
-                </div>
-                <div>
-                  <span className="text-sm text-gray-500 dark:text-gray-400">Age:</span>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">
-                    {formatAge(pod.metadata.creationTimestamp)}
-                  </p>
-                </div>
-              </div>
-
-              {/* Labels - Highlighted */}
-              {pod.metadata.labels && Object.keys(pod.metadata.labels).length > 0 && (
-                <div className="mt-6">
-                  <button
-                    onClick={() => toggleSection('labels')}
-                    className="flex items-center gap-2 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
-                  >
-                    {expandedSections.labels ? (
-                      <ChevronUpIcon className="w-4 h-4" />
-                    ) : (
-                      <ChevronDownIcon className="w-4 h-4" />
-                    )}
-                    Labels ({Object.keys(pod.metadata.labels).length})
-                  </button>
-                  {expandedSections.labels && (
-                    <div className="mt-3 p-4 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-200 dark:border-blue-800">
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {Object.entries(pod.metadata.labels).map(([key, value]) => (
-                          <div key={key} className="flex flex-col gap-1">
-                            <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">{key}</span>
-                            <span className="text-sm font-mono text-gray-900 dark:text-white bg-white dark:bg-gray-800 px-2 py-1 rounded border border-blue-200 dark:border-blue-700">
-                              {value as string}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Annotations - Highlighted */}
-              {pod.metadata.annotations && Object.keys(pod.metadata.annotations).length > 0 && (
-                <div className="mt-4">
-                  <button
-                    onClick={() => toggleSection('annotations')}
-                    className="flex items-center gap-2 text-sm font-semibold text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300"
-                  >
-                    {expandedSections.annotations ? (
-                      <ChevronUpIcon className="w-4 h-4" />
-                    ) : (
-                      <ChevronDownIcon className="w-4 h-4" />
-                    )}
-                    Annotations ({Object.keys(pod.metadata.annotations).length})
-                  </button>
-                  {expandedSections.annotations && (
-                    <div className="mt-3 p-4 bg-purple-50 dark:bg-purple-900/10 rounded-lg border border-purple-200 dark:border-purple-800 max-h-60 overflow-y-auto">
-                      <div className="space-y-3">
-                        {Object.entries(pod.metadata.annotations).map(([key, value]) => (
-                          <div key={key} className="flex flex-col gap-1">
-                            <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">{key}</span>
-                            <p className="text-sm font-mono text-gray-900 dark:text-white bg-white dark:bg-gray-800 px-2 py-1 rounded border border-purple-200 dark:border-purple-700 break-all">
-                              {value as string}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Containers */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Containers</h3>
-              <div className="space-y-4">
-                {pod.spec?.containers?.map((container: any, index: number) => {
-                  const containerStatus = pod.status?.containerStatuses?.find((cs: any) => cs.name === container.name)
-                  const containerMetrics = podMetrics?.containers?.find((cm: any) => cm.name === container.name)
-                  
-                  // Parse resource limits
-                  const cpuLimit = container.resources?.limits?.cpu ? parseK8sResource(container.resources.limits.cpu) : 0
-                  const memLimit = container.resources?.limits?.memory ? parseK8sResource(container.resources.limits.memory) : 0
-                  
-                  // Parse actual usage
-                  let cpuUsage = 0
-                  let memUsage = 0
-                  if (containerMetrics?.usage) {
-                    const cpuStr = containerMetrics.usage.cpu || '0'
-                    if (cpuStr.endsWith('m')) {
-                      cpuUsage = parseInt(cpuStr.replace('m', ''))
-                    } else if (cpuStr.endsWith('n')) {
-                      cpuUsage = parseInt(cpuStr.replace('n', '')) / 1000000
-                    } else {
-                      cpuUsage = parseFloat(cpuStr) * 1000
-                    }
-                    
-                    const memStr = containerMetrics.usage.memory || '0'
-                    if (memStr.endsWith('Ki')) {
-                      memUsage = parseInt(memStr.replace('Ki', '')) * 1024
-                    } else if (memStr.endsWith('Mi')) {
-                      memUsage = parseInt(memStr.replace('Mi', '')) * 1024 * 1024
-                    } else if (memStr.endsWith('Gi')) {
-                      memUsage = parseInt(memStr.replace('Gi', '')) * 1024 * 1024 * 1024
-                    } else {
-                      memUsage = parseInt(memStr)
-                    }
-                  }
-
-                  return (
-                    <div key={index} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="font-medium text-gray-900 dark:text-white">{container.name}</h4>
-                        <span className={clsx(
-                          'text-xs px-2 py-1 rounded-full',
-                          containerStatus?.state?.running
-                            ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
-                            : 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400'
-                        )}>
-                          {containerStatus?.state?.running ? 'Running' : 
-                           containerStatus?.state?.waiting ? 'Waiting' : 
-                           containerStatus?.state?.terminated ? 'Terminated' : 'Unknown'}
-                        </span>
-                      </div>
-                      
-                      <div className="space-y-3">
-                        <div>
-                          <span className="text-sm text-gray-500 dark:text-gray-400">Image:</span>
-                          <p className="text-sm font-mono text-gray-900 dark:text-white break-all">{container.image}</p>
-                        </div>
-                        
-                        {containerStatus && (
-                          <div>
-                            <span className="text-sm text-gray-500 dark:text-gray-400">Restarts:</span>
-                            <p className="text-sm font-medium text-gray-900 dark:text-white">
-                              {containerStatus.restartCount || 0}
-                            </p>
-                          </div>
-                        )}
-
-                        {/* CPU Usage */}
-                        {cpuUsage > 0 && (
-                          <div>
-                            <div className="flex items-center justify-between mb-1">
-                              <div className="flex items-center gap-1.5">
-                                <CpuChipIcon className="w-4 h-4 text-blue-500 dark:text-blue-400" />
-                                <span className="text-sm text-gray-700 dark:text-gray-300">CPU</span>
-                              </div>
-                              <span className="text-xs text-gray-500 dark:text-gray-400">
-                                {formatCPU(cpuUsage)}
-                                {cpuLimit > 0 && ` / ${formatCPU(cpuLimit)}`}
-                                {cpuLimit > 0 && ` (${calculatePercentage(cpuUsage, cpuLimit).toFixed(0)}%)`}
-                              </span>
-                            </div>
-                            {cpuLimit > 0 && (
-                              <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
-                                <div
-                                  className={clsx(
-                                    'h-2 rounded-full transition-all',
-                                    calculatePercentage(cpuUsage, cpuLimit) >= 90 ? 'bg-red-600' :
-                                    calculatePercentage(cpuUsage, cpuLimit) >= 75 ? 'bg-orange-600' :
-                                    'bg-blue-600'
-                                  )}
-                                  style={{ width: `${calculatePercentage(cpuUsage, cpuLimit)}%` }}
-                                />
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Memory Usage */}
-                        {memUsage > 0 && (
-                          <div>
-                            <div className="flex items-center justify-between mb-1">
-                              <div className="flex items-center gap-1.5">
-                                <CircleStackIcon className="w-4 h-4 text-green-500 dark:text-green-400" />
-                                <span className="text-sm text-gray-700 dark:text-gray-300">Memory</span>
-                              </div>
-                              <span className="text-xs text-gray-500 dark:text-gray-400">
-                                {formatBytes(memUsage)}
-                                {memLimit > 0 && ` / ${formatBytes(memLimit)}`}
-                                {memLimit > 0 && ` (${calculatePercentage(memUsage, memLimit).toFixed(0)}%)`}
-                              </span>
-                            </div>
-                            {memLimit > 0 && (
-                              <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
-                                <div
-                                  className={clsx(
-                                    'h-2 rounded-full transition-all',
-                                    calculatePercentage(memUsage, memLimit) >= 90 ? 'bg-red-600' :
-                                    calculatePercentage(memUsage, memLimit) >= 75 ? 'bg-orange-600' :
-                                    'bg-green-600'
-                                  )}
-                                  style={{ width: `${calculatePercentage(memUsage, memLimit)}%` }}
-                                />
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
+              <PodDetailContent pod={pod} podMetrics={podMetrics} />
             </div>
 
             {/* Pod Conditions */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Pod Conditions</h3>
+              <h3 className="text-lg font-semibold text-gray-700 dark:text-white mb-4">Pod Conditions</h3>
               <div className="space-y-3">
                 {trueConditions.map((condition: any, index: number) => (
                   <div key={index} className="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
