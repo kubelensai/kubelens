@@ -1,57 +1,60 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { getClusters, getStatefulSets } from '@/services/api'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import clsx from 'clsx'
-import { ArrowsUpDownIcon, PencilSquareIcon, TrashIcon, ArrowPathIcon, InformationCircleIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
+import { 
+  ArrowsUpDownIcon, 
+  ArrowPathIcon, 
+  TrashIcon, 
+  InformationCircleIcon,
+  CircleStackIcon,
+  PencilSquareIcon,
+} from '@heroicons/react/24/outline'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import StatefulSetDetailsModal from '@/components/StatefulSets/StatefulSetDetailsModal'
 import StatefulSetPodsModal from '@/components/StatefulSets/StatefulSetPodsModal'
 import ScaleStatefulSetModal from '@/components/StatefulSets/ScaleStatefulSetModal'
 import EditStatefulSetModal from '@/components/StatefulSets/EditStatefulSetModal'
-import RestartStatefulSetModal from '@/components/StatefulSets/RestartStatefulSetModal'
-import DeleteStatefulSetModal from '@/components/StatefulSets/DeleteStatefulSetModal'
-import ResizableTableHeader from '@/components/shared/ResizableTableHeader'
+import ConfirmationModal from '@/components/shared/ConfirmationModal'
+import { DataTable, Column } from '@/components/shared/DataTable'
+import { useNotificationStore } from '@/stores/notificationStore'
+import api from '@/services/api'
 import { formatAge } from '@/utils/format'
-import { useTableSort } from '@/hooks/useTableSort'
-import { useResizableColumns } from '@/hooks/useResizableColumns'
-import { usePagination } from '@/hooks/usePagination'
-import Pagination from '@/components/shared/Pagination'
+
+interface StatefulSetData {
+  metadata: {
+    name: string
+    namespace: string
+    creationTimestamp: string
+    labels?: Record<string, string>
+  }
+  spec: {
+    replicas?: number
+    updateStrategy?: {
+      type?: string
+    }
+  }
+  status: {
+    currentReplicas?: number
+    readyReplicas?: number
+    updatedReplicas?: number
+  }
+  clusterName: string
+}
 
 export default function StatefulSets() {
   const { cluster, namespace } = useParams<{ cluster?: string; namespace?: string }>()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [selectedStatefulSet, setSelectedStatefulSet] = useState<any>(null)
+  const { addNotification } = useNotificationStore()
+  const [selectedStatefulSet, setSelectedStatefulSet] = useState<StatefulSetData | null>(null)
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false)
   const [isPodsModalOpen, setIsPodsModalOpen] = useState(false)
   const [isScaleModalOpen, setIsScaleModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isRestartModalOpen, setIsRestartModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
-  const [filterText, setFilterText] = useState('')
-
-  // Resizable columns
-  const { columnWidths, handleMouseDown: handleResizeStart } = useResizableColumns({
-    name: 200,
-    namespace: 150,
-    status: 100,
-    replicas: 100,
-    ready: 100,
-    updateStrategy: 150,
-    age: 120,
-    actions: 220,
-  }, 'statefulsets-column-widths')
-
-  // Reset state when cluster or namespace changes
-  useEffect(() => {
-    setSelectedStatefulSet(null)
-    setIsDetailsModalOpen(false)
-    setIsPodsModalOpen(false)
-    setIsScaleModalOpen(false)
-    setIsEditModalOpen(false)
-    setIsRestartModalOpen(false)
-    setIsDeleteModalOpen(false)
-  }, [cluster, namespace])
   
   const { data: clusters } = useQuery({
     queryKey: ['clusters'],
@@ -59,7 +62,7 @@ export default function StatefulSets() {
   })
 
   // Fetch statefulsets from all clusters or specific cluster/namespace
-  const statefulsetQueries = useQuery({
+  const { data: allStatefulSets, isLoading } = useQuery({
     queryKey: namespace 
       ? ['statefulsets', cluster, namespace]
       : cluster 
@@ -96,47 +99,11 @@ export default function StatefulSets() {
       return allStatefulSets.flat()
     },
     enabled: (cluster && namespace) ? true : cluster ? true : (!!clusters && clusters.length > 0),
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
     refetchInterval: 5000,
-    staleTime: 0,
   })
-
-  const isLoading = statefulsetQueries.isLoading
-  const allStatefulSets = statefulsetQueries.data || []
-
-  // Filter statefulsets by name
-  const filteredStatefulSets = useMemo(() => {
-    if (!filterText) return allStatefulSets
-    const lowerFilter = filterText.toLowerCase()
-    return allStatefulSets.filter((statefulset: any) =>
-      statefulset.metadata?.name?.toLowerCase().includes(lowerFilter)
-    )
-  }, [allStatefulSets, filterText])
-
-  // Apply sorting
-  const { sortedData: sortedStatefulSets, sortConfig, requestSort } = useTableSort(filteredStatefulSets, {
-    key: 'metadata.name',
-    direction: 'asc'
-  })
-
-  // Apply pagination
-  const {
-    paginatedData: statefulsets,
-    currentPage,
-    totalPages,
-    pageSize,
-    totalItems,
-    goToPage,
-    goToNextPage,
-    goToPreviousPage,
-    changePageSize,
-    hasNextPage,
-    hasPreviousPage,
-  } = usePagination(sortedStatefulSets, 10, 'statefulsets')
 
   // Helper function to determine statefulset status
-  const getStatefulSetStatus = (statefulset: any) => {
+  const getStatefulSetStatus = (statefulset: StatefulSetData): string => {
     const desired = statefulset.spec.replicas || 0
     const current = statefulset.status.currentReplicas || 0
     const ready = statefulset.status.readyReplicas || 0
@@ -144,299 +111,446 @@ export default function StatefulSets() {
 
     // Running: all replicas are ready and updated
     if (ready === desired && updated === desired && current === desired) {
-      return { status: 'running', color: 'badge-success' }
+      return 'Running'
     }
 
     // Unavailable: No ready pods when replicas are desired
     if (ready === 0 && desired > 0) {
-      return { status: 'unavailable', color: 'badge-error' }
+      return 'Unavailable'
     }
 
     // Scaling: current replicas doesn't match desired
     if (current !== desired) {
-      return { status: 'scaling', color: 'badge-warning' }
+      return 'Scaling'
     }
 
     // Updating: not all replicas are updated yet
     if (updated < desired) {
-      return { status: 'updating', color: 'badge-warning' }
+      return 'Updating'
     }
 
     // Degraded: has desired replicas but not all ready yet
     if (current === desired && ready < desired) {
-      return { status: 'degraded', color: 'badge-error' }
+      return 'Degraded'
     }
 
-    return { status: 'updating', color: 'badge-warning' }
+    return 'Updating'
   }
 
-  const handleStatefulSetClick = (statefulset: any) => {
-    setSelectedStatefulSet(statefulset)
-    setIsPodsModalOpen(true)
-  }
-
-  const handleScaleClick = (statefulset: any, e: React.MouseEvent) => {
+  // Action handlers
+  const handleScaleClick = (statefulset: StatefulSetData, e: React.MouseEvent) => {
     e.stopPropagation()
     setSelectedStatefulSet(statefulset)
     setIsScaleModalOpen(true)
   }
 
-  const handleEditClick = (statefulset: any, e: React.MouseEvent) => {
+  const handleEditClick = (statefulset: StatefulSetData, e: React.MouseEvent) => {
     e.stopPropagation()
     setSelectedStatefulSet(statefulset)
     setIsEditModalOpen(true)
   }
 
-  const handleDeleteClick = (statefulset: any, e: React.MouseEvent) => {
+  const handleDeleteClick = (statefulset: StatefulSetData, e: React.MouseEvent) => {
     e.stopPropagation()
     setSelectedStatefulSet(statefulset)
     setIsDeleteModalOpen(true)
   }
 
-  const handleViewDetailsClick = (statefulset: any, e: React.MouseEvent) => {
+  const handleViewDetailsClick = (statefulset: StatefulSetData, e: React.MouseEvent) => {
     e.stopPropagation()
     setSelectedStatefulSet(statefulset)
     setIsDetailsModalOpen(true)
   }
 
-  const handleRestartClick = (statefulset: any, e: React.MouseEvent) => {
+  const handleRestartClick = (statefulset: StatefulSetData, e: React.MouseEvent) => {
     e.stopPropagation()
     setSelectedStatefulSet(statefulset)
     setIsRestartModalOpen(true)
   }
 
+  const handleRestartConfirm = async () => {
+    if (!selectedStatefulSet) return
+    try {
+      await api.post(`/clusters/${selectedStatefulSet.clusterName}/namespaces/${selectedStatefulSet.metadata.namespace}/statefulsets/${selectedStatefulSet.metadata.name}/restart`)
+      addNotification({
+        type: 'success',
+        title: 'Success',
+        message: 'StatefulSet restarted successfully',
+      })
+      setIsRestartModalOpen(false)
+      setSelectedStatefulSet(null)
+      // Invalidate queries to refetch
+      await queryClient.invalidateQueries({ queryKey: ['statefulsets'] })
+      await queryClient.invalidateQueries({ queryKey: ['all-statefulsets'] })
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: `Failed to restart statefulset: ${error.message || 'Unknown error'}`,
+      })
+    }
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!selectedStatefulSet) return
+    try {
+      await api.delete(`/clusters/${selectedStatefulSet.clusterName}/namespaces/${selectedStatefulSet.metadata.namespace}/statefulsets/${selectedStatefulSet.metadata.name}`)
+      addNotification({
+        type: 'success',
+        title: 'Success',
+        message: 'StatefulSet deleted successfully',
+      })
+      setIsDeleteModalOpen(false)
+      setSelectedStatefulSet(null)
+      // Invalidate queries to refetch
+      await queryClient.invalidateQueries({ queryKey: ['statefulsets'] })
+      await queryClient.invalidateQueries({ queryKey: ['all-statefulsets'] })
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: `Failed to delete statefulset: ${error.message || 'Unknown error'}`,
+      })
+    }
+  }
+
+  // Define columns
+  const columns = useMemo<Column<StatefulSetData>[]>(() => [
+    {
+      key: 'name',
+      header: 'Name',
+      accessor: (statefulset) => (
+        <div className="flex items-center gap-2">
+          <CircleStackIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+          <div className="min-w-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                navigate(`/clusters/${statefulset.clusterName}/namespaces/${statefulset.metadata.namespace}/statefulsets/${statefulset.metadata.name}`)
+              }}
+              className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate text-left"
+            >
+              {statefulset.metadata.name}
+            </button>
+            {!cluster && (
+              <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                {statefulset.clusterName}
+              </div>
+            )}
+          </div>
+        </div>
+      ),
+      sortable: true,
+      sortValue: (statefulset) => statefulset.metadata.name,
+      searchValue: (statefulset) => `${statefulset.metadata.name} ${statefulset.clusterName}`,
+    },
+    {
+      key: 'namespace',
+      header: 'Namespace',
+      accessor: (statefulset) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {statefulset.metadata.namespace}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (statefulset) => statefulset.metadata.namespace,
+      searchValue: (statefulset) => statefulset.metadata.namespace,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      accessor: (statefulset) => {
+        const status = getStatefulSetStatus(statefulset)
+        const isRunning = status === 'Running'
+        const isUpdating = status === 'Updating' || status === 'Scaling'
+        const isDegraded = status === 'Degraded' || status === 'Unavailable'
+        
+        return (
+          <span className={clsx(
+            'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full',
+            isRunning
+              ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+              : isUpdating
+              ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400'
+              : isDegraded
+              ? 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+              : 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400'
+          )}>
+            <span className={clsx(
+              'w-1.5 h-1.5 rounded-full',
+              isRunning ? 'bg-green-600 dark:bg-green-400' :
+              isUpdating ? 'bg-yellow-600 dark:bg-yellow-400' :
+              isDegraded ? 'bg-red-600 dark:bg-red-400' :
+              'bg-gray-600 dark:bg-gray-400'
+            )} />
+            {status}
+          </span>
+        )
+      },
+      sortable: true,
+      sortValue: (statefulset) => getStatefulSetStatus(statefulset),
+      searchValue: (statefulset) => getStatefulSetStatus(statefulset),
+      filterable: true,
+      filterOptions: (data) => {
+        const statuses = new Set(data.map(d => getStatefulSetStatus(d)))
+        return Array.from(statuses).sort()
+      },
+      filterValue: (statefulset) => getStatefulSetStatus(statefulset),
+    },
+    {
+      key: 'replicas',
+      header: 'Replicas',
+      accessor: (statefulset) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {statefulset.status.currentReplicas || 0}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (statefulset) => statefulset.status.currentReplicas || 0,
+      searchValue: (statefulset) => (statefulset.status.currentReplicas || 0).toString(),
+    },
+    {
+      key: 'ready',
+      header: 'Ready',
+      accessor: (statefulset) => {
+        const ready = statefulset.status.readyReplicas || 0
+        const total = statefulset.spec.replicas || 0
+        const allReady = ready === total && total > 0
+        
+        return (
+          <span className={clsx(
+            'text-sm font-medium',
+            allReady ? 'text-green-600 dark:text-green-400' : 'text-gray-700 dark:text-gray-300'
+          )}>
+            {ready}/{total}
+          </span>
+        )
+      },
+      sortable: true,
+      sortValue: (statefulset) => statefulset.status.readyReplicas || 0,
+      searchValue: (statefulset) => `${statefulset.status.readyReplicas || 0}/${statefulset.spec.replicas || 0}`,
+    },
+    {
+      key: 'updateStrategy',
+      header: 'Update Strategy',
+      accessor: (statefulset) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {statefulset.spec.updateStrategy?.type || 'RollingUpdate'}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (statefulset) => statefulset.spec.updateStrategy?.type || 'RollingUpdate',
+      searchValue: (statefulset) => statefulset.spec.updateStrategy?.type || 'RollingUpdate',
+      filterable: true,
+      filterOptions: (data) => {
+        const strategies = new Set(data.map(d => d.spec.updateStrategy?.type || 'RollingUpdate'))
+        return Array.from(strategies).sort()
+      },
+      filterValue: (statefulset) => statefulset.spec.updateStrategy?.type || 'RollingUpdate',
+    },
+    {
+      key: 'age',
+      header: 'Age',
+      accessor: (statefulset) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {formatAge(statefulset.metadata.creationTimestamp)}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (statefulset) => new Date(statefulset.metadata.creationTimestamp).getTime(),
+      searchValue: (statefulset) => formatAge(statefulset.metadata.creationTimestamp),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      accessor: (statefulset) => (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={(e) => handleScaleClick(statefulset, e)}
+            className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+            title="Scale"
+          >
+            <ArrowsUpDownIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleRestartClick(statefulset, e)}
+            className="p-1.5 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/20 rounded transition-colors"
+            title="Restart"
+          >
+            <ArrowPathIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleViewDetailsClick(statefulset, e)}
+            className="p-1.5 text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
+            title="Details"
+          >
+            <InformationCircleIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleEditClick(statefulset, e)}
+            className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+            title="Edit YAML"
+          >
+            <PencilSquareIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleDeleteClick(statefulset, e)}
+            className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+            title="Delete"
+          >
+            <TrashIcon className="w-4 h-4" />
+          </button>
+        </div>
+      ),
+      sortable: false,
+    },
+  ], [cluster, navigate])
+
   return (
-    <div className="space-y-4 sm:space-y-6">
+    <div className="space-y-4 md:space-y-6">
+      <Breadcrumb
+        items={[
+          ...(cluster ? [{ name: cluster, href: `/clusters/${cluster}` }] : []),
+          { name: 'StatefulSets' }
+        ]}
+      />
+
       <div>
-        <Breadcrumb 
-              items={
-                cluster
-                  ? [
-                      { name: cluster, href: "/dashboard" },
-                      { name: 'StatefulSets' }
-                    ]
-                  : [{ name: 'StatefulSets' }]
-              }
-        />
+        <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
+          StatefulSets
+        </h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          {namespace 
+            ? `StatefulSets in ${cluster} / ${namespace}`
+            : cluster 
+              ? `All statefulsets in ${cluster}`
+              : `All statefulsets across ${clusters?.length || 0} cluster(s)`
+          }
+        </p>
       </div>
       
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">StatefulSets</h1>
-          <p className="mt-1 sm:mt-2 text-sm text-gray-600 dark:text-gray-400">
-            {namespace 
-              ? `StatefulSets in ${cluster} / ${namespace}`
-              : cluster 
-                ? `All statefulsets in ${cluster}`
-                : `All statefulsets across ${clusters?.length || 0} cluster(s)`
-            }
-          </p>
-        </div>
-        <div className="relative w-full sm:w-64">
-          <MagnifyingGlassIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Filter by name..."
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            className="w-full pl-11 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-          />
-        </div>
-      </div>
-
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                <ResizableTableHeader
-                  label="Name"
-                  columnKey="name"
-                  sortKey="metadata.name"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.name}
-                />
-                <ResizableTableHeader
-                  label="Namespace"
-                  columnKey="namespace"
-                  sortKey="metadata.namespace"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.namespace}
-                />
-                <ResizableTableHeader
-                  label="Status"
-                  columnKey="status"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.status}
-                />
-                <ResizableTableHeader
-                  label="Replicas"
-                  columnKey="replicas"
-                  sortKey="status.currentReplicas"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.replicas}
-                />
-                <ResizableTableHeader
-                  label="Ready"
-                  columnKey="ready"
-                  sortKey="status.readyReplicas"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.ready}
-                />
-                <ResizableTableHeader
-                  label="Update Strategy"
-                  columnKey="updateStrategy"
-                  sortKey="spec.updateStrategy.type"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.updateStrategy}
-                />
-                <ResizableTableHeader
-                  label="Age"
-                  columnKey="age"
-                  sortKey="metadata.creationTimestamp"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.age}
-                />
-                <ResizableTableHeader
-                  label="Actions"
-                  columnKey="actions"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.actions}
-                  align="right"
-                />
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center">
-                    <div className="flex items-center justify-center">
-                      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-primary-600"></div>
-                      <span className="ml-3 text-gray-500 dark:text-gray-400">Loading stateful sets...</span>
+      <DataTable
+        data={allStatefulSets || []}
+        columns={columns}
+        keyExtractor={(statefulset) => `${statefulset.clusterName}-${statefulset.metadata.namespace}-${statefulset.metadata.name}`}
+        searchPlaceholder="Search statefulsets by name, cluster, namespace, status, strategy..."
+        isLoading={isLoading}
+        emptyMessage="No statefulsets found"
+        emptyIcon={
+          <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
+            <CircleStackIcon className="w-6 h-6 text-gray-400 dark:text-gray-500" />
+          </div>
+        }
+        mobileCardRenderer={(statefulset) => (
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <CircleStackIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+                <div className="min-w-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      navigate(`/clusters/${statefulset.clusterName}/namespaces/${statefulset.metadata.namespace}/statefulsets/${statefulset.metadata.name}`)
+                    }}
+                    className="font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate text-left"
+                  >
+                    {statefulset.metadata.name}
+                  </button>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                    {statefulset.metadata.namespace}
+                  </div>
+                  {!cluster && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      {statefulset.clusterName}
                     </div>
-                  </td>
-                </tr>
-              ) : statefulsets.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center">
-                    <p className="text-gray-500 dark:text-gray-400">No stateful sets found</p>
-                  </td>
-                </tr>
-              ) : (
-                statefulsets.map((statefulset) => {
-                  const statefulsetKey = `${statefulset.clusterName}-${statefulset.metadata.namespace}-${statefulset.metadata.name}`
-                  const statefulsetStatus = getStatefulSetStatus(statefulset)
-                  
-                  return (
-                    <tr 
-                      key={statefulsetKey} 
-                      onClick={() => handleStatefulSetClick(statefulset)}
-                      className="hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer transition-colors"
-                    >
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 text-xs sm:text-sm font-medium text-gray-900 dark:text-white">
-                        <div className="truncate max-w-[150px] sm:max-w-none">
-                          {statefulset.metadata.name}
-                        </div>
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {statefulset.metadata.namespace}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap">
-                        <span className={clsx('badge text-xs capitalize', statefulsetStatus.color)}>
-                          {statefulsetStatus.status}
-                        </span>
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {statefulset.status.currentReplicas || 0}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {statefulset.status.readyReplicas || 0}/{statefulset.spec.replicas || 0}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {statefulset.spec.updateStrategy?.type || 'RollingUpdate'}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {formatAge(statefulset.metadata.creationTimestamp)}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={(e) => handleScaleClick(statefulset, e)}
-                            className="p-1.5 text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
-                            title="Scale statefulset"
-                          >
-                            <ArrowsUpDownIcon className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={(e) => handleRestartClick(statefulset, e)}
-                            className="p-1.5 text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/20 rounded transition-colors"
-                            title="Restart statefulset"
-                          >
-                            <ArrowPathIcon className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={(e) => handleViewDetailsClick(statefulset, e)}
-                            className="p-1.5 text-purple-600 hover:text-purple-900 dark:text-purple-400 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
-                            title="View details"
-                          >
-                            <InformationCircleIcon className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={(e) => handleEditClick(statefulset, e)}
-                            className="p-1.5 text-yellow-600 hover:text-yellow-900 dark:text-yellow-400 dark:hover:text-yellow-300 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded transition-colors"
-                            title="Edit statefulset"
-                          >
-                            <PencilSquareIcon className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={(e) => handleDeleteClick(statefulset, e)}
-                            className="p-1.5 text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
-                            title="Delete statefulset"
-                          >
-                            <TrashIcon className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          pageSize={pageSize}
-          totalItems={totalItems}
-          onPageChange={goToPage}
-          onPageSizeChange={changePageSize}
-          onNextPage={goToNextPage}
-          onPreviousPage={goToPreviousPage}
-          hasNextPage={hasNextPage}
-          hasPreviousPage={hasPreviousPage}
-        />
-      </div>
+                  )}
+                </div>
+              </div>
+              <span className={clsx(
+                'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full shrink-0',
+                getStatefulSetStatus(statefulset) === 'Running'
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+                  : getStatefulSetStatus(statefulset) === 'Updating' || getStatefulSetStatus(statefulset) === 'Scaling'
+                  ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400'
+                  : 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+              )}>
+                <span className={clsx(
+                  'w-1.5 h-1.5 rounded-full',
+                  getStatefulSetStatus(statefulset) === 'Running' ? 'bg-green-600' :
+                  getStatefulSetStatus(statefulset) === 'Updating' || getStatefulSetStatus(statefulset) === 'Scaling' ? 'bg-yellow-600' :
+                  'bg-red-600'
+                )} />
+                {getStatefulSetStatus(statefulset)}
+              </span>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Replicas:</span>
+                <span className="ml-1 text-gray-900 dark:text-white">{statefulset.status.currentReplicas || 0}</span>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Ready:</span>
+                <span className={clsx(
+                  'ml-1 font-medium',
+                  (statefulset.status.readyReplicas || 0) === (statefulset.spec.replicas || 0) && (statefulset.spec.replicas || 0) > 0
+                    ? 'text-green-600 dark:text-green-400'
+                    : 'text-gray-900 dark:text-white'
+                )}>
+                  {statefulset.status.readyReplicas || 0}/{statefulset.spec.replicas || 0}
+                </span>
+              </div>
+              <div className="col-span-2">
+                <span className="text-gray-500 dark:text-gray-400">Strategy:</span>
+                <span className="ml-1 text-gray-900 dark:text-white">{statefulset.spec.updateStrategy?.type || 'RollingUpdate'}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {formatAge(statefulset.metadata.creationTimestamp)}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={(e) => handleScaleClick(statefulset, e)}
+                  className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                  title="Scale"
+                >
+                  <ArrowsUpDownIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleRestartClick(statefulset, e)}
+                  className="p-1.5 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/20 rounded transition-colors"
+                  title="Restart"
+                >
+                  <ArrowPathIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleViewDetailsClick(statefulset, e)}
+                  className="p-1.5 text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
+                  title="Details"
+                >
+                  <InformationCircleIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleEditClick(statefulset, e)}
+                  className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+                  title="Edit YAML"
+                >
+                  <PencilSquareIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleDeleteClick(statefulset, e)}
+                  className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                  title="Delete"
+                >
+                  <TrashIcon className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      />
 
       {/* Modals */}
       {selectedStatefulSet && (
@@ -489,40 +603,33 @@ export default function StatefulSets() {
               setSelectedStatefulSet(null)
             }}
           />
-          <RestartStatefulSetModal
-            statefulset={selectedStatefulSet}
+          <ConfirmationModal
             isOpen={isRestartModalOpen}
             onClose={() => {
               setIsRestartModalOpen(false)
               setSelectedStatefulSet(null)
             }}
-            onSuccess={async () => {
-              await queryClient.invalidateQueries({ queryKey: ['statefulsets'] })
-              await queryClient.invalidateQueries({ queryKey: ['all-statefulsets'] })
-              await queryClient.refetchQueries({ queryKey: ['statefulsets'] })
-              await queryClient.refetchQueries({ queryKey: ['all-statefulsets'] })
-              setIsRestartModalOpen(false)
-              setSelectedStatefulSet(null)
-            }}
+            onConfirm={handleRestartConfirm}
+            title="Restart StatefulSet"
+            message={`Are you sure you want to restart statefulset "${selectedStatefulSet.metadata.name}"? This will restart all pods.`}
+            confirmText="Restart"
+            type="warning"
           />
-          <DeleteStatefulSetModal
-            statefulset={selectedStatefulSet}
+          <ConfirmationModal
             isOpen={isDeleteModalOpen}
             onClose={() => {
               setIsDeleteModalOpen(false)
               setSelectedStatefulSet(null)
             }}
-            onSuccess={async () => {
-              await queryClient.invalidateQueries({ queryKey: ['statefulsets'] })
-              await queryClient.invalidateQueries({ queryKey: ['all-statefulsets'] })
-              await queryClient.refetchQueries({ queryKey: ['statefulsets'] })
-              await queryClient.refetchQueries({ queryKey: ['all-statefulsets'] })
-              setIsDeleteModalOpen(false)
-              setSelectedStatefulSet(null)
-            }}
+            onConfirm={handleDeleteConfirm}
+            title="Delete StatefulSet"
+            message={`Are you sure you want to delete statefulset "${selectedStatefulSet.metadata.name}"? This action cannot be undone.`}
+            confirmText="Delete"
+            type="danger"
           />
         </>
       )}
     </div>
   )
 }
+

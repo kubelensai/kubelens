@@ -21,6 +21,7 @@ import IngressClasses from "../pages/IngressClasses";
 import Ingresses from "../pages/Ingresses";
 import Integrations from "../pages/Integrations";
 import Jobs from "../pages/Jobs";
+import JobDetails from "../pages/JobDetails";
 import Leases from "../pages/Leases";
 import Login from "../pages/Login";
 import MutatingWebhookConfigurations from "../pages/MutatingWebhookConfigurations";
@@ -36,6 +37,7 @@ import Pods from "../pages/Pods";
 import PodDetails from "../pages/PodDetails";
 import PriorityClasses from "../pages/PriorityClasses";
 import ReplicaSets from "../pages/ReplicaSets";
+import ReplicaSetDetails from "../pages/ReplicaSetDetails";
 import RoleBindings from "../pages/RoleBindings";
 import Roles from "../pages/Roles";
 import RuntimeClasses from "../pages/RuntimeClasses";
@@ -44,6 +46,7 @@ import ServiceAccounts from "../pages/ServiceAccounts";
 import Services from "../pages/Services";
 import Signup from "../pages/Signup";
 import StatefulSets from "../pages/StatefulSets";
+import StatefulSetDetails from "../pages/StatefulSetDetails";
 import StorageClasses from "../pages/StorageClasses";
 import Users from "../pages/Users";
 import Groups from "../pages/Groups";
@@ -193,6 +196,21 @@ const routes = [
       {
         path: "clusters/:cluster/namespaces/:namespace/daemonsets/:daemonsetName",
         element: withClusterCheck(<DaemonSetDetails />),
+      },
+      // StatefulSet Details routes
+      {
+        path: "clusters/:cluster/namespaces/:namespace/statefulsets/:statefulsetName",
+        element: withClusterCheck(<StatefulSetDetails />),
+      },
+      // ReplicaSet Details routes
+      {
+        path: "clusters/:cluster/namespaces/:namespace/replicasets/:replicasetName",
+        element: withClusterCheck(<ReplicaSetDetails />),
+      },
+      // Job Details routes
+      {
+        path: "clusters/:cluster/namespaces/:namespace/jobs/:jobName",
+        element: withClusterCheck(<JobDetails />),
       },
       // Custom Resources routes
       {

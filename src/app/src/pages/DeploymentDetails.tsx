@@ -26,6 +26,7 @@ import PodDetailContent from '@/components/shared/PodDetailContent'
 import { DataTable, Column } from '@/components/shared/DataTable'
 import ScaleDeploymentModal from '@/components/Deployments/ScaleDeploymentModal'
 import ConfirmationModal from '@/components/shared/ConfirmationModal'
+import Tooltip from '@/components/shared/Tooltip'
 import { useNotificationStore } from '@/stores/notificationStore'
 import api from '@/services/api'
 import yaml from 'js-yaml'
@@ -83,6 +84,30 @@ export default function DeploymentDetails({}: DeploymentDetailsProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pods])
+
+  // Auto-refresh pods when Pods tab is active
+  useEffect(() => {
+    if (activeTab !== 'pods' || !cluster || !namespace || !deploymentName) return
+
+    const refreshPods = async () => {
+      try {
+        const podsRes = await api.get(`/clusters/${cluster}/pods?namespace=${namespace}&deployment=${deploymentName}`)
+        const podsData = podsRes.data || []
+        setPods(podsData)
+      } catch (error) {
+        console.error('Failed to refresh pods:', error)
+      }
+    }
+
+    // Initial fetch
+    refreshPods()
+
+    // Set up interval for auto-refresh every 5 seconds
+    const intervalId = setInterval(refreshPods, 5000)
+
+    // Cleanup on unmount or when dependencies change
+    return () => clearInterval(intervalId)
+  }, [activeTab, cluster, namespace, deploymentName])
 
   const fetchDeploymentDetails = async () => {
     try {
@@ -504,6 +529,122 @@ export default function DeploymentDetails({}: DeploymentDetailsProps) {
       sortable: true,
       sortValue: (pod) => pod.status?.phase || 'Unknown',
       searchValue: (pod) => pod.status?.phase || 'Unknown',
+    },
+    {
+      key: 'containers',
+      header: 'Containers',
+      accessor: (pod) => {
+        const totalContainers = pod.spec?.containers?.length || 0
+        const readyContainers = pod.status?.containerStatuses?.filter((c: any) => c.ready).length || 0
+        return (
+          <span className="text-sm text-gray-700 dark:text-gray-300">
+            {readyContainers}/{totalContainers}
+          </span>
+        )
+      },
+      sortable: true,
+      sortValue: (pod) => {
+        const totalContainers = pod.spec?.containers?.length || 0
+        const readyContainers = pod.status?.containerStatuses?.filter((c: any) => c.ready).length || 0
+        return readyContainers / Math.max(totalContainers, 1)
+      },
+      searchValue: (pod) => {
+        const totalContainers = pod.spec?.containers?.length || 0
+        const readyContainers = pod.status?.containerStatuses?.filter((c: any) => c.ready).length || 0
+        return `${readyContainers}/${totalContainers}`
+      },
+    },
+    {
+      key: 'restarts',
+      header: 'Restarts',
+      accessor: (pod) => {
+        const restarts = pod.status?.containerStatuses?.reduce((sum: number, c: any) => sum + (c.restartCount || 0), 0) || 0
+        return (
+          <span className={clsx(
+            'text-sm font-medium',
+            restarts > 0 ? 'text-yellow-600 dark:text-yellow-400' : 'text-gray-700 dark:text-gray-300'
+          )}>
+            {restarts}
+          </span>
+        )
+      },
+      sortable: true,
+      sortValue: (pod) => pod.status?.containerStatuses?.reduce((sum: number, c: any) => sum + (c.restartCount || 0), 0) || 0,
+      searchValue: (pod) => String(pod.status?.containerStatuses?.reduce((sum: number, c: any) => sum + (c.restartCount || 0), 0) || 0),
+    },
+    {
+      key: 'conditions',
+      header: 'Conditions',
+      accessor: (pod) => {
+        const containerStatuses = pod.status?.containerStatuses || []
+        if (containerStatuses.length === 0) {
+          return <span className="text-sm text-gray-400 dark:text-gray-500">-</span>
+        }
+        
+        return (
+          <div className="flex flex-wrap gap-1">
+            {containerStatuses.map((cs: any, idx: number) => {
+              const state = cs.state
+              let status = 'Unknown'
+              let color = 'gray'
+              let reason = ''
+              let message = ''
+              
+              if (state?.running) {
+                status = 'Running'
+                color = 'green'
+                reason = 'Started'
+                message = `Started at ${state.running.startedAt || 'N/A'}`
+              } else if (state?.waiting) {
+                status = 'Waiting'
+                color = 'yellow'
+                reason = state.waiting.reason || 'Unknown'
+                message = state.waiting.message || 'No message'
+              } else if (state?.terminated) {
+                status = 'Terminated'
+                color = 'red'
+                reason = state.terminated.reason || 'Unknown'
+                message = state.terminated.message || 'No message'
+              }
+              
+              const colorClasses = {
+                green: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400',
+                yellow: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400',
+                red: 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400',
+                gray: 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400',
+              }
+              
+              return (
+                <Tooltip
+                  key={idx}
+                  content={`${cs.name}\nReason: ${reason}\nMessage: ${message}`}
+                  mode="hover"
+                >
+                  <span
+                    className={clsx(
+                      'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium cursor-help',
+                      colorClasses[color as keyof typeof colorClasses]
+                    )}
+                  >
+                    {status}
+                  </span>
+                </Tooltip>
+              )
+            })}
+          </div>
+        )
+      },
+      sortable: false,
+      searchValue: (pod) => {
+        const containerStatuses = pod.status?.containerStatuses || []
+        return containerStatuses.map((cs: any) => {
+          const state = cs.state
+          if (state?.running) return `${cs.name} Running`
+          if (state?.waiting) return `${cs.name} Waiting ${state.waiting.reason || ''}`
+          if (state?.terminated) return `${cs.name} Terminated ${state.terminated.reason || ''}`
+          return `${cs.name} Unknown`
+        }).join(' ')
+      },
     },
     {
       key: 'cpu',

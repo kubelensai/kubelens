@@ -1,19 +1,17 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import {
-  ServerStackIcon,
+  CircleStackIcon,
+  ArrowsUpDownIcon,
   ArrowPathIcon,
   TrashIcon,
-  CheckCircleIcon,
-  XCircleIcon,
-  ExclamationCircleIcon,
   ChevronDownIcon,
   ChevronUpIcon,
   CommandLineIcon,
   DocumentTextIcon,
   PencilSquareIcon,
   CpuChipIcon,
-  CircleStackIcon,
+  CircleStackIcon as MemoryIcon,
   EyeIcon,
 } from '@heroicons/react/24/outline'
 import clsx from 'clsx'
@@ -23,6 +21,7 @@ import Terminal from '@/components/shared/Terminal'
 import EnhancedMultiPodLogViewer from '@/components/shared/EnhancedMultiPodLogViewer'
 import PodDetailContent from '@/components/shared/PodDetailContent'
 import { DataTable, Column } from '@/components/shared/DataTable'
+import ScaleStatefulSetModal from '@/components/StatefulSets/ScaleStatefulSetModal'
 import ConfirmationModal from '@/components/shared/ConfirmationModal'
 import Tooltip from '@/components/shared/Tooltip'
 import { useNotificationStore } from '@/stores/notificationStore'
@@ -30,18 +29,18 @@ import api from '@/services/api'
 import yaml from 'js-yaml'
 import { formatAge } from '@/utils/format'
 
-interface DaemonSetDetailsProps {}
+interface StatefulSetDetailsProps {}
 
 type TabType = 'overview' | 'yaml' | 'pods' | 'terminal' | 'logs' | 'events'
 
-export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
-  const { cluster, namespace, daemonsetName } = useParams<{ cluster: string; namespace: string; daemonsetName: string }>()
+export default function StatefulSetDetails({}: StatefulSetDetailsProps) {
+  const { cluster, namespace, statefulsetName } = useParams<{ cluster: string; namespace: string; statefulsetName: string }>()
   const navigate = useNavigate()
   const { addNotification } = useNotificationStore()
   const [searchParams] = useSearchParams()
   const tabParam = searchParams.get('tab') as TabType | null
   const [activeTab, setActiveTab] = useState<TabType>(tabParam || 'overview')
-  const [daemonset, setDaemonSet] = useState<any>(null)
+  const [statefulset, setStatefulSet] = useState<any>(null)
   const [pods, setPods] = useState<any[]>([])
   const [events, setEvents] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -60,6 +59,7 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
   const [podMetrics, setPodMetrics] = useState<Record<string, any>>({})
 
   // Modal states
+  const [isScaleModalOpen, setIsScaleModalOpen] = useState(false)
   const [isSaveYamlModalOpen, setIsSaveYamlModalOpen] = useState(false)
   const [isRestartModalOpen, setIsRestartModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
@@ -70,10 +70,10 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
   const [podDeleteModal, setPodDeleteModal] = useState<{ isOpen: boolean; pod: any | null }>({ isOpen: false, pod: null })
 
   useEffect(() => {
-    if (cluster && namespace && daemonsetName) {
-      fetchDaemonSetDetails()
+    if (cluster && namespace && statefulsetName) {
+      fetchStatefulSetDetails()
     }
-  }, [cluster, namespace, daemonsetName])
+  }, [cluster, namespace, statefulsetName])
 
   useEffect(() => {
     if (pods && pods.length > 0) {
@@ -84,15 +84,15 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
 
   // Auto-refresh pods when Pods tab is active
   useEffect(() => {
-    if (activeTab !== 'pods' || !cluster || !namespace || !daemonset) return
+    if (activeTab !== 'pods' || !cluster || !namespace || !statefulset) return
 
     const refreshPods = async () => {
       try {
         const podsRes = await api.get(`/clusters/${cluster}/pods?namespace=${namespace}`)
         const podsData = podsRes.data || []
         
-        // Filter pods by daemonset label selector
-        const labelSelector = daemonset.spec?.selector?.matchLabels || {}
+        // Filter pods by statefulset label selector
+        const labelSelector = statefulset.spec?.selector?.matchLabels || {}
         const filteredPods = podsData.filter((pod: any) => {
           const podLabels = pod.metadata?.labels || {}
           return Object.entries(labelSelector).every(([key, value]) => podLabels[key] === value)
@@ -111,30 +111,29 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
 
     // Cleanup on unmount or when dependencies change
     return () => clearInterval(intervalId)
-  }, [activeTab, cluster, namespace, daemonset])
+  }, [activeTab, cluster, namespace, statefulset])
 
-  const fetchDaemonSetDetails = async () => {
+  const fetchStatefulSetDetails = async () => {
     try {
       setIsLoading(true)
-      const [daemonsetRes, podsRes, eventsRes] = await Promise.all([
-        api.get(`/clusters/${cluster}/namespaces/${namespace}/daemonsets/${daemonsetName}`),
+      const [statefulsetRes, podsRes, eventsRes] = await Promise.all([
+        api.get(`/clusters/${cluster}/namespaces/${namespace}/statefulsets/${statefulsetName}`),
         api.get(`/clusters/${cluster}/pods?namespace=${namespace}`).catch(() => ({ data: [] })),
         api.get(`/clusters/${cluster}/events`).catch(() => ({ data: { events: [] } })),
       ])
 
-      const daemonsetData = daemonsetRes.data
+      const statefulsetData = statefulsetRes.data
       const podsData = podsRes.data || []
       const eventsData = eventsRes.data.events || []
 
-      setDaemonSet(daemonsetData)
+      setStatefulSet(statefulsetData)
       
-      // Filter pods by daemonset label selector
-      const labelSelector = daemonsetData.spec?.selector?.matchLabels || {}
+      // Filter pods by statefulset label selector
+      const labelSelector = statefulsetData.spec?.selector?.matchLabels || {}
       const filteredPods = podsData.filter((pod: any) => {
         const podLabels = pod.metadata?.labels || {}
         return Object.entries(labelSelector).every(([key, value]) => podLabels[key] === value)
       })
-      
       setPods(filteredPods)
       
       // Set default selected pod and container
@@ -147,31 +146,31 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
         }
       }
       
-      // Filter events related to this daemonset
-      const daemonsetEvents = eventsData.filter((event: any) => {
-        if (!daemonsetName) return false
+      // Filter events related to this statefulset
+      const statefulsetEvents = eventsData.filter((event: any) => {
+        if (!statefulsetName) return false
         
-        const involvedObjectMatch = event.involvedObject?.kind === 'DaemonSet' && 
-                                    event.involvedObject?.name === daemonsetName &&
+        const involvedObjectMatch = event.involvedObject?.kind === 'StatefulSet' && 
+                                    event.involvedObject?.name === statefulsetName &&
                                     event.involvedObject?.namespace === namespace
-        const messageMatch = event.message?.toLowerCase().includes(daemonsetName.toLowerCase())
+        const messageMatch = event.message?.toLowerCase().includes(statefulsetName.toLowerCase())
         
         return involvedObjectMatch || messageMatch
       })
       
-      setEvents(daemonsetEvents)
+      setEvents(statefulsetEvents)
       
       // Format as Kubernetes manifest
       const k8sManifest = {
-        apiVersion: daemonsetData.apiVersion || 'apps/v1',
-        kind: daemonsetData.kind || 'DaemonSet',
-        metadata: daemonsetData.metadata,
-        spec: daemonsetData.spec,
-        status: daemonsetData.status,
+        apiVersion: statefulsetData.apiVersion || 'apps/v1',
+        kind: statefulsetData.kind || 'StatefulSet',
+        metadata: statefulsetData.metadata,
+        spec: statefulsetData.spec,
+        status: statefulsetData.status,
       }
       setYamlContent(yaml.dump(k8sManifest, { indent: 2, lineWidth: -1, sortKeys: false }))
     } catch (error) {
-      console.error('Failed to fetch daemonset details:', error)
+      console.error('Failed to fetch statefulset details:', error)
     } finally {
       setIsLoading(false)
     }
@@ -313,59 +312,59 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
   const handleSaveYaml = async () => {
     try {
       const updatedManifest = yaml.load(yamlContent)
-      await api.put(`/clusters/${cluster}/namespaces/${namespace}/daemonsets/${daemonsetName}`, updatedManifest)
+      await api.put(`/clusters/${cluster}/namespaces/${namespace}/statefulsets/${statefulsetName}`, updatedManifest)
       addNotification({
         type: 'success',
         title: 'Success',
-        message: 'DaemonSet updated successfully',
+        message: 'StatefulSet updated successfully',
       })
-      fetchDaemonSetDetails()
+      fetchStatefulSetDetails()
       setIsSaveYamlModalOpen(false)
     } catch (error: any) {
-      console.error('Failed to update daemonset:', error)
+      console.error('Failed to update statefulset:', error)
       const errorMessage = error.response?.data?.error || error.message || 'Unknown error'
       addNotification({
         type: 'error',
         title: 'Error',
-        message: `Failed to update daemonset: ${errorMessage}`,
+        message: `Failed to update statefulset: ${errorMessage}`,
       })
     }
   }
 
-  const handleRestartDaemonSet = async () => {
+  const handleRestartStatefulSet = async () => {
     try {
-      await api.post(`/clusters/${cluster}/namespaces/${namespace}/daemonsets/${daemonsetName}/restart`)
+      await api.post(`/clusters/${cluster}/namespaces/${namespace}/statefulsets/${statefulsetName}/restart`)
       addNotification({
         type: 'success',
         title: 'Success',
-        message: 'DaemonSet restarted successfully',
+        message: 'StatefulSet restarted successfully',
       })
-      fetchDaemonSetDetails()
+      fetchStatefulSetDetails()
       setIsRestartModalOpen(false)
     } catch (error: any) {
       addNotification({
         type: 'error',
         title: 'Error',
-        message: `Failed to restart daemonset: ${error.message || 'Unknown error'}`,
+        message: `Failed to restart statefulset: ${error.message || 'Unknown error'}`,
       })
     }
   }
 
-  const handleDeleteDaemonSet = async () => {
+  const handleDeleteStatefulSet = async () => {
     try {
-      await api.delete(`/clusters/${cluster}/namespaces/${namespace}/daemonsets/${daemonsetName}`)
+      await api.delete(`/clusters/${cluster}/namespaces/${namespace}/statefulsets/${statefulsetName}`)
       addNotification({
         type: 'success',
         title: 'Success',
-        message: 'DaemonSet deleted successfully',
+        message: 'StatefulSet deleted successfully',
       })
       setIsDeleteModalOpen(false)
-      navigate(`/clusters/${cluster}/namespaces/${namespace}/daemonsets`)
+      navigate(`/clusters/${cluster}/namespaces/${namespace}/statefulsets`)
     } catch (error: any) {
       addNotification({
         type: 'error',
         title: 'Error',
-        message: `Failed to delete daemonset: ${error.message || 'Unknown error'}`,
+        message: `Failed to delete statefulset: ${error.message || 'Unknown error'}`,
       })
     }
   }
@@ -402,7 +401,7 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
         title: 'Success',
         message: 'Pod updated successfully',
       })
-      fetchDaemonSetDetails()
+      fetchStatefulSetDetails()
       setPodYamlModal({ isOpen: false, pod: null, yaml: '' })
     } catch (error: any) {
       addNotification({
@@ -423,7 +422,7 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
         message: 'Pod deleted successfully',
       })
       setPodDeleteModal({ isOpen: false, pod: null })
-      fetchDaemonSetDetails()
+      fetchStatefulSetDetails()
     } catch (error: any) {
       addNotification({
         type: 'error',
@@ -433,28 +432,40 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
     }
   }
 
-  const getDaemonSetStatus = () => {
-    if (!daemonset) return 'Unknown'
+  const getStatefulSetStatus = () => {
+    if (!statefulset) return 'Unknown'
     
-    const desired = daemonset.status.desiredNumberScheduled || 0
-    const ready = daemonset.status.numberReady || 0
-    const available = daemonset.status.numberAvailable || 0
-    const updated = daemonset.status.updatedNumberScheduled || 0
-    const current = daemonset.status.currentNumberScheduled || 0
+    const desired = statefulset.spec.replicas || 0
+    const ready = statefulset.status.readyReplicas || 0
+    const current = statefulset.status.currentReplicas || 0
+    const updated = statefulset.status.updatedReplicas || 0
 
+    // Running: all replicas are ready and updated
+    if (ready === desired && updated === desired && current === desired) {
+      return 'Running'
+    }
+
+    // Unavailable: No ready pods when replicas are desired
     if (ready === 0 && desired > 0) {
       return 'Unavailable'
     }
 
+    // Scaling: current replicas doesn't match desired
+    if (current !== desired) {
+      return 'Scaling'
+    }
+
+    // Updating: not all replicas are updated yet
     if (updated < desired) {
       return 'Updating'
     }
 
-    if (ready === desired && available === desired && current === desired) {
-      return 'Running'
+    // Degraded: has desired replicas but not all ready yet
+    if (current === desired && ready < desired) {
+      return 'Degraded'
     }
 
-    return 'Pending'
+    return 'Updating'
   }
 
   const getStatusColor = (status: string) => {
@@ -462,8 +473,9 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
       case 'running':
         return 'text-green-600 dark:text-green-400'
       case 'updating':
-      case 'pending':
+      case 'scaling':
         return 'text-yellow-600 dark:text-yellow-400'
+      case 'degraded':
       case 'unavailable':
         return 'text-red-600 dark:text-red-400'
       default:
@@ -471,14 +483,7 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
     }
   }
 
-  const getConditionIcon = (status: string) => {
-    if (status === 'True') {
-      return <CheckCircleIcon className="w-5 h-5 text-green-500" />
-    } else if (status === 'False') {
-      return <XCircleIcon className="w-5 h-5 text-red-500" />
-    }
-    return <ExclamationCircleIcon className="w-5 h-5 text-yellow-500" />
-  }
+
 
   // Pod columns
   const podColumns = useMemo<Column<any>[]>(() => [
@@ -734,7 +739,7 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
           <div className="w-full min-w-[120px]">
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-1.5">
-                <CircleStackIcon className="w-4 h-4 text-green-500 dark:text-green-400" />
+                <MemoryIcon className="w-4 h-4 text-green-500 dark:text-green-400" />
                 <span className="text-xs font-medium text-gray-700 dark:text-gray-300 font-mono">
                   {formatMemory(memoryUsage)}
                 </span>
@@ -947,10 +952,10 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
     )
   }
 
-  if (!daemonset) {
+  if (!statefulset) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-500 dark:text-gray-400">DaemonSet not found</p>
+        <p className="text-gray-500 dark:text-gray-400">StatefulSet not found</p>
       </div>
     )
   }
@@ -964,8 +969,6 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
     { id: 'events', label: 'Events' },
   ]
 
-  const trueConditions = daemonset.status?.conditions?.filter((c: any) => c.status === 'True') || []
-  const falseConditions = daemonset.status?.conditions?.filter((c: any) => c.status !== 'True') || []
   const selectedPodData = pods.find(p => p.metadata.name === selectedPod)
 
   return (
@@ -973,29 +976,37 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
       <Breadcrumb
         items={[
           { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: namespace || '', href: `/clusters/${cluster}/namespaces/${namespace}/daemonsets` },
-          { name: 'DaemonSets', href: `/clusters/${cluster}/namespaces/${namespace}/daemonsets` },
-          { name: daemonsetName || '' },
+          { name: namespace || '', href: `/clusters/${cluster}/namespaces/${namespace}/statefulsets` },
+          { name: 'StatefulSets', href: `/clusters/${cluster}/namespaces/${namespace}/statefulsets` },
+          { name: statefulsetName || '' },
         ]}
       />
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center">
-            <ServerStackIcon className="w-6 h-6 text-white" />
+          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center">
+            <CircleStackIcon className="w-6 h-6 text-white" />
           </div>
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
-              {daemonsetName}
+              {statefulsetName}
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              DaemonSet Details
+              StatefulSet Details
             </p>
           </div>
         </div>
 
         {/* Action Buttons */}
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsScaleModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+            title="Scale"
+          >
+            <ArrowsUpDownIcon className="w-4 h-4" />
+            <span className="hidden sm:inline">Scale</span>
+          </button>
           <button
             onClick={() => setIsRestartModalOpen(true)}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors"
@@ -1039,40 +1050,46 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
       <div className="mt-6">
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            {/* DaemonSet Information */}
+            {/* StatefulSet Information */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-              <h3 className="text-lg font-semibold text-gray-700 dark:text-white mb-4">DaemonSet Information</h3>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">StatefulSet Information</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <span className="text-sm text-gray-500 dark:text-gray-400">Name:</span>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">{daemonset.metadata.name}</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">{statefulset.metadata.name}</p>
                 </div>
                 <div>
                   <span className="text-sm text-gray-500 dark:text-gray-400">Namespace:</span>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">{daemonset.metadata.namespace}</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">{statefulset.metadata.namespace}</p>
                 </div>
                 <div>
                   <span className="text-sm text-gray-500 dark:text-gray-400">Status:</span>
-                  <p className={clsx('text-sm font-medium', getStatusColor(getDaemonSetStatus()))}>
-                    {getDaemonSetStatus()}
+                  <p className={clsx('text-sm font-medium', getStatusColor(getStatefulSetStatus()))}>
+                    {getStatefulSetStatus()}
                   </p>
                 </div>
                 <div>
-                  <span className="text-sm text-gray-500 dark:text-gray-400">Strategy:</span>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">Update Strategy:</span>
                   <p className="text-sm font-medium text-gray-900 dark:text-white">
-                    {daemonset.spec?.updateStrategy?.type || 'RollingUpdate'}
+                    {statefulset.spec?.updateStrategy?.type || 'RollingUpdate'}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">Replicas:</span>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">
+                    {statefulset.spec?.replicas || 0}
                   </p>
                 </div>
                 <div>
                   <span className="text-sm text-gray-500 dark:text-gray-400">Age:</span>
                   <p className="text-sm font-medium text-gray-900 dark:text-white">
-                    {formatAge(daemonset.metadata.creationTimestamp)}
+                    {formatAge(statefulset.metadata.creationTimestamp)}
                   </p>
                 </div>
               </div>
 
               {/* Labels */}
-              {daemonset.metadata.labels && Object.keys(daemonset.metadata.labels).length > 0 && (
+              {statefulset.metadata.labels && Object.keys(statefulset.metadata.labels).length > 0 && (
                 <div className="mt-6">
                   <button
                     onClick={() => toggleSection('labels')}
@@ -1083,12 +1100,12 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
                     ) : (
                       <ChevronDownIcon className="w-4 h-4" />
                     )}
-                    Labels ({Object.keys(daemonset.metadata.labels).length})
+                    Labels ({Object.keys(statefulset.metadata.labels).length})
                   </button>
                   {expandedSections.labels && (
                     <div className="mt-3 p-4 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-200 dark:border-blue-800">
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {Object.entries(daemonset.metadata.labels).map(([key, value]) => (
+                        {Object.entries(statefulset.metadata.labels).map(([key, value]) => (
                           <div key={key} className="flex flex-col gap-1">
                             <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">{key}</span>
                             <span className="text-sm font-mono text-gray-900 dark:text-white bg-white dark:bg-gray-800 px-2 py-1 rounded border border-blue-200 dark:border-blue-700">
@@ -1103,7 +1120,7 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
               )}
 
               {/* Annotations */}
-              {daemonset.metadata.annotations && Object.keys(daemonset.metadata.annotations).length > 0 && (
+              {statefulset.metadata.annotations && Object.keys(statefulset.metadata.annotations).length > 0 && (
                 <div className="mt-4">
                   <button
                     onClick={() => toggleSection('annotations')}
@@ -1114,12 +1131,12 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
                     ) : (
                       <ChevronDownIcon className="w-4 h-4" />
                     )}
-                    Annotations ({Object.keys(daemonset.metadata.annotations).length})
+                    Annotations ({Object.keys(statefulset.metadata.annotations).length})
                   </button>
                   {expandedSections.annotations && (
                     <div className="mt-3 p-4 bg-purple-50 dark:bg-purple-900/10 rounded-lg border border-purple-200 dark:border-purple-800 max-h-60 overflow-y-auto">
                       <div className="space-y-3">
-                        {Object.entries(daemonset.metadata.annotations).map(([key, value]) => (
+                        {Object.entries(statefulset.metadata.annotations).map(([key, value]) => (
                           <div key={key} className="flex flex-col gap-1">
                             <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">{key}</span>
                             <p className="text-sm font-mono text-gray-900 dark:text-white bg-white dark:bg-gray-800 px-2 py-1 rounded border border-purple-200 dark:border-purple-700 break-all">
@@ -1132,239 +1149,45 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
                   )}
                 </div>
               )}
-
-              {/* Node Selector */}
-              {daemonset.spec?.template?.spec?.nodeSelector && Object.keys(daemonset.spec.template.spec.nodeSelector).length > 0 && (
-                <div className="mt-4">
-                  <button
-                    onClick={() => toggleSection('nodeSelector')}
-                    className="flex items-center gap-2 text-sm font-semibold text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300"
-                  >
-                    {expandedSections.nodeSelector ? (
-                      <ChevronUpIcon className="w-4 h-4" />
-                    ) : (
-                      <ChevronDownIcon className="w-4 h-4" />
-                    )}
-                    Node Selector ({Object.keys(daemonset.spec.template.spec.nodeSelector).length})
-                  </button>
-                  {expandedSections.nodeSelector && (
-                    <div className="mt-3 p-4 bg-cyan-50 dark:bg-cyan-900/10 rounded-lg border border-cyan-200 dark:border-cyan-800">
-                      <div className="space-y-2">
-                        {Object.entries(daemonset.spec.template.spec.nodeSelector).map(([key, value]) => (
-                          <div key={key} className="flex items-center gap-2">
-                            <span className="text-xs font-semibold text-cyan-700 dark:text-cyan-300">{key}:</span>
-                            <span className="text-sm font-mono text-gray-900 dark:text-white bg-white dark:bg-gray-800 px-2 py-1 rounded border border-cyan-200 dark:border-cyan-700">
-                              {value as string}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Tolerations */}
-              {daemonset.spec?.template?.spec?.tolerations && daemonset.spec.template.spec.tolerations.length > 0 && (
-                <div className="mt-4">
-                  <button
-                    onClick={() => toggleSection('tolerations')}
-                    className="flex items-center gap-2 text-sm font-semibold text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300"
-                  >
-                    {expandedSections.tolerations ? (
-                      <ChevronUpIcon className="w-4 h-4" />
-                    ) : (
-                      <ChevronDownIcon className="w-4 h-4" />
-                    )}
-                    Tolerations ({daemonset.spec.template.spec.tolerations.length})
-                  </button>
-                  {expandedSections.tolerations && (
-                    <div className="mt-3 p-4 bg-orange-50 dark:bg-orange-900/10 rounded-lg border border-orange-200 dark:border-orange-800 space-y-2 max-h-60 overflow-y-auto">
-                      {daemonset.spec.template.spec.tolerations.map((toleration: any, index: number) => (
-                        <div key={index} className="p-3 bg-white dark:bg-gray-800 rounded border border-orange-200 dark:border-orange-700">
-                          <div className="space-y-1 text-sm">
-                            {toleration.key && (
-                              <div>
-                                <span className="text-gray-500 dark:text-gray-400">Key:</span>
-                                <span className="ml-2 font-mono text-gray-900 dark:text-white">{toleration.key}</span>
-                              </div>
-                            )}
-                            {toleration.operator && (
-                              <div>
-                                <span className="text-gray-500 dark:text-gray-400">Operator:</span>
-                                <span className="ml-2 font-mono text-gray-900 dark:text-white">{toleration.operator}</span>
-                              </div>
-                            )}
-                            {toleration.value && (
-                              <div>
-                                <span className="text-gray-500 dark:text-gray-400">Value:</span>
-                                <span className="ml-2 font-mono text-gray-900 dark:text-white">{toleration.value}</span>
-                              </div>
-                            )}
-                            {toleration.effect && (
-                              <div>
-                                <span className="text-gray-500 dark:text-gray-400">Effect:</span>
-                                <span className="ml-2 font-mono text-gray-900 dark:text-white">{toleration.effect}</span>
-                              </div>
-                            )}
-                            {toleration.tolerationSeconds !== undefined && (
-                              <div>
-                                <span className="text-gray-500 dark:text-gray-400">Toleration Seconds:</span>
-                                <span className="ml-2 font-mono text-gray-900 dark:text-white">{toleration.tolerationSeconds}</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Affinity */}
-              {daemonset.spec?.template?.spec?.affinity && (
-                <div className="mt-4">
-                  <button
-                    onClick={() => toggleSection('affinity')}
-                    className="flex items-center gap-2 text-sm font-semibold text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300"
-                  >
-                    {expandedSections.affinity ? (
-                      <ChevronUpIcon className="w-4 h-4" />
-                    ) : (
-                      <ChevronDownIcon className="w-4 h-4" />
-                    )}
-                    Affinity
-                  </button>
-                  {expandedSections.affinity && (
-                    <div className="mt-3 p-4 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-200 dark:border-green-800 space-y-3 max-h-60 overflow-y-auto">
-                      {daemonset.spec.template.spec.affinity.nodeAffinity && (
-                        <div>
-                          <h5 className="text-sm font-semibold text-green-700 dark:text-green-300 mb-2">Node Affinity</h5>
-                          <pre className="text-xs font-mono text-gray-900 dark:text-white bg-white dark:bg-gray-800 p-2 rounded border border-green-200 dark:border-green-700 overflow-x-auto">
-                            {JSON.stringify(daemonset.spec.template.spec.affinity.nodeAffinity, null, 2)}
-                          </pre>
-                        </div>
-                      )}
-                      {daemonset.spec.template.spec.affinity.podAffinity && (
-                        <div>
-                          <h5 className="text-sm font-semibold text-green-700 dark:text-green-300 mb-2">Pod Affinity</h5>
-                          <pre className="text-xs font-mono text-gray-900 dark:text-white bg-white dark:bg-gray-800 p-2 rounded border border-green-200 dark:border-green-700 overflow-x-auto">
-                            {JSON.stringify(daemonset.spec.template.spec.affinity.podAffinity, null, 2)}
-                          </pre>
-                        </div>
-                      )}
-                      {daemonset.spec.template.spec.affinity.podAntiAffinity && (
-                        <div>
-                          <h5 className="text-sm font-semibold text-green-700 dark:text-green-300 mb-2">Pod Anti-Affinity</h5>
-                          <pre className="text-xs font-mono text-gray-900 dark:text-white bg-white dark:bg-gray-800 p-2 rounded border border-green-200 dark:border-green-700 overflow-x-auto">
-                            {JSON.stringify(daemonset.spec.template.spec.affinity.podAntiAffinity, null, 2)}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
 
-            {/* Pod Status */}
+            {/* Replica Status */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-              <h3 className="text-lg font-semibold text-gray-700 dark:text-white mb-4">Pod Status</h3>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Replica Status</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="text-center p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
                   <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                    {daemonset.status?.desiredNumberScheduled || 0}
+                    {statefulset.spec?.replicas || 0}
                   </p>
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Desired</p>
                 </div>
                 <div className="text-center p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
                   <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                    {daemonset.status?.currentNumberScheduled || 0}
+                    {statefulset.status?.currentReplicas || 0}
                   </p>
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Current</p>
                 </div>
                 <div className="text-center p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
                   <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-                    {daemonset.status?.numberReady || 0}
+                    {statefulset.status?.readyReplicas || 0}
                   </p>
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Ready</p>
                 </div>
                 <div className="text-center p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
                   <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                    {daemonset.status?.updatedNumberScheduled || 0}
+                    {statefulset.status?.updatedReplicas || 0}
                   </p>
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Updated</p>
                 </div>
               </div>
             </div>
-
-            {/* DaemonSet Conditions */}
-            {daemonset.status?.conditions && daemonset.status.conditions.length > 0 && (
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-                <h3 className="text-lg font-semibold text-gray-700 dark:text-white mb-4">DaemonSet Conditions</h3>
-                <div className="space-y-3">
-                  {trueConditions.map((condition: any, index: number) => (
-                    <div key={index} className="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
-                      {getConditionIcon(condition.status)}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium text-gray-900 dark:text-white">{condition.type}</span>
-                          <span className="text-xs text-gray-500 dark:text-gray-400">
-                            {formatAge(condition.lastTransitionTime)}
-                          </span>
-                        </div>
-                        {condition.message && (
-                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{condition.message}</p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  
-                  {falseConditions.length > 0 && (
-                    <div className="mt-4">
-                      <button
-                        onClick={() => toggleSection('falseConditions')}
-                        className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
-                      >
-                        {expandedSections.falseConditions ? (
-                          <ChevronUpIcon className="w-4 h-4" />
-                        ) : (
-                          <ChevronDownIcon className="w-4 h-4" />
-                        )}
-                        Other Conditions ({falseConditions.length})
-                      </button>
-                      {expandedSections.falseConditions && (
-                        <div className="mt-2 space-y-2">
-                          {falseConditions.map((condition: any, index: number) => (
-                            <div key={index} className="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
-                              {getConditionIcon(condition.status)}
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center justify-between">
-                                  <span className="font-medium text-gray-900 dark:text-white">{condition.type}</span>
-                                  <span className="text-xs text-gray-500 dark:text-gray-400">
-                                    {formatAge(condition.lastTransitionTime)}
-                                  </span>
-                                </div>
-                                {condition.message && (
-                                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{condition.message}</p>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
         )}
 
         {activeTab === 'yaml' && (
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-700 dark:text-white">YAML Manifest</h3>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">YAML Manifest</h3>
               <button
                 onClick={() => setIsSaveYamlModalOpen(true)}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
@@ -1387,7 +1210,7 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
               columns={podColumns}
               keyExtractor={(pod) => pod.metadata.uid}
               searchPlaceholder="Search pods..."
-              emptyMessage="No pods found for this daemonset"
+              emptyMessage="No pods found for this statefulset"
               pageSize={20}
             />
           </div>
@@ -1482,7 +1305,7 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
               columns={eventColumns}
               keyExtractor={(event) => `${event.metadata?.uid || event.involvedObject?.uid}-${event.lastTimestamp}`}
               searchPlaceholder="Search events..."
-              emptyMessage="No events found for this daemonset"
+              emptyMessage="No events found for this statefulset"
               pageSize={20}
             />
           </div>
@@ -1490,14 +1313,24 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
       </div>
 
       {/* Modals */}
-      {daemonset && (
+      {statefulset && (
         <>
+          <ScaleStatefulSetModal
+            statefulset={statefulset}
+            isOpen={isScaleModalOpen}
+            onClose={() => setIsScaleModalOpen(false)}
+            onSuccess={() => {
+              setIsScaleModalOpen(false)
+              fetchStatefulSetDetails()
+            }}
+          />
+          
           <ConfirmationModal
             isOpen={isSaveYamlModalOpen}
             onClose={() => setIsSaveYamlModalOpen(false)}
             onConfirm={handleSaveYaml}
             title="Save YAML Changes"
-            message="Are you sure you want to save the YAML changes? This will update the daemonset."
+            message="Are you sure you want to save the YAML changes? This will update the statefulset."
             confirmText="Save"
             type="warning"
           />
@@ -1505,9 +1338,9 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
           <ConfirmationModal
             isOpen={isRestartModalOpen}
             onClose={() => setIsRestartModalOpen(false)}
-            onConfirm={handleRestartDaemonSet}
-            title="Restart DaemonSet"
-            message={`Are you sure you want to restart daemonset "${daemonsetName}"? This will restart all pods.`}
+            onConfirm={handleRestartStatefulSet}
+            title="Restart StatefulSet"
+            message={`Are you sure you want to restart statefulset "${statefulsetName}"? This will restart all pods.`}
             confirmText="Restart"
             type="warning"
           />
@@ -1515,9 +1348,9 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
           <ConfirmationModal
             isOpen={isDeleteModalOpen}
             onClose={() => setIsDeleteModalOpen(false)}
-            onConfirm={handleDeleteDaemonSet}
-            title="Delete DaemonSet"
-            message={`Are you sure you want to delete daemonset "${daemonsetName}"? This action cannot be undone.`}
+            onConfirm={handleDeleteStatefulSet}
+            title="Delete StatefulSet"
+            message={`Are you sure you want to delete statefulset "${statefulsetName}"? This action cannot be undone.`}
             confirmText="Delete"
             type="danger"
           />
@@ -1704,5 +1537,4 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
     </div>
   )
 }
-
 

@@ -628,6 +628,7 @@ func (h *Handler) ListPods(c *gin.Context) {
 	clusterName := c.Param("name")
 	namespace := c.Query("namespace")
 	deployment := c.Query("deployment")
+	job := c.Query("job")
 
 	if namespace == "" {
 		namespace = metav1.NamespaceAll
@@ -655,6 +656,26 @@ func (h *Handler) ListPods(c *gin.Context) {
 		if dep.Spec.Selector != nil && dep.Spec.Selector.MatchLabels != nil {
 			var labels []string
 			for k, v := range dep.Spec.Selector.MatchLabels {
+				labels = append(labels, fmt.Sprintf("%s=%s", k, v))
+			}
+			listOptions.LabelSelector = strings.Join(labels, ",")
+		}
+	}
+	
+	// If job is specified, filter pods by job
+	if job != "" {
+		// Get the job to find its selector
+		jobObj, err := client.BatchV1().Jobs(namespace).Get(context.Background(), job, metav1.GetOptions{})
+		if err != nil {
+			log.Errorf("Failed to get job: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		
+		// Convert label selector to string
+		if jobObj.Spec.Selector != nil && jobObj.Spec.Selector.MatchLabels != nil {
+			var labels []string
+			for k, v := range jobObj.Spec.Selector.MatchLabels {
 				labels = append(labels, fmt.Sprintf("%s=%s", k, v))
 			}
 			listOptions.LabelSelector = strings.Join(labels, ",")

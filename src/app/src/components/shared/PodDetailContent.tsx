@@ -357,6 +357,55 @@ export default function PodDetailContent({ pod, podMetrics }: PodDetailContentPr
                         </div>
                       </div>
                       
+                      {/* Last State - Show if exists */}
+                      {containerStatus?.lastState?.terminated && (
+                        <div className="mt-4 p-3 bg-red-50 dark:bg-red-950/30 rounded-lg border border-red-200 dark:border-red-800">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                            <div className="font-semibold text-red-700 dark:text-red-300 text-xs">Last Terminated State</div>
+                          </div>
+                          <div className="space-y-1.5 text-xs">
+                            {containerStatus.lastState.terminated.reason && (
+                              <div className="flex justify-between items-center">
+                                <span className="text-gray-600 dark:text-gray-400">Reason:</span>
+                                <span className="font-semibold text-gray-900 dark:text-white">{containerStatus.lastState.terminated.reason}</span>
+                              </div>
+                            )}
+                            {containerStatus.lastState.terminated.exitCode !== undefined && (
+                              <div className="flex justify-between items-center">
+                                <span className="text-gray-600 dark:text-gray-400">Exit Code:</span>
+                                <span className={clsx(
+                                  'font-mono font-semibold',
+                                  containerStatus.lastState.terminated.exitCode === 0 
+                                    ? 'text-green-600 dark:text-green-400' 
+                                    : 'text-red-600 dark:text-red-400'
+                                )}>
+                                  {containerStatus.lastState.terminated.exitCode}
+                                </span>
+                              </div>
+                            )}
+                            {containerStatus.lastState.terminated.startedAt && (
+                              <div className="flex justify-between items-center">
+                                <span className="text-gray-600 dark:text-gray-400">Started At:</span>
+                                <span className="font-mono text-gray-900 dark:text-white text-xs">{new Date(containerStatus.lastState.terminated.startedAt).toLocaleString()}</span>
+                              </div>
+                            )}
+                            {containerStatus.lastState.terminated.finishedAt && (
+                              <div className="flex justify-between items-center">
+                                <span className="text-gray-600 dark:text-gray-400">Finished At:</span>
+                                <span className="font-mono text-gray-900 dark:text-white text-xs">{new Date(containerStatus.lastState.terminated.finishedAt).toLocaleString()}</span>
+                              </div>
+                            )}
+                            {containerStatus.lastState.terminated.message && (
+                              <div className="mt-2 pt-2 border-t border-red-200 dark:border-red-800">
+                                <span className="text-gray-600 dark:text-gray-400 block mb-1">Message:</span>
+                                <p className="text-gray-900 dark:text-white break-all">{containerStatus.lastState.terminated.message}</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      
                       {/* Resource metrics - Always visible */}
                       {(cpuUsage > 0 || memUsage > 0) && (
                         <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">

@@ -17,7 +17,7 @@ export default function Breadcrumb({ items }: BreadcrumbProps) {
         <li className="inline-flex items-center">
           <Link
             to="/"
-            className="inline-flex items-center text-sm font-medium text-gray-700 hover:text-primary-600 dark:text-gray-400 dark:hover:text-primary-400"
+            className="inline-flex items-center text-sm font-medium text-gray-700 hover:text-primary-600 dark:text-gray-400 dark:hover:text-primary-400 capitalize"
           >
             <HomeIcon className="w-4 h-4 mr-2" />
             Home
@@ -30,12 +30,12 @@ export default function Breadcrumb({ items }: BreadcrumbProps) {
               {item.href ? (
                 <Link
                   to={item.href}
-                  className="ml-1 text-sm font-medium text-gray-700 hover:text-primary-600 dark:text-gray-400 dark:hover:text-primary-400 md:ml-2"
+                  className="ml-1 text-sm font-medium text-gray-700 hover:text-primary-600 dark:text-gray-400 dark:hover:text-primary-400 md:ml-2 capitalize"
                 >
                   {item.name}
                 </Link>
               ) : (
-                <span className="ml-1 text-sm font-medium text-gray-500 dark:text-gray-500 md:ml-2 truncate max-w-[150px] sm:max-w-none">
+                <span className="ml-1 text-sm font-medium text-gray-500 dark:text-gray-500 md:ml-2 truncate max-w-[150px] sm:max-w-none capitalize">
                   {item.name}
                 </span>
               )}

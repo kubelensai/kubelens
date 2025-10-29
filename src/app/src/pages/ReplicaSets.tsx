@@ -1,56 +1,59 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { getClusters, getReplicaSets } from '@/services/api'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import clsx from 'clsx'
-import { ArrowsUpDownIcon, PencilSquareIcon, TrashIcon, InformationCircleIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
+import { 
+  ArrowsUpDownIcon, 
+  TrashIcon, 
+  InformationCircleIcon,
+  Square3Stack3DIcon,
+  PencilSquareIcon,
+} from '@heroicons/react/24/outline'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import ReplicaSetDetailsModal from '@/components/ReplicaSets/ReplicaSetDetailsModal'
 import ReplicaSetPodsModal from '@/components/ReplicaSets/ReplicaSetPodsModal'
 import ScaleReplicaSetModal from '@/components/ReplicaSets/ScaleReplicaSetModal'
 import EditReplicaSetModal from '@/components/ReplicaSets/EditReplicaSetModal'
-import DeleteReplicaSetModal from '@/components/ReplicaSets/DeleteReplicaSetModal'
-import ResizableTableHeader from '@/components/shared/ResizableTableHeader'
-
+import ConfirmationModal from '@/components/shared/ConfirmationModal'
+import { DataTable, Column } from '@/components/shared/DataTable'
+import { useNotificationStore } from '@/stores/notificationStore'
+import api from '@/services/api'
 import { formatAge } from '@/utils/format'
-import { useTableSort } from '@/hooks/useTableSort'
-import { useResizableColumns } from '@/hooks/useResizableColumns'
-import { usePagination } from '@/hooks/usePagination'
-import Pagination from '@/components/shared/Pagination'
+
+interface ReplicaSetData {
+  metadata: {
+    name: string
+    namespace: string
+    creationTimestamp: string
+    labels?: Record<string, string>
+    ownerReferences?: Array<{
+      kind: string
+      name: string
+    }>
+  }
+  spec: {
+    replicas?: number
+  }
+  status: {
+    replicas?: number
+    readyReplicas?: number
+    availableReplicas?: number
+  }
+  clusterName: string
+}
 
 export default function ReplicaSets() {
   const { cluster, namespace } = useParams<{ cluster?: string; namespace?: string }>()
-
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [selectedReplicaSet, setSelectedReplicaSet] = useState<any>(null)
+  const { addNotification } = useNotificationStore()
+  const [selectedReplicaSet, setSelectedReplicaSet] = useState<ReplicaSetData | null>(null)
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false)
   const [isPodsModalOpen, setIsPodsModalOpen] = useState(false)
   const [isScaleModalOpen, setIsScaleModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
-  const [filterText, setFilterText] = useState('')
-
-  // Resizable columns
-  const { columnWidths, handleMouseDown: handleResizeStart } = useResizableColumns({
-    name: 200,
-    namespace: 150,
-    desired: 100,
-    current: 100,
-    ready: 100,
-    owner: 200,
-    age: 120,
-    actions: 180,
-  }, 'replicasets-column-widths')
-
-  // Reset state when cluster or namespace changes
-  useEffect(() => {
-    setSelectedReplicaSet(null)
-    setIsDetailsModalOpen(false)
-    setIsPodsModalOpen(false)
-    setIsScaleModalOpen(false)
-    setIsEditModalOpen(false)
-    setIsDeleteModalOpen(false)
-  }, [cluster, namespace])
   
   const { data: clusters } = useQuery({
     queryKey: ['clusters'],
@@ -58,7 +61,7 @@ export default function ReplicaSets() {
   })
 
   // Fetch replicasets from all clusters or specific cluster/namespace
-  const replicasetQueries = useQuery({
+  const { data: allReplicaSets, isLoading } = useQuery({
     queryKey: namespace 
       ? ['replicasets', cluster, namespace]
       : cluster 
@@ -95,340 +98,430 @@ export default function ReplicaSets() {
       return allReplicaSets.flat()
     },
     enabled: (cluster && namespace) ? true : cluster ? true : (!!clusters && clusters.length > 0),
-    refetchOnMount: true,
-    refetchOnWindowFocus: true, // Refetch when window regains focus
-    refetchInterval: 5000, // Auto-refresh every 5 seconds to show live status updates
-    staleTime: 0, // Data is immediately stale, always fetch fresh
+    refetchInterval: 5000,
   })
-
-  const isLoading = replicasetQueries.isLoading
-  const allReplicaSets = replicasetQueries.data || []
-
-  // Filter replicasets by name
-  const filteredReplicaSets = useMemo(() => {
-    if (!filterText) return allReplicaSets
-    const lowerFilter = filterText.toLowerCase()
-    return allReplicaSets.filter((replicaset: any) =>
-      replicaset.metadata?.name?.toLowerCase().includes(lowerFilter)
-    )
-  }, [allReplicaSets, filterText])
-
-  // Apply sorting
-  const { sortedData: sortedReplicaSets, sortConfig, requestSort } = useTableSort(filteredReplicaSets, {
-    key: 'metadata.name',
-    direction: 'asc'
-  })
-
-  // Apply pagination
-  const {
-    paginatedData: replicasets,
-    currentPage,
-    totalPages,
-    pageSize,
-    totalItems,
-    goToPage,
-    goToNextPage,
-    goToPreviousPage,
-    changePageSize,
-    hasNextPage,
-    hasPreviousPage,
-  } = usePagination(sortedReplicaSets, 10, 'replicasets')
 
   // Helper function to determine replicaset status
-  const getReplicaSetStatus = (replicaset: any) => {
+  const getReplicaSetStatus = (replicaset: ReplicaSetData): string => {
     const desired = replicaset.spec.replicas || 0
     const current = replicaset.status.replicas || 0
     const ready = replicaset.status.readyReplicas || 0
     const available = replicaset.status.availableReplicas || 0
 
-    // Running: all replicas are ready and available
+    // Ready: all replicas are ready and available
     if (ready === desired && available === desired && current === desired) {
-      return { status: 'ready', color: 'badge-success' }
+      return 'Ready'
     }
 
-    // Unavailable: No ready pods when replicas are desired
+    // Not Ready: No ready pods when replicas are desired
     if (ready === 0 && desired > 0) {
-      return { status: 'not ready', color: 'badge-error' }
+      return 'Not Ready'
     }
 
     // Scaling: current replicas doesn't match desired
     if (current !== desired) {
-      return { status: 'scaling', color: 'badge-warning' }
+      return 'Scaling'
     }
 
-    // Partially ready: has desired replicas but not all ready yet
+    // Partial: has desired replicas but not all ready yet
     if (current === desired && ready < desired) {
-      return { status: 'partial', color: 'badge-warning' }
+      return 'Partial'
     }
 
-    return { status: 'scaling', color: 'badge-warning' }
+    return 'Scaling'
   }
 
-
-  const handleReplicaSetClick = (replicaset: any) => {
-    setSelectedReplicaSet(replicaset)
-    setIsPodsModalOpen(true)
-  }
-
-  const handleScaleClick = (replicaset: any, e: React.MouseEvent) => {
+  // Action handlers
+  const handleScaleClick = (replicaset: ReplicaSetData, e: React.MouseEvent) => {
     e.stopPropagation()
     setSelectedReplicaSet(replicaset)
     setIsScaleModalOpen(true)
   }
 
-  const handleEditClick = (replicaset: any, e: React.MouseEvent) => {
+  const handleEditClick = (replicaset: ReplicaSetData, e: React.MouseEvent) => {
     e.stopPropagation()
     setSelectedReplicaSet(replicaset)
     setIsEditModalOpen(true)
   }
 
-  const handleDeleteClick = (replicaset: any, e: React.MouseEvent) => {
+  const handleDeleteClick = (replicaset: ReplicaSetData, e: React.MouseEvent) => {
     e.stopPropagation()
     setSelectedReplicaSet(replicaset)
     setIsDeleteModalOpen(true)
   }
 
-  const handleViewDetailsClick = (replicaset: any, e: React.MouseEvent) => {
+  const handleViewDetailsClick = (replicaset: ReplicaSetData, e: React.MouseEvent) => {
     e.stopPropagation()
     setSelectedReplicaSet(replicaset)
     setIsDetailsModalOpen(true)
   }
 
+  const handleDeleteConfirm = async () => {
+    if (!selectedReplicaSet) return
+    try {
+      await api.delete(`/clusters/${selectedReplicaSet.clusterName}/namespaces/${selectedReplicaSet.metadata.namespace}/replicasets/${selectedReplicaSet.metadata.name}`)
+      addNotification({
+        type: 'success',
+        title: 'Success',
+        message: 'ReplicaSet deleted successfully',
+      })
+      setIsDeleteModalOpen(false)
+      setSelectedReplicaSet(null)
+      // Invalidate queries to refetch
+      await queryClient.invalidateQueries({ queryKey: ['replicasets'] })
+      await queryClient.invalidateQueries({ queryKey: ['all-replicasets'] })
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: `Failed to delete replicaset: ${error.message || 'Unknown error'}`,
+      })
+    }
+  }
+
+  // Define columns
+  const columns = useMemo<Column<ReplicaSetData>[]>(() => [
+    {
+      key: 'name',
+      header: 'Name',
+      accessor: (replicaset) => (
+        <div className="flex items-center gap-2">
+          <Square3Stack3DIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+          <div className="min-w-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                navigate(`/clusters/${replicaset.clusterName}/namespaces/${replicaset.metadata.namespace}/replicasets/${replicaset.metadata.name}`)
+              }}
+              className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate text-left"
+            >
+              {replicaset.metadata.name}
+            </button>
+            {!cluster && (
+              <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                {replicaset.clusterName}
+              </div>
+            )}
+          </div>
+        </div>
+      ),
+      sortable: true,
+      sortValue: (replicaset) => replicaset.metadata.name,
+      searchValue: (replicaset) => `${replicaset.metadata.name} ${replicaset.clusterName}`,
+    },
+    {
+      key: 'namespace',
+      header: 'Namespace',
+      accessor: (replicaset) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {replicaset.metadata.namespace}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (replicaset) => replicaset.metadata.namespace,
+      searchValue: (replicaset) => replicaset.metadata.namespace,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      accessor: (replicaset) => {
+        const status = getReplicaSetStatus(replicaset)
+        const isReady = status === 'Ready'
+        const isScaling = status === 'Scaling' || status === 'Partial'
+        const isNotReady = status === 'Not Ready'
+        
+        return (
+          <span className={clsx(
+            'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full',
+            isReady
+              ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+              : isScaling
+              ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400'
+              : isNotReady
+              ? 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+              : 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400'
+          )}>
+            <span className={clsx(
+              'w-1.5 h-1.5 rounded-full',
+              isReady ? 'bg-green-600 dark:bg-green-400' :
+              isScaling ? 'bg-yellow-600 dark:bg-yellow-400' :
+              isNotReady ? 'bg-red-600 dark:bg-red-400' :
+              'bg-gray-600 dark:bg-gray-400'
+            )} />
+            {status}
+          </span>
+        )
+      },
+      sortable: true,
+      sortValue: (replicaset) => getReplicaSetStatus(replicaset),
+      searchValue: (replicaset) => getReplicaSetStatus(replicaset),
+      filterable: true,
+      filterOptions: (data) => {
+        const statuses = new Set(data.map(d => getReplicaSetStatus(d)))
+        return Array.from(statuses).sort()
+      },
+      filterValue: (replicaset) => getReplicaSetStatus(replicaset),
+    },
+    {
+      key: 'desired',
+      header: 'Desired',
+      accessor: (replicaset) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {replicaset.spec.replicas || 0}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (replicaset) => replicaset.spec.replicas || 0,
+      searchValue: (replicaset) => (replicaset.spec.replicas || 0).toString(),
+    },
+    {
+      key: 'current',
+      header: 'Current',
+      accessor: (replicaset) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {replicaset.status.replicas || 0}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (replicaset) => replicaset.status.replicas || 0,
+      searchValue: (replicaset) => (replicaset.status.replicas || 0).toString(),
+    },
+    {
+      key: 'ready',
+      header: 'Ready',
+      accessor: (replicaset) => {
+        const ready = replicaset.status.readyReplicas || 0
+        const total = replicaset.spec.replicas || 0
+        const allReady = ready === total && total > 0
+        
+        return (
+          <span className={clsx(
+            'text-sm font-medium',
+            allReady ? 'text-green-600 dark:text-green-400' : 'text-gray-700 dark:text-gray-300'
+          )}>
+            {ready}
+          </span>
+        )
+      },
+      sortable: true,
+      sortValue: (replicaset) => replicaset.status.readyReplicas || 0,
+      searchValue: (replicaset) => (replicaset.status.readyReplicas || 0).toString(),
+    },
+    {
+      key: 'owner',
+      header: 'Owner',
+      accessor: (replicaset) => {
+        const owner = replicaset.metadata.ownerReferences?.[0]
+        if (!owner) {
+          return <span className="text-sm text-gray-400 dark:text-gray-500">-</span>
+        }
+        return (
+          <span className="text-sm text-gray-700 dark:text-gray-300">
+            {owner.kind} / {owner.name}
+          </span>
+        )
+      },
+      sortable: false,
+      searchValue: (replicaset) => {
+        const owner = replicaset.metadata.ownerReferences?.[0]
+        return owner ? `${owner.kind} ${owner.name}` : ''
+      },
+    },
+    {
+      key: 'age',
+      header: 'Age',
+      accessor: (replicaset) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {formatAge(replicaset.metadata.creationTimestamp)}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (replicaset) => new Date(replicaset.metadata.creationTimestamp).getTime(),
+      searchValue: (replicaset) => formatAge(replicaset.metadata.creationTimestamp),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      accessor: (replicaset) => (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={(e) => handleScaleClick(replicaset, e)}
+            className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+            title="Scale"
+          >
+            <ArrowsUpDownIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleViewDetailsClick(replicaset, e)}
+            className="p-1.5 text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
+            title="Details"
+          >
+            <InformationCircleIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleEditClick(replicaset, e)}
+            className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+            title="Edit YAML"
+          >
+            <PencilSquareIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleDeleteClick(replicaset, e)}
+            className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+            title="Delete"
+          >
+            <TrashIcon className="w-4 h-4" />
+          </button>
+        </div>
+      ),
+      sortable: false,
+    },
+  ], [cluster, navigate])
+
   return (
-    <div className="space-y-4 sm:space-y-6">
+    <div className="space-y-4 md:space-y-6">
+      <Breadcrumb
+        items={[
+          ...(cluster ? [{ name: cluster, href: `/clusters/${cluster}` }] : []),
+          { name: 'ReplicaSets' }
+        ]}
+      />
+
       <div>
-        <Breadcrumb 
-              items={
-                cluster
-                  ? [
-                      { name: cluster, href: "/dashboard" },
-                      { name: 'ReplicaSets' }
-                    ]
-                  : [{ name: 'ReplicaSets' }]
-              }
-        />
+        <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
+          ReplicaSets
+        </h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          {namespace 
+            ? `ReplicaSets in ${cluster} / ${namespace}`
+            : cluster 
+              ? `All replicasets in ${cluster}`
+              : `All replicasets across ${clusters?.length || 0} cluster(s)`
+          }
+        </p>
       </div>
       
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">ReplicaSets</h1>
-          <p className="mt-1 sm:mt-2 text-sm text-gray-600 dark:text-gray-400">
-            {namespace 
-              ? `ReplicaSets in ${cluster} / ${namespace}`
-              : cluster 
-                ? `All replicasets in ${cluster}`
-                : `All replicasets across ${clusters?.length || 0} cluster(s)`
-            }
-          </p>
-        </div>
-        <div className="relative w-full sm:w-64">
-          <MagnifyingGlassIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Filter by name..."
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            className="w-full pl-11 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-          />
-        </div>
-      </div>
-
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                <ResizableTableHeader
-                  label="Name"
-                  columnKey="name"
-                  sortKey="metadata.name"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.name}
-                />
-                <ResizableTableHeader
-                  label="Namespace"
-                  columnKey="namespace"
-                  sortKey="metadata.namespace"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.namespace}
-                />
-                <ResizableTableHeader
-                  label="Status"
-                  columnKey="status"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.status}
-                />
-                <ResizableTableHeader
-                  label="Desired"
-                  columnKey="desired"
-                  sortKey="spec.replicas"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.desired}
-                />
-                <ResizableTableHeader
-                  label="Current"
-                  columnKey="current"
-                  sortKey="status.replicas"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.current}
-                />
-                <ResizableTableHeader
-                  label="Ready"
-                  columnKey="ready"
-                  sortKey="status.readyReplicas"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.ready}
-                />
-                <ResizableTableHeader
-                  label="Owner"
-                  columnKey="owner"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.owner}
-                />
-                <ResizableTableHeader
-                  label="Age"
-                  columnKey="age"
-                  sortKey="metadata.creationTimestamp"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.age}
-                />
-                <ResizableTableHeader
-                  label="Actions"
-                  columnKey="actions"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.actions}
-                  align="right"
-                />
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={9} className="px-6 py-12 text-center">
-                    <div className="flex items-center justify-center">
-                      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-primary-600"></div>
-                      <span className="ml-3 text-gray-500 dark:text-gray-400">Loading replica sets...</span>
+      <DataTable
+        data={allReplicaSets || []}
+        columns={columns}
+        keyExtractor={(replicaset) => `${replicaset.clusterName}-${replicaset.metadata.namespace}-${replicaset.metadata.name}`}
+        searchPlaceholder="Search replicasets by name, cluster, namespace, status, owner..."
+        isLoading={isLoading}
+        emptyMessage="No replicasets found"
+        emptyIcon={
+          <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
+            <Square3Stack3DIcon className="w-6 h-6 text-gray-400 dark:text-gray-500" />
+          </div>
+        }
+        mobileCardRenderer={(replicaset) => (
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <Square3Stack3DIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+                <div className="min-w-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      navigate(`/clusters/${replicaset.clusterName}/namespaces/${replicaset.metadata.namespace}/replicasets/${replicaset.metadata.name}`)
+                    }}
+                    className="font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate text-left"
+                  >
+                    {replicaset.metadata.name}
+                  </button>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                    {replicaset.metadata.namespace}
+                  </div>
+                  {!cluster && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      {replicaset.clusterName}
                     </div>
-                  </td>
-                </tr>
-              ) : replicasets.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-6 py-12 text-center">
-                    <p className="text-gray-500 dark:text-gray-400">No replica sets found</p>
-                  </td>
-                </tr>
-              ) : (
-                replicasets.map((replicaset) => {
-                  const replicasetKey = `${replicaset.clusterName}-${replicaset.metadata.namespace}-${replicaset.metadata.name}`
-                  const replicasetStatus = getReplicaSetStatus(replicaset)
-                  
-                  return (
-                    <tr 
-                      key={replicasetKey} 
-                      onClick={() => handleReplicaSetClick(replicaset)}
-                      className="hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer transition-colors"
-                    >
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 text-xs sm:text-sm font-medium text-gray-900 dark:text-white">
-                        <div className="truncate max-w-[150px] sm:max-w-none">
-                          {replicaset.metadata.name}
-                        </div>
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {replicaset.metadata.namespace}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap">
-                        <span className={clsx('badge text-xs capitalize', replicasetStatus.color)}>
-                          {replicasetStatus.status}
-                        </span>
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {replicaset.spec.replicas || 0}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {replicaset.status.replicas || 0}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {replicaset.status.readyReplicas || 0}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {replicaset.metadata.ownerReferences?.[0]?.kind || '-'} / {replicaset.metadata.ownerReferences?.[0]?.name || '-'}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {formatAge(replicaset.metadata.creationTimestamp)}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={(e) => handleScaleClick(replicaset, e)}
-                            className="p-1.5 text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
-                            title="Scale replicaset"
-                          >
-                            <ArrowsUpDownIcon className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={(e) => handleViewDetailsClick(replicaset, e)}
-                            className="p-1.5 text-purple-600 hover:text-purple-900 dark:text-purple-400 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
-                            title="View details"
-                          >
-                            <InformationCircleIcon className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={(e) => handleEditClick(replicaset, e)}
-                            className="p-1.5 text-yellow-600 hover:text-yellow-900 dark:text-yellow-400 dark:hover:text-yellow-300 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded transition-colors"
-                            title="Edit replicaset"
-                          >
-                            <PencilSquareIcon className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={(e) => handleDeleteClick(replicaset, e)}
-                            className="p-1.5 text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
-                            title="Delete replicaset"
-                          >
-                            <TrashIcon className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          pageSize={pageSize}
-          totalItems={totalItems}
-          onPageChange={goToPage}
-          onPageSizeChange={changePageSize}
-          onNextPage={goToNextPage}
-          onPreviousPage={goToPreviousPage}
-          hasNextPage={hasNextPage}
-          hasPreviousPage={hasPreviousPage}
-        />
-      </div>
+                  )}
+                </div>
+              </div>
+              <span className={clsx(
+                'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full shrink-0',
+                getReplicaSetStatus(replicaset) === 'Ready'
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+                  : getReplicaSetStatus(replicaset) === 'Scaling' || getReplicaSetStatus(replicaset) === 'Partial'
+                  ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400'
+                  : 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+              )}>
+                <span className={clsx(
+                  'w-1.5 h-1.5 rounded-full',
+                  getReplicaSetStatus(replicaset) === 'Ready' ? 'bg-green-600' :
+                  getReplicaSetStatus(replicaset) === 'Scaling' || getReplicaSetStatus(replicaset) === 'Partial' ? 'bg-yellow-600' :
+                  'bg-red-600'
+                )} />
+                {getReplicaSetStatus(replicaset)}
+              </span>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Desired:</span>
+                <span className="ml-1 text-gray-900 dark:text-white">{replicaset.spec.replicas || 0}</span>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Current:</span>
+                <span className="ml-1 text-gray-900 dark:text-white">{replicaset.status.replicas || 0}</span>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Ready:</span>
+                <span className={clsx(
+                  'ml-1 font-medium',
+                  (replicaset.status.readyReplicas || 0) === (replicaset.spec.replicas || 0) && (replicaset.spec.replicas || 0) > 0
+                    ? 'text-green-600 dark:text-green-400'
+                    : 'text-gray-900 dark:text-white'
+                )}>
+                  {replicaset.status.readyReplicas || 0}
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Owner:</span>
+                <span className="ml-1 text-gray-900 dark:text-white text-xs">
+                  {replicaset.metadata.ownerReferences?.[0]?.kind || '-'} / {replicaset.metadata.ownerReferences?.[0]?.name || '-'}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {formatAge(replicaset.metadata.creationTimestamp)}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={(e) => handleScaleClick(replicaset, e)}
+                  className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                  title="Scale"
+                >
+                  <ArrowsUpDownIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleViewDetailsClick(replicaset, e)}
+                  className="p-1.5 text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
+                  title="Details"
+                >
+                  <InformationCircleIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleEditClick(replicaset, e)}
+                  className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+                  title="Edit YAML"
+                >
+                  <PencilSquareIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleDeleteClick(replicaset, e)}
+                  className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                  title="Delete"
+                >
+                  <TrashIcon className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      />
 
       {/* Modals */}
       {selectedReplicaSet && (
@@ -483,24 +576,17 @@ export default function ReplicaSets() {
               setSelectedReplicaSet(null)
             }}
           />
-          <DeleteReplicaSetModal
-            replicaset={selectedReplicaSet}
+          <ConfirmationModal
             isOpen={isDeleteModalOpen}
             onClose={() => {
               setIsDeleteModalOpen(false)
               setSelectedReplicaSet(null)
             }}
-            onSuccess={async () => {
-              console.log('Delete onSuccess called, refetching replicasets...')
-              // Invalidate and immediately refetch all replicaset queries
-              await queryClient.invalidateQueries({ queryKey: ['replicasets'] })
-              await queryClient.invalidateQueries({ queryKey: ['all-replicasets'] })
-              await queryClient.refetchQueries({ queryKey: ['replicasets'] })
-              await queryClient.refetchQueries({ queryKey: ['all-replicasets'] })
-              console.log('ReplicaSets refetched successfully')
-              setIsDeleteModalOpen(false)
-              setSelectedReplicaSet(null)
-            }}
+            onConfirm={handleDeleteConfirm}
+            title="Delete ReplicaSet"
+            message={`Are you sure you want to delete replicaset "${selectedReplicaSet.metadata.name}"? This action cannot be undone.`}
+            confirmText="Delete"
+            type="danger"
           />
         </>
       )}
