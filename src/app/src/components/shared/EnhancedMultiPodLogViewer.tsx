@@ -6,7 +6,6 @@ import {
   ClockIcon,
   PlayIcon,
   PauseIcon,
-  FunnelIcon,
 } from '@heroicons/react/24/outline'
 import clsx from 'clsx'
 import Editor from '@monaco-editor/react'
@@ -50,9 +49,8 @@ export default function EnhancedMultiPodLogViewer({
   // New features state
   const [showTimestamps, setShowTimestamps] = useState(true) // Show timestamps by default
   const [timezone, setTimezone] = useState<string>('Local') // Default timezone
-  const [logLevelFilter, setLogLevelFilter] = useState<string[]>([])
   const [exportFormat, setExportFormat] = useState<'txt' | 'json' | 'csv'>('txt')
-  const [viewMode, setViewMode] = useState<'raw' | 'table'>('table') // Default to table view
+  const [viewMode, setViewMode] = useState<'raw' | 'table'>('raw') // Default to raw view
   
   const editorRef = useRef<any>(null)
   const wsRef = useRef<WebSocket | null>(null)
@@ -81,8 +79,6 @@ export default function EnhancedMultiPodLogViewer({
     { value: 'Asia/Singapore', label: 'Singapore (SGT)' },
     { value: 'Australia/Sydney', label: 'Sydney (AEDT)' },
   ]
-
-  const logLevels = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']
 
   // Format timestamp based on selected timezone
   const formatTimestamp = (timestamp: string): string => {
@@ -189,21 +185,22 @@ export default function EnhancedMultiPodLogViewer({
   }, [pods, selectedPods.length])
 
   // Auto-start streaming when pods are selected and streaming is enabled
+  // Also restart streaming when container or timeFilter changes
   useEffect(() => {
-    if (selectedPods.length > 0 && streamingEnabled && !isStreaming) {
+    if (selectedPods.length > 0 && streamingEnabled) {
+      // Stop existing stream if any
+      if (wsRef.current) {
+        wsRef.current.close()
+        wsRef.current = null
+      }
+      // Start new stream
       startStreaming()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPods, streamingEnabled])
+  }, [selectedPods, container, timeFilter, streamingEnabled])
 
-  // Filter log entries by level
-  const filteredLogEntries = useMemo(() => {
-    if (logLevelFilter.length === 0) return logEntries
-    
-    return logEntries.filter(entry => {
-      return logLevelFilter.some(level => entry.message.includes(level))
-    })
-  }, [logEntries, logLevelFilter])
+  // No filtering needed - use all log entries
+  const filteredLogEntries = logEntries
 
   const startStreaming = () => {
     if (selectedPods.length === 0) return
@@ -495,15 +492,6 @@ export default function EnhancedMultiPodLogViewer({
     }
   }
 
-  const toggleLogLevel = (level: string) => {
-    setLogLevelFilter(prev => {
-      if (prev.includes(level)) {
-        return prev.filter(l => l !== level)
-      } else {
-        return [...prev, level]
-      }
-    })
-  }
 
   return (
     <div className="space-y-4">
@@ -562,41 +550,7 @@ export default function EnhancedMultiPodLogViewer({
           </div>
         </div>
 
-        {/* Second Row: Log Level Filter */}
-        <div className="flex items-center gap-2">
-          <FunnelIcon className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Log Level:</span>
-          {logLevels.map(level => (
-            <button
-              key={level}
-              onClick={() => toggleLogLevel(level)}
-              className={clsx(
-                'px-3 py-1 text-xs font-medium rounded-full transition-colors',
-                logLevelFilter.includes(level)
-                  ? level === 'ERROR' || level === 'FATAL'
-                    ? 'bg-red-600 text-white'
-                    : level === 'WARN'
-                    ? 'bg-yellow-600 text-white'
-                    : level === 'INFO'
-                    ? 'bg-cyan-600 text-white'
-                    : 'bg-gray-600 text-white'
-                  : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
-              )}
-            >
-              {level}
-            </button>
-          ))}
-          {logLevelFilter.length > 0 && (
-            <button
-              onClick={() => setLogLevelFilter([])}
-              className="px-2 py-1 text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
-            >
-              Clear
-            </button>
-          )}
-        </div>
-
-        {/* Third Row: Action Icons */}
+        {/* Second Row: Action Icons */}
         <div className="flex items-center gap-2 flex-wrap">
           {/* View Mode Toggle */}
           <div className="flex items-center gap-1 border border-gray-300 dark:border-gray-600 rounded-md overflow-hidden">
@@ -774,7 +728,6 @@ export default function EnhancedMultiPodLogViewer({
       <div className="flex justify-between items-center">
         <span className="text-xs text-gray-500 dark:text-gray-400">
           {logEntries.length.toLocaleString()} {logEntries.length === 1 ? 'log entry' : 'log entries'}
-          {logLevelFilter.length > 0 && ` (filtered by: ${logLevelFilter.join(', ')})`}
         </span>
         {isStreaming && (
           <span className="flex items-center gap-2 text-xs text-green-600 dark:text-green-400">
