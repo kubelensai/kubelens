@@ -10,6 +10,7 @@ import CronJobs from "../pages/CronJobs";
 import CustomResourceDefinitions from "../pages/CustomResourceDefinitions/CustomResourceDefinitions";
 import GenericCRDPage from "../pages/CustomResources/GenericCRDPage";
 import DaemonSets from "../pages/DaemonSets";
+import DaemonSetDetails from "../pages/DaemonSetDetails";
 import Dashboard from "../pages/Dashboard";
 import Deployments from "../pages/Deployments";
 import DeploymentDetails from "../pages/DeploymentDetails";
@@ -187,6 +188,11 @@ const routes = [
       {
         path: "clusters/:cluster/namespaces/:namespace/deployments/:deploymentName",
         element: withClusterCheck(<DeploymentDetails />),
+      },
+      // DaemonSet Details routes
+      {
+        path: "clusters/:cluster/namespaces/:namespace/daemonsets/:daemonsetName",
+        element: withClusterCheck(<DaemonSetDetails />),
       },
       // Custom Resources routes
       {

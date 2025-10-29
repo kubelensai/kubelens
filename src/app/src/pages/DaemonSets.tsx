@@ -1,56 +1,57 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { getClusters, getDaemonSets } from '@/services/api'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import clsx from 'clsx'
-import { PencilSquareIcon, TrashIcon, ArrowPathIcon, InformationCircleIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
+import { 
+  ArrowPathIcon, 
+  TrashIcon, 
+  InformationCircleIcon,
+  ServerStackIcon,
+} from '@heroicons/react/24/outline'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import DaemonSetDetailsModal from '@/components/DaemonSets/DaemonSetDetailsModal'
 import DaemonSetPodsModal from '@/components/DaemonSets/DaemonSetPodsModal'
 import EditDaemonSetModal from '@/components/DaemonSets/EditDaemonSetModal'
-import RestartDaemonSetModal from '@/components/DaemonSets/RestartDaemonSetModal'
-import DeleteDaemonSetModal from '@/components/DaemonSets/DeleteDaemonSetModal'
-import ResizableTableHeader from '@/components/shared/ResizableTableHeader'
+import ConfirmationModal from '@/components/shared/ConfirmationModal'
+import { DataTable, Column } from '@/components/shared/DataTable'
+import { useNotificationStore } from '@/stores/notificationStore'
+import api from '@/services/api'
 import { formatAge } from '@/utils/format'
-import { useTableSort } from '@/hooks/useTableSort'
-import { useResizableColumns } from '@/hooks/useResizableColumns'
-import { usePagination } from '@/hooks/usePagination'
-import Pagination from '@/components/shared/Pagination'
+
+interface DaemonSetData {
+  metadata: {
+    name: string
+    namespace: string
+    creationTimestamp: string
+    labels?: Record<string, string>
+  }
+  spec: {
+    updateStrategy?: {
+      type?: string
+    }
+  }
+  status: {
+    desiredNumberScheduled?: number
+    currentNumberScheduled?: number
+    numberReady?: number
+    numberAvailable?: number
+    updatedNumberScheduled?: number
+  }
+  clusterName: string
+}
 
 export default function DaemonSets() {
   const { cluster, namespace } = useParams<{ cluster?: string; namespace?: string }>()
-
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [selectedDaemonSet, setSelectedDaemonSet] = useState<any>(null)
+  const { addNotification } = useNotificationStore()
+  const [selectedDaemonSet, setSelectedDaemonSet] = useState<DaemonSetData | null>(null)
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false)
   const [isPodsModalOpen, setIsPodsModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isRestartModalOpen, setIsRestartModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
-  const [filterText, setFilterText] = useState('')
-
-  // Resizable columns
-  const { columnWidths, handleMouseDown: handleResizeStart } = useResizableColumns({
-    name: 200,
-    namespace: 150,
-    status: 100,
-    desired: 100,
-    current: 100,
-    ready: 100,
-    strategy: 150,
-    age: 120,
-    actions: 180,
-  }, 'daemonsets-column-widths')
-
-  // Reset state when cluster or namespace changes
-  useEffect(() => {
-    setSelectedDaemonSet(null)
-    setIsDetailsModalOpen(false)
-    setIsPodsModalOpen(false)
-    setIsEditModalOpen(false)
-    setIsRestartModalOpen(false)
-    setIsDeleteModalOpen(false)
-  }, [cluster, namespace])
   
   const { data: clusters } = useQuery({
     queryKey: ['clusters'],
@@ -58,7 +59,7 @@ export default function DaemonSets() {
   })
 
   // Fetch daemonsets from all clusters or specific cluster/namespace
-  const daemonsetQueries = useQuery({
+  const { data: allDaemonSets, isLoading } = useQuery({
     queryKey: namespace 
       ? ['daemonsets', cluster, namespace]
       : cluster 
@@ -95,47 +96,11 @@ export default function DaemonSets() {
       return allDaemonSets.flat()
     },
     enabled: (cluster && namespace) ? true : cluster ? true : (!!clusters && clusters.length > 0),
-    refetchOnMount: true,
-    refetchOnWindowFocus: true, // Refetch when window regains focus
-    refetchInterval: 5000, // Auto-refresh every 5 seconds to show live status updates
-    staleTime: 0, // Data is immediately stale, always fetch fresh
+    refetchInterval: 5000,
   })
-
-  const isLoading = daemonsetQueries.isLoading
-  const allDaemonSets = daemonsetQueries.data || []
-
-  // Filter daemonsets by name
-  const filteredDaemonSets = useMemo(() => {
-    if (!filterText) return allDaemonSets
-    const lowerFilter = filterText.toLowerCase()
-    return allDaemonSets.filter((daemonset: any) =>
-      daemonset.metadata?.name?.toLowerCase().includes(lowerFilter)
-    )
-  }, [allDaemonSets, filterText])
-
-  // Apply sorting
-  const { sortedData: sortedDaemonSets, sortConfig, requestSort } = useTableSort(filteredDaemonSets, {
-    key: 'metadata.name',
-    direction: 'asc'
-  })
-
-  // Apply pagination
-  const {
-    paginatedData: daemonsets,
-    currentPage,
-    totalPages,
-    pageSize,
-    totalItems,
-    goToPage,
-    goToNextPage,
-    goToPreviousPage,
-    changePageSize,
-    hasNextPage,
-    hasPreviousPage,
-  } = usePagination(sortedDaemonSets, 10, 'daemonsets')
 
   // Helper function to determine daemonset status
-  const getDaemonSetStatus = (daemonset: any) => {
+  const getDaemonSetStatus = (daemonset: DaemonSetData): string => {
     const desired = daemonset.status.desiredNumberScheduled || 0
     const current = daemonset.status.currentNumberScheduled || 0
     const ready = daemonset.status.numberReady || 0
@@ -144,294 +109,402 @@ export default function DaemonSets() {
 
     // Unavailable: No ready pods when nodes exist
     if (ready === 0 && desired > 0) {
-      return { status: 'unavailable', color: 'badge-error' }
+      return 'Unavailable'
     }
 
     // Updating: not all nodes have updated pods
     if (updated < desired) {
-      return { status: 'updating', color: 'badge-warning' }
+      return 'Updating'
     }
 
     // Running: all scheduled pods are ready and available
     if (ready === desired && available === desired && current === desired) {
-      return { status: 'running', color: 'badge-success' }
+      return 'Running'
     }
 
     // Pending: has desired schedule but not all current or ready
     if (current < desired || ready < desired) {
-      return { status: 'pending', color: 'badge-warning' }
+      return 'Pending'
     }
 
-    return { status: 'pending', color: 'badge-warning' }
+    return 'Pending'
   }
 
-  const handleDaemonSetClick = (daemonset: any) => {
-    setSelectedDaemonSet(daemonset)
-    setIsPodsModalOpen(true)
-  }
-
-  const handleEditClick = (daemonset: any, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setSelectedDaemonSet(daemonset)
-    setIsEditModalOpen(true)
-  }
-
-  const handleDeleteClick = (daemonset: any, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setSelectedDaemonSet(daemonset)
-    setIsDeleteModalOpen(true)
-  }
-
-  const handleViewDetailsClick = (daemonset: any, e: React.MouseEvent) => {
+  // Action handlers
+  const handleViewDetailsClick = (daemonset: DaemonSetData, e: React.MouseEvent) => {
     e.stopPropagation()
     setSelectedDaemonSet(daemonset)
     setIsDetailsModalOpen(true)
   }
 
-  const handleRestartClick = (daemonset: any, e: React.MouseEvent) => {
+  const handleRestartClick = (daemonset: DaemonSetData, e: React.MouseEvent) => {
     e.stopPropagation()
     setSelectedDaemonSet(daemonset)
     setIsRestartModalOpen(true)
   }
 
+  const handleDeleteClick = (daemonset: DaemonSetData, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setSelectedDaemonSet(daemonset)
+    setIsDeleteModalOpen(true)
+  }
+
+  const handleRestartConfirm = async () => {
+    if (!selectedDaemonSet) return
+    try {
+      await api.post(`/clusters/${selectedDaemonSet.clusterName}/namespaces/${selectedDaemonSet.metadata.namespace}/daemonsets/${selectedDaemonSet.metadata.name}/restart`)
+      addNotification({
+        type: 'success',
+        title: 'Success',
+        message: 'DaemonSet restarted successfully',
+      })
+      setIsRestartModalOpen(false)
+      setSelectedDaemonSet(null)
+      // Invalidate queries to refetch
+      await queryClient.invalidateQueries({ queryKey: ['daemonsets'] })
+      await queryClient.invalidateQueries({ queryKey: ['all-daemonsets'] })
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: `Failed to restart daemonset: ${error.message || 'Unknown error'}`,
+      })
+    }
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!selectedDaemonSet) return
+    try {
+      await api.delete(`/clusters/${selectedDaemonSet.clusterName}/namespaces/${selectedDaemonSet.metadata.namespace}/daemonsets/${selectedDaemonSet.metadata.name}`)
+      addNotification({
+        type: 'success',
+        title: 'Success',
+        message: 'DaemonSet deleted successfully',
+      })
+      setIsDeleteModalOpen(false)
+      setSelectedDaemonSet(null)
+      // Invalidate queries to refetch
+      await queryClient.invalidateQueries({ queryKey: ['daemonsets'] })
+      await queryClient.invalidateQueries({ queryKey: ['all-daemonsets'] })
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: `Failed to delete daemonset: ${error.message || 'Unknown error'}`,
+      })
+    }
+  }
+
+  // Define columns
+  const columns = useMemo<Column<DaemonSetData>[]>(() => [
+    {
+      key: 'name',
+      header: 'Name',
+      accessor: (daemonset) => (
+        <div className="flex items-center gap-2">
+          <ServerStackIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+          <div className="min-w-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                navigate(`/clusters/${daemonset.clusterName}/namespaces/${daemonset.metadata.namespace}/daemonsets/${daemonset.metadata.name}`)
+              }}
+              className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate text-left"
+            >
+              {daemonset.metadata.name}
+            </button>
+            {!cluster && (
+              <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                {daemonset.clusterName}
+              </div>
+            )}
+          </div>
+        </div>
+      ),
+      sortable: true,
+      sortValue: (daemonset) => daemonset.metadata.name,
+      searchValue: (daemonset) => `${daemonset.metadata.name} ${daemonset.clusterName}`,
+    },
+    {
+      key: 'namespace',
+      header: 'Namespace',
+      accessor: (daemonset) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {daemonset.metadata.namespace}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (daemonset) => daemonset.metadata.namespace,
+      searchValue: (daemonset) => daemonset.metadata.namespace,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      accessor: (daemonset) => {
+        const status = getDaemonSetStatus(daemonset)
+        const isRunning = status === 'Running'
+        const isUpdating = status === 'Updating'
+        const isPending = status === 'Pending'
+        const isUnavailable = status === 'Unavailable'
+        
+        return (
+          <span className={clsx(
+            'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full',
+            isRunning
+              ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+              : isUpdating || isPending
+              ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400'
+              : isUnavailable
+              ? 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+              : 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400'
+          )}>
+            <span className={clsx(
+              'w-1.5 h-1.5 rounded-full',
+              isRunning ? 'bg-green-600 dark:bg-green-400' :
+              isUpdating || isPending ? 'bg-yellow-600 dark:bg-yellow-400' :
+              isUnavailable ? 'bg-red-600 dark:bg-red-400' :
+              'bg-gray-600 dark:bg-gray-400'
+            )} />
+            {status}
+          </span>
+        )
+      },
+      sortable: true,
+      sortValue: (daemonset) => getDaemonSetStatus(daemonset),
+      searchValue: (daemonset) => getDaemonSetStatus(daemonset),
+      filterable: true,
+      filterOptions: (data) => {
+        const statuses = new Set(data.map(d => getDaemonSetStatus(d)))
+        return Array.from(statuses).sort()
+      },
+      filterValue: (daemonset) => getDaemonSetStatus(daemonset),
+    },
+    {
+      key: 'desired',
+      header: 'Desired',
+      accessor: (daemonset) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {daemonset.status.desiredNumberScheduled || 0}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (daemonset) => daemonset.status.desiredNumberScheduled || 0,
+      searchValue: (daemonset) => (daemonset.status.desiredNumberScheduled || 0).toString(),
+    },
+    {
+      key: 'ready',
+      header: 'Ready',
+      accessor: (daemonset) => {
+        const ready = daemonset.status.numberReady || 0
+        const desired = daemonset.status.desiredNumberScheduled || 0
+        const allReady = ready === desired && desired > 0
+        
+        return (
+          <span className={clsx(
+            'text-sm font-medium',
+            allReady ? 'text-green-600 dark:text-green-400' : 'text-gray-700 dark:text-gray-300'
+          )}>
+            {ready}/{desired}
+          </span>
+        )
+      },
+      sortable: true,
+      sortValue: (daemonset) => daemonset.status.numberReady || 0,
+      searchValue: (daemonset) => `${daemonset.status.numberReady || 0}/${daemonset.status.desiredNumberScheduled || 0}`,
+    },
+    {
+      key: 'strategy',
+      header: 'Strategy',
+      accessor: (daemonset) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {daemonset.spec.updateStrategy?.type || 'RollingUpdate'}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (daemonset) => daemonset.spec.updateStrategy?.type || 'RollingUpdate',
+      searchValue: (daemonset) => daemonset.spec.updateStrategy?.type || 'RollingUpdate',
+      filterable: true,
+      filterOptions: (data) => {
+        const strategies = new Set(data.map(d => d.spec.updateStrategy?.type || 'RollingUpdate'))
+        return Array.from(strategies).sort()
+      },
+      filterValue: (daemonset) => daemonset.spec.updateStrategy?.type || 'RollingUpdate',
+    },
+    {
+      key: 'age',
+      header: 'Age',
+      accessor: (daemonset) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {formatAge(daemonset.metadata.creationTimestamp)}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (daemonset) => new Date(daemonset.metadata.creationTimestamp).getTime(),
+      searchValue: (daemonset) => formatAge(daemonset.metadata.creationTimestamp),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      accessor: (daemonset) => (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={(e) => handleRestartClick(daemonset, e)}
+            className="p-1.5 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/20 rounded transition-colors"
+            title="Restart"
+          >
+            <ArrowPathIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleViewDetailsClick(daemonset, e)}
+            className="p-1.5 text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
+            title="Details"
+          >
+            <InformationCircleIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleDeleteClick(daemonset, e)}
+            className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+            title="Delete"
+          >
+            <TrashIcon className="w-4 h-4" />
+          </button>
+        </div>
+      ),
+      sortable: false,
+    },
+  ], [cluster, navigate])
+
   return (
-    <div className="space-y-4 sm:space-y-6">
+    <div className="space-y-4 md:space-y-6">
+      <Breadcrumb
+        items={[
+          ...(cluster ? [{ name: cluster, href: `/clusters/${cluster}` }] : []),
+          { name: 'DaemonSets' }
+        ]}
+      />
+
       <div>
-        <Breadcrumb 
-              items={
-                cluster
-                  ? [
-                      { name: cluster, href: "/dashboard" },
-                      { name: 'DaemonSets' }
-                    ]
-                  : [{ name: 'DaemonSets' }]
-              }
-        />
+        <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
+          DaemonSets
+        </h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          {namespace 
+            ? `DaemonSets in ${cluster} / ${namespace}`
+            : cluster 
+              ? `All daemonsets in ${cluster}`
+              : `All daemonsets across ${clusters?.length || 0} cluster(s)`
+          }
+        </p>
       </div>
       
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">DaemonSets</h1>
-          <p className="mt-1 sm:mt-2 text-sm text-gray-600 dark:text-gray-400">
-            {namespace 
-              ? `DaemonSets in ${cluster} / ${namespace}`
-              : cluster 
-                ? `All daemonsets in ${cluster}`
-                : `All daemonsets across ${clusters?.length || 0} cluster(s)`
-            }
-          </p>
-        </div>
-        <div className="relative w-full sm:w-64">
-          <MagnifyingGlassIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Filter by name..."
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            className="w-full pl-11 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-          />
-        </div>
-      </div>
-
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                <ResizableTableHeader
-                  label="Name"
-                  columnKey="name"
-                  sortKey="metadata.name"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.name}
-                />
-                <ResizableTableHeader
-                  label="Namespace"
-                  columnKey="namespace"
-                  sortKey="metadata.namespace"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.namespace}
-                />
-                <ResizableTableHeader
-                  label="Status"
-                  columnKey="status"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.status}
-                />
-                <ResizableTableHeader
-                  label="Desired"
-                  columnKey="desired"
-                  sortKey="status.desiredNumberScheduled"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.desired}
-                />
-                <ResizableTableHeader
-                  label="Current"
-                  columnKey="current"
-                  sortKey="status.currentNumberScheduled"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.current}
-                />
-                <ResizableTableHeader
-                  label="Ready"
-                  columnKey="ready"
-                  sortKey="status.numberReady"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.ready}
-                />
-                <ResizableTableHeader
-                  label="Strategy"
-                  columnKey="strategy"
-                  sortKey="spec.updateStrategy.type"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.strategy}
-                />
-                <ResizableTableHeader
-                  label="Age"
-                  columnKey="age"
-                  sortKey="metadata.creationTimestamp"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.age}
-                />
-                <ResizableTableHeader
-                  label="Actions"
-                  columnKey="actions"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.actions}
-                  align="right"
-                />
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={9} className="px-6 py-12 text-center">
-                    <div className="flex items-center justify-center">
-                      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-primary-600"></div>
-                      <span className="ml-3 text-gray-500 dark:text-gray-400">Loading daemonsets...</span>
+      <DataTable
+        data={allDaemonSets || []}
+        columns={columns}
+        keyExtractor={(daemonset) => `${daemonset.clusterName}-${daemonset.metadata.namespace}-${daemonset.metadata.name}`}
+        searchPlaceholder="Search daemonsets by name, cluster, namespace, status, strategy..."
+        isLoading={isLoading}
+        emptyMessage="No daemonsets found"
+        emptyIcon={
+          <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
+            <ServerStackIcon className="w-6 h-6 text-gray-400 dark:text-gray-500" />
+          </div>
+        }
+        mobileCardRenderer={(daemonset) => (
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <ServerStackIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+                <div className="min-w-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      navigate(`/clusters/${daemonset.clusterName}/namespaces/${daemonset.metadata.namespace}/daemonsets/${daemonset.metadata.name}`)
+                    }}
+                    className="font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate text-left"
+                  >
+                    {daemonset.metadata.name}
+                  </button>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                    {daemonset.metadata.namespace}
+                  </div>
+                  {!cluster && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      {daemonset.clusterName}
                     </div>
-                  </td>
-                </tr>
-              ) : daemonsets.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-6 py-12 text-center">
-                    <p className="text-gray-500 dark:text-gray-400">No daemonsets found</p>
-                  </td>
-                </tr>
-              ) : (
-                daemonsets.map((daemonset) => {
-                  const daemonsetKey = `${daemonset.clusterName}-${daemonset.metadata.namespace}-${daemonset.metadata.name}`
-                  const daemonsetStatus = getDaemonSetStatus(daemonset)
-                  
-                  return (
-                    <tr 
-                      key={daemonsetKey} 
-                      onClick={() => handleDaemonSetClick(daemonset)}
-                      className="hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer transition-colors"
-                    >
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 text-xs sm:text-sm font-medium text-gray-900 dark:text-white">
-                        <div className="truncate max-w-[150px] sm:max-w-none">
-                          {daemonset.metadata.name}
-                        </div>
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {daemonset.metadata.namespace}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap">
-                        <span className={clsx('badge text-xs capitalize', daemonsetStatus.color)}>
-                          {daemonsetStatus.status}
-                        </span>
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {daemonset.status.desiredNumberScheduled || 0}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {daemonset.status.currentNumberScheduled || 0}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {daemonset.status.numberReady || 0}/{daemonset.status.desiredNumberScheduled || 0}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {daemonset.spec.updateStrategy?.type || 'RollingUpdate'}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {formatAge(daemonset.metadata.creationTimestamp)}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={(e) => handleRestartClick(daemonset, e)}
-                            className="p-1.5 text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/20 rounded transition-colors"
-                            title="Restart daemonset"
-                          >
-                            <ArrowPathIcon className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={(e) => handleViewDetailsClick(daemonset, e)}
-                            className="p-1.5 text-purple-600 hover:text-purple-900 dark:text-purple-400 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
-                            title="View details"
-                          >
-                            <InformationCircleIcon className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={(e) => handleEditClick(daemonset, e)}
-                            className="p-1.5 text-yellow-600 hover:text-yellow-900 dark:text-yellow-400 dark:hover:text-yellow-300 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded transition-colors"
-                            title="Edit daemonset"
-                          >
-                            <PencilSquareIcon className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={(e) => handleDeleteClick(daemonset, e)}
-                            className="p-1.5 text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
-                            title="Delete daemonset"
-                          >
-                            <TrashIcon className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          pageSize={pageSize}
-          totalItems={totalItems}
-          onPageChange={goToPage}
-          onPageSizeChange={changePageSize}
-          onNextPage={goToNextPage}
-          onPreviousPage={goToPreviousPage}
-          hasNextPage={hasNextPage}
-          hasPreviousPage={hasPreviousPage}
-        />
-      </div>
+                  )}
+                </div>
+              </div>
+              <span className={clsx(
+                'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full shrink-0',
+                getDaemonSetStatus(daemonset) === 'Running'
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+                  : getDaemonSetStatus(daemonset) === 'Updating' || getDaemonSetStatus(daemonset) === 'Pending'
+                  ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400'
+                  : 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+              )}>
+                <span className={clsx(
+                  'w-1.5 h-1.5 rounded-full',
+                  getDaemonSetStatus(daemonset) === 'Running' ? 'bg-green-600' :
+                  getDaemonSetStatus(daemonset) === 'Updating' || getDaemonSetStatus(daemonset) === 'Pending' ? 'bg-yellow-600' :
+                  'bg-red-600'
+                )} />
+                {getDaemonSetStatus(daemonset)}
+              </span>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Desired:</span>
+                <span className="ml-1 text-gray-900 dark:text-white">{daemonset.status.desiredNumberScheduled || 0}</span>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Ready:</span>
+                <span className={clsx(
+                  'ml-1 font-medium',
+                  (daemonset.status.numberReady || 0) === (daemonset.status.desiredNumberScheduled || 0) && (daemonset.status.desiredNumberScheduled || 0) > 0
+                    ? 'text-green-600 dark:text-green-400'
+                    : 'text-gray-900 dark:text-white'
+                )}>
+                  {daemonset.status.numberReady || 0}/{daemonset.status.desiredNumberScheduled || 0}
+                </span>
+              </div>
+              <div className="col-span-2">
+                <span className="text-gray-500 dark:text-gray-400">Strategy:</span>
+                <span className="ml-1 text-gray-900 dark:text-white">{daemonset.spec.updateStrategy?.type || 'RollingUpdate'}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {formatAge(daemonset.metadata.creationTimestamp)}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={(e) => handleRestartClick(daemonset, e)}
+                  className="p-1.5 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/20 rounded transition-colors"
+                  title="Restart"
+                >
+                  <ArrowPathIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleViewDetailsClick(daemonset, e)}
+                  className="p-1.5 text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
+                  title="Details"
+                >
+                  <InformationCircleIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleDeleteClick(daemonset, e)}
+                  className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                  title="Delete"
+                >
+                  <TrashIcon className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      />
 
       {/* Modals */}
       {selectedDaemonSet && (
@@ -468,37 +541,29 @@ export default function DaemonSets() {
               setSelectedDaemonSet(null)
             }}
           />
-          <RestartDaemonSetModal
-            daemonset={selectedDaemonSet}
+          <ConfirmationModal
             isOpen={isRestartModalOpen}
             onClose={() => {
               setIsRestartModalOpen(false)
               setSelectedDaemonSet(null)
             }}
-            onSuccess={async () => {
-              await queryClient.invalidateQueries({ queryKey: ['daemonsets'] })
-              await queryClient.invalidateQueries({ queryKey: ['all-daemonsets'] })
-              await queryClient.refetchQueries({ queryKey: ['daemonsets'] })
-              await queryClient.refetchQueries({ queryKey: ['all-daemonsets'] })
-              setIsRestartModalOpen(false)
-              setSelectedDaemonSet(null)
-            }}
+            onConfirm={handleRestartConfirm}
+            title="Restart DaemonSet"
+            message={`Are you sure you want to restart daemonset "${selectedDaemonSet.metadata.name}"? This will restart all pods.`}
+            confirmText="Restart"
+            type="warning"
           />
-          <DeleteDaemonSetModal
-            daemonset={selectedDaemonSet}
+          <ConfirmationModal
             isOpen={isDeleteModalOpen}
             onClose={() => {
               setIsDeleteModalOpen(false)
               setSelectedDaemonSet(null)
             }}
-            onSuccess={async () => {
-              await queryClient.invalidateQueries({ queryKey: ['daemonsets'] })
-              await queryClient.invalidateQueries({ queryKey: ['all-daemonsets'] })
-              await queryClient.refetchQueries({ queryKey: ['daemonsets'] })
-              await queryClient.refetchQueries({ queryKey: ['all-daemonsets'] })
-              setIsDeleteModalOpen(false)
-              setSelectedDaemonSet(null)
-            }}
+            onConfirm={handleDeleteConfirm}
+            title="Delete DaemonSet"
+            message={`Are you sure you want to delete daemonset "${selectedDaemonSet.metadata.name}"? This action cannot be undone.`}
+            confirmText="Delete"
+            type="danger"
           />
         </>
       )}
