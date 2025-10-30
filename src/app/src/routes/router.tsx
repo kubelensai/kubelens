@@ -22,6 +22,7 @@ import Endpoints from "../pages/Endpoints";
 import EndpointDetails from "../pages/EndpointDetails";
 import Events from "../pages/Events";
 import HPAs from "../pages/HPAs";
+import HPADetails from "../pages/HPADetails";
 import IngressClasses from "../pages/IngressClasses";
 import IngressClassDetails from "../pages/IngressClassDetails";
 import Ingresses from "../pages/Ingresses";
@@ -232,6 +233,11 @@ const routes = [
       {
         path: "clusters/:cluster/namespaces/:namespace/cronjobs/:cronjobName",
         element: withClusterCheck(<CronJobDetails />),
+      },
+      // HPA Details routes
+      {
+        path: "clusters/:cluster/namespaces/:namespace/hpas/:hpaName",
+        element: withClusterCheck(<HPADetails />),
       },
       // Service Details routes
       {
