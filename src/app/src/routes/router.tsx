@@ -7,6 +7,7 @@ import ClusterRoleBindings from "../pages/ClusterRoleBindings";
 import ClusterRoles from "../pages/ClusterRoles";
 import ConfigMaps from "../pages/ConfigMaps";
 import CronJobs from "../pages/CronJobs";
+import CronJobDetails from "../pages/CronJobDetails";
 import CustomResourceDefinitions from "../pages/CustomResourceDefinitions/CustomResourceDefinitions";
 import GenericCRDPage from "../pages/CustomResources/GenericCRDPage";
 import DaemonSets from "../pages/DaemonSets";
@@ -211,6 +212,11 @@ const routes = [
       {
         path: "clusters/:cluster/namespaces/:namespace/jobs/:jobName",
         element: withClusterCheck(<JobDetails />),
+      },
+      // CronJob Details routes
+      {
+        path: "clusters/:cluster/namespaces/:namespace/cronjobs/:cronjobName",
+        element: withClusterCheck(<CronJobDetails />),
       },
       // Custom Resources routes
       {

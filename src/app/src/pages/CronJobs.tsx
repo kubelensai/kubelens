@@ -1,51 +1,28 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { getClusters, getCronJobs } from '@/services/api'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import clsx from 'clsx'
-import { PencilSquareIcon, TrashIcon, InformationCircleIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
+import { 
+  PencilSquareIcon, 
+  TrashIcon, 
+  EyeIcon
+} from '@heroicons/react/24/outline'
 import Breadcrumb from '@/components/shared/Breadcrumb'
-import CronJobDetailsModal from '@/components/CronJobs/CronJobDetailsModal'
+import { DataTable, Column } from '@/components/shared/DataTable'
 import EditCronJobModal from '@/components/CronJobs/EditCronJobModal'
 import DeleteCronJobModal from '@/components/CronJobs/DeleteCronJobModal'
-import ResizableTableHeader from '@/components/shared/ResizableTableHeader'
-
 import { formatAge } from '@/utils/format'
-import { useTableSort } from '@/hooks/useTableSort'
-import { useResizableColumns } from '@/hooks/useResizableColumns'
-import { usePagination } from '@/hooks/usePagination'
-import Pagination from '@/components/shared/Pagination'
+import { getNextExecution, getTimezoneDisplay } from '@/utils/cron'
 
 export default function CronJobs() {
   const { cluster, namespace } = useParams<{ cluster?: string; namespace?: string }>()
-
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [selectedCronJob, setSelectedCronJob] = useState<any>(null)
-  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
-  const [filterText, setFilterText] = useState('')
 
-  // Resizable columns
-  const { columnWidths, handleMouseDown: handleResizeStart } = useResizableColumns({
-    name: 200,
-    namespace: 150,
-    schedule: 150,
-    status: 100,
-    active: 80,
-    lastSchedule: 150,
-    age: 120,
-    actions: 140,
-  }, 'cronjobs-column-widths')
-
-  // Reset state when cluster or namespace changes
-  useEffect(() => {
-    setSelectedCronJob(null)
-    setIsDetailsModalOpen(false)
-    setIsEditModalOpen(false)
-    setIsDeleteModalOpen(false)
-  }, [cluster, namespace])
-  
   const { data: clusters } = useQuery({
     queryKey: ['clusters'],
     queryFn: getClusters,
@@ -90,308 +67,274 @@ export default function CronJobs() {
     },
     enabled: (cluster && namespace) ? true : cluster ? true : (!!clusters && clusters.length > 0),
     refetchOnMount: true,
-    refetchOnWindowFocus: true, // Refetch when window regains focus
-    refetchInterval: 5000, // Auto-refresh every 5 seconds to show live status updates
-    staleTime: 0, // Data is immediately stale, always fetch fresh
+    refetchOnWindowFocus: true,
+    refetchInterval: 5000,
+    staleTime: 0,
   })
 
   const isLoading = cronjobQueries.isLoading
   const allCronJobs = cronjobQueries.data || []
 
-  // Filter cronjobs by name
-  const filteredCronJobs = useMemo(() => {
-    if (!filterText) return allCronJobs
-    const lowerFilter = filterText.toLowerCase()
-    return allCronJobs.filter((cronjob: any) =>
-      cronjob.metadata?.name?.toLowerCase().includes(lowerFilter)
-    )
-  }, [allCronJobs, filterText])
-
-  // Apply sorting
-  const { sortedData: sortedCronJobs, sortConfig, requestSort } = useTableSort(filteredCronJobs, {
-    key: 'metadata.name',
-    direction: 'asc'
-  })
-
-  // Apply pagination
-  const {
-    paginatedData: cronjobs,
-    currentPage,
-    totalPages,
-    pageSize,
-    totalItems,
-    goToPage,
-    goToNextPage,
-    goToPreviousPage,
-    changePageSize,
-    hasNextPage,
-    hasPreviousPage,
-  } = usePagination(sortedCronJobs, 10, 'cronjobs')
-
   // Helper function to determine cronjob status
   const getCronJobStatus = (cronjob: any) => {
     const active = cronjob.status?.active?.length || 0
     
-    // Check if cronjob is suspended
     if (cronjob.spec.suspend) {
-      return { status: 'suspended', color: 'badge-warning' }
+      return { status: 'suspended', color: 'yellow' }
     }
 
-    // CronJob is active if there are active jobs
     if (active > 0) {
-      return { status: 'active', color: 'badge-success' }
+      return { status: 'active', color: 'green' }
     }
 
-    // Default to ready
-    return { status: 'ready', color: 'badge-info' }
+    return { status: 'ready', color: 'blue' }
   }
 
-
-  const handleCronJobClick = (cronjob: any) => {
-    setSelectedCronJob(cronjob)
-    setIsDetailsModalOpen(true)
-  }
-
-
-  const handleEditClick = (cronjob: any, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setSelectedCronJob(cronjob)
-    setIsEditModalOpen(true)
-  }
-
-  const handleDeleteClick = (cronjob: any, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setSelectedCronJob(cronjob)
-    setIsDeleteModalOpen(true)
-  }
-
-  const handleViewDetailsClick = (cronjob: any, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setSelectedCronJob(cronjob)
-    setIsDetailsModalOpen(true)
-  }
+  // Define columns for DataTable
+  const columns = useMemo<Column<any>[]>(() => [
+    {
+      key: 'name',
+      header: 'Name',
+      accessor: (cronjob) => (
+        <button
+          onClick={() => navigate(`/clusters/${cronjob.clusterName}/namespaces/${cronjob.metadata.namespace}/cronjobs/${cronjob.metadata.name}`)}
+          className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-left"
+        >
+          {cronjob.metadata.name}
+        </button>
+      ),
+      sortable: true,
+      sortValue: (cronjob) => cronjob.metadata.name,
+      searchValue: (cronjob) => cronjob.metadata.name,
+    },
+    {
+      key: 'namespace',
+      header: 'Namespace',
+      accessor: (cronjob) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {cronjob.metadata.namespace}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (cronjob) => cronjob.metadata.namespace,
+      searchValue: (cronjob) => cronjob.metadata.namespace,
+    },
+    {
+      key: 'schedule',
+      header: 'Schedule',
+      accessor: (cronjob) => (
+        <span className="text-sm font-mono text-gray-700 dark:text-gray-300">
+          {cronjob.spec.schedule}
+        </span>
+      ),
+      sortable: false,
+      searchValue: (cronjob) => cronjob.spec.schedule,
+    },
+    {
+      key: 'nextExecution',
+      header: 'Next Execution',
+      accessor: (cronjob) => {
+        if (cronjob.spec.suspend) {
+          return (
+            <span className="text-sm text-yellow-600 dark:text-yellow-400 font-medium">
+              Suspended
+            </span>
+          )
+        }
+        const nextExec = getNextExecution(cronjob.spec.schedule)
+        if (!nextExec) {
+          return <span className="text-sm text-gray-400 dark:text-gray-500">-</span>
+        }
+        return (
+          <div className="flex flex-col gap-0.5">
+            <span className="text-sm font-medium text-gray-900 dark:text-white">
+              {nextExec.countdown}
+            </span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {nextExec.formatted}
+            </span>
+          </div>
+        )
+      },
+      sortable: true,
+      sortValue: (cronjob) => {
+        if (cronjob.spec.suspend) return 0
+        const nextExec = getNextExecution(cronjob.spec.schedule)
+        return nextExec ? nextExec.date.getTime() : 0
+      },
+      searchValue: (cronjob) => {
+        const nextExec = getNextExecution(cronjob.spec.schedule)
+        return nextExec ? nextExec.countdown : ''
+      },
+    },
+    {
+      key: 'timezone',
+      header: 'Timezone',
+      accessor: (cronjob) => {
+        const nextExec = getNextExecution(cronjob.spec.schedule)
+        if (!nextExec) {
+          return <span className="text-sm text-gray-400 dark:text-gray-500">-</span>
+        }
+        return (
+          <span className="text-xs text-gray-600 dark:text-gray-400">
+            {getTimezoneDisplay(nextExec.timezone)}
+          </span>
+        )
+      },
+      sortable: false,
+      searchValue: (cronjob) => {
+        const nextExec = getNextExecution(cronjob.spec.schedule)
+        return nextExec ? nextExec.timezone : ''
+      },
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      accessor: (cronjob) => {
+        const cronjobStatus = getCronJobStatus(cronjob)
+        const colorClasses = {
+          green: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400',
+          yellow: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400',
+          blue: 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400',
+        }
+        return (
+          <span className={clsx(
+            'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full capitalize',
+            colorClasses[cronjobStatus.color as keyof typeof colorClasses]
+          )}>
+            <span className={clsx(
+              'w-1.5 h-1.5 rounded-full',
+              cronjobStatus.color === 'green' ? 'bg-green-600' :
+              cronjobStatus.color === 'yellow' ? 'bg-yellow-600' :
+              'bg-blue-600'
+            )} />
+            {cronjobStatus.status}
+          </span>
+        )
+      },
+      sortable: true,
+      sortValue: (cronjob) => getCronJobStatus(cronjob).status,
+      searchValue: (cronjob) => getCronJobStatus(cronjob).status,
+    },
+    {
+      key: 'active',
+      header: 'Active',
+      accessor: (cronjob) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300 text-center block">
+          {cronjob.status?.active?.length || 0}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (cronjob) => cronjob.status?.active?.length || 0,
+      searchValue: (cronjob) => String(cronjob.status?.active?.length || 0),
+    },
+    {
+      key: 'lastSchedule',
+      header: 'Last Schedule',
+      accessor: (cronjob) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {cronjob.status?.lastScheduleTime ? formatAge(cronjob.status.lastScheduleTime) : '-'}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (cronjob) => cronjob.status?.lastScheduleTime ? new Date(cronjob.status.lastScheduleTime).getTime() : 0,
+      searchValue: (cronjob) => cronjob.status?.lastScheduleTime ? formatAge(cronjob.status.lastScheduleTime) : '',
+    },
+    {
+      key: 'age',
+      header: 'Age',
+      accessor: (cronjob) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {formatAge(cronjob.metadata.creationTimestamp)}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (cronjob) => new Date(cronjob.metadata.creationTimestamp).getTime(),
+      searchValue: (cronjob) => formatAge(cronjob.metadata.creationTimestamp),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      accessor: (cronjob) => (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              navigate(`/clusters/${cronjob.clusterName}/namespaces/${cronjob.metadata.namespace}/cronjobs/${cronjob.metadata.name}`)
+            }}
+            className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+            title="View Details"
+          >
+            <EyeIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setSelectedCronJob(cronjob)
+              setIsEditModalOpen(true)
+            }}
+            className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+            title="Edit"
+          >
+            <PencilSquareIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setSelectedCronJob(cronjob)
+              setIsDeleteModalOpen(true)
+            }}
+            className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+            title="Delete"
+          >
+            <TrashIcon className="w-4 h-4" />
+          </button>
+        </div>
+      ),
+      sortable: false,
+    },
+  ], [navigate])
 
   return (
     <div className="space-y-4 sm:space-y-6">
       <div>
         <Breadcrumb 
-              items={
-                cluster
-                  ? [
-                      { name: cluster, href: "/dashboard" },
-                      { name: 'CronJobs' }
-                    ]
-                  : [{ name: 'CronJobs' }]
-              }
+          items={
+            cluster
+              ? [
+                  { name: cluster, href: "/dashboard" },
+                  { name: 'CRONJOBS' }
+                ]
+              : [{ name: 'CRONJOBS' }]
+          }
         />
       </div>
       
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">CronJobs</h1>
-          <p className="mt-1 sm:mt-2 text-sm text-gray-600 dark:text-gray-400">
-            {namespace 
-              ? `CronJobs in ${cluster} / ${namespace}`
-              : cluster 
-                ? `All cronjobs in ${cluster}`
-                : `All cronjobs across ${clusters?.length || 0} cluster(s)`
-            }
-          </p>
-        </div>
-        <div className="relative w-full sm:w-64">
-          <MagnifyingGlassIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Filter by name..."
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            className="w-full pl-11 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-          />
-        </div>
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-bold gradient-text">CronJobs</h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          {namespace 
+            ? `CronJobs in ${cluster} / ${namespace}`
+            : cluster 
+              ? `All cronjobs in ${cluster}`
+              : `All cronjobs across ${clusters?.length || 0} cluster(s)`
+          }
+        </p>
       </div>
-
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                <ResizableTableHeader
-                  label="Name"
-                  columnKey="name"
-                  sortKey="metadata.name"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.name}
-                />
-                <ResizableTableHeader
-                  label="Namespace"
-                  columnKey="namespace"
-                  sortKey="metadata.namespace"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.namespace}
-                />
-                <ResizableTableHeader
-                  label="Schedule"
-                  columnKey="schedule"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.schedule}
-                />
-                <ResizableTableHeader
-                  label="Status"
-                  columnKey="status"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.status}
-                />
-                <ResizableTableHeader
-                  label="Active"
-                  columnKey="active"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.active}
-                />
-                <ResizableTableHeader
-                  label="Last Schedule"
-                  columnKey="lastSchedule"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.lastSchedule}
-                />
-                <ResizableTableHeader
-                  label="Age"
-                  columnKey="age"
-                  sortKey="metadata.creationTimestamp"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.age}
-                />
-                <ResizableTableHeader
-                  label="Actions"
-                  columnKey="actions"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.actions}
-                  align="right"
-                />
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center">
-                    <div className="flex items-center justify-center">
-                      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-primary-600"></div>
-                      <span className="ml-3 text-gray-500 dark:text-gray-400">Loading cron jobs...</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : cronjobs.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center">
-                    <p className="text-gray-500 dark:text-gray-400">No cron jobs found</p>
-                  </td>
-                </tr>
-              ) : (
-                cronjobs.map((cronjob) => {
-                  const cronjobKey = `${cronjob.clusterName}-${cronjob.metadata.namespace}-${cronjob.metadata.name}`
-                  const cronjobStatus = getCronJobStatus(cronjob)
-                  
-                  return (
-                    <tr 
-                      key={cronjobKey} 
-                      onClick={() => handleCronJobClick(cronjob)}
-                      className="hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer transition-colors"
-                    >
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 text-xs sm:text-sm font-medium text-gray-900 dark:text-white">
-                        <div className="truncate max-w-[150px] sm:max-w-none">
-                          {cronjob.metadata.name}
-                        </div>
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {cronjob.metadata.namespace}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400 font-mono">
-                        {cronjob.spec.schedule}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap">
-                        <span className={clsx('badge text-xs capitalize', cronjobStatus.color)}>
-                          {cronjobStatus.status}
-                        </span>
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400 text-center">
-                        {cronjob.status?.active?.length || 0}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {cronjob.status?.lastScheduleTime ? formatAge(cronjob.status.lastScheduleTime) : '-'}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {formatAge(cronjob.metadata.creationTimestamp)}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={(e) => handleViewDetailsClick(cronjob, e)}
-                            className="p-1.5 text-purple-600 hover:text-purple-900 dark:text-purple-400 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
-                            title="View details"
-                          >
-                            <InformationCircleIcon className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={(e) => handleEditClick(cronjob, e)}
-                            className="p-1.5 text-yellow-600 hover:text-yellow-900 dark:text-yellow-400 dark:hover:text-yellow-300 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded transition-colors"
-                            title="Edit cronjob"
-                          >
-                            <PencilSquareIcon className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={(e) => handleDeleteClick(cronjob, e)}
-                            className="p-1.5 text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
-                            title="Delete cronjob"
-                          >
-                            <TrashIcon className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          pageSize={pageSize}
-          totalItems={totalItems}
-          onPageChange={goToPage}
-          onPageSizeChange={changePageSize}
-          onNextPage={goToNextPage}
-          onPreviousPage={goToPreviousPage}
-          hasNextPage={hasNextPage}
-          hasPreviousPage={hasPreviousPage}
-        />
-      </div>
+      
+      <DataTable
+        data={allCronJobs}
+        columns={columns}
+        keyExtractor={(cronjob) => `${cronjob.clusterName}-${cronjob.metadata.namespace}-${cronjob.metadata.name}`}
+        searchPlaceholder="Search cronjobs by name, namespace, schedule, status..."
+        isLoading={isLoading}
+        emptyMessage="No cron jobs found"
+        pageSize={10}
+      />
 
       {/* Modals */}
       {selectedCronJob && (
         <>
-          <CronJobDetailsModal
-            cronjob={selectedCronJob}
-            isOpen={isDetailsModalOpen}
-            onClose={() => {
-              setIsDetailsModalOpen(false)
-              setSelectedCronJob(null)
-            }}
-          />
           <EditCronJobModal
             cronjob={selectedCronJob}
             isOpen={isEditModalOpen}
@@ -400,7 +343,6 @@ export default function CronJobs() {
               setSelectedCronJob(null)
             }}
             onSuccess={async () => {
-              // Invalidate and immediately refetch all cronjob queries
               await queryClient.invalidateQueries({ queryKey: ['cronjobs'] })
               await queryClient.invalidateQueries({ queryKey: ['all-cronjobs'] })
               await queryClient.refetchQueries({ queryKey: ['cronjobs'] })
@@ -417,13 +359,10 @@ export default function CronJobs() {
               setSelectedCronJob(null)
             }}
             onSuccess={async () => {
-              console.log('Delete onSuccess called, refetching cronjobs...')
-              // Invalidate and immediately refetch all cronjob queries
               await queryClient.invalidateQueries({ queryKey: ['cronjobs'] })
               await queryClient.invalidateQueries({ queryKey: ['all-cronjobs'] })
               await queryClient.refetchQueries({ queryKey: ['cronjobs'] })
               await queryClient.refetchQueries({ queryKey: ['all-cronjobs'] })
-              console.log('CronJobs refetched successfully')
               setIsDeleteModalOpen(false)
               setSelectedCronJob(null)
             }}
@@ -433,4 +372,3 @@ export default function CronJobs() {
     </div>
   )
 }
-

@@ -1571,6 +1571,7 @@ func (h *Handler) ScaleReplicaSet(c *gin.Context) {
 func (h *Handler) ListJobs(c *gin.Context) {
 	clusterName := c.Param("name")
 	namespace := c.Query("namespace")
+	cronjob := c.Query("cronjob")
 
 	if namespace == "" {
 		namespace = metav1.NamespaceAll
@@ -1589,7 +1590,22 @@ func (h *Handler) ListJobs(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"jobs": jobs.Items})
+	// Filter by cronjob if specified
+	filteredJobs := jobs.Items
+	if cronjob != "" {
+		filteredJobs = []batchv1.Job{}
+		for _, job := range jobs.Items {
+			// Check if job is owned by the specified cronjob
+			for _, owner := range job.OwnerReferences {
+				if owner.Kind == "CronJob" && owner.Name == cronjob {
+					filteredJobs = append(filteredJobs, job)
+					break
+				}
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, filteredJobs)
 }
 
 // GetJob returns details of a specific job

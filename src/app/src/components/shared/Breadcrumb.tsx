@@ -23,25 +23,32 @@ export default function Breadcrumb({ items }: BreadcrumbProps) {
             Home
           </Link>
         </li>
-        {items.map((item, index) => (
-          <li key={index}>
-            <div className="flex items-center">
-              <ChevronRightIcon className="w-4 h-4 text-gray-400" />
-              {item.href ? (
-                <Link
-                  to={item.href}
-                  className="ml-1 text-sm font-medium text-gray-700 hover:text-primary-600 dark:text-gray-400 dark:hover:text-primary-400 md:ml-2 capitalize"
-                >
-                  {item.name}
-                </Link>
-              ) : (
-                <span className="ml-1 text-sm font-medium text-gray-500 dark:text-gray-500 md:ml-2 truncate max-w-[150px] sm:max-w-none capitalize">
-                  {item.name}
-                </span>
-              )}
-            </div>
-          </li>
-        ))}
+        {items.map((item, index) => {
+          // Convert to proper case: lowercase first, then capitalize
+          const displayName = item.name.toLowerCase().split(' ').map(word => 
+            word.charAt(0).toUpperCase() + word.slice(1)
+          ).join(' ')
+          
+          return (
+            <li key={index}>
+              <div className="flex items-center">
+                <ChevronRightIcon className="w-4 h-4 text-gray-400" />
+                {item.href ? (
+                  <Link
+                    to={item.href}
+                    className="ml-1 text-sm font-medium text-gray-700 hover:text-primary-600 dark:text-gray-400 dark:hover:text-primary-400 md:ml-2"
+                  >
+                    {displayName}
+                  </Link>
+                ) : (
+                  <span className="ml-1 text-sm font-medium text-gray-500 dark:text-gray-500 md:ml-2 truncate max-w-[150px] sm:max-w-none">
+                    {displayName}
+                  </span>
+                )}
+              </div>
+            </li>
+          )
+        })}
       </ol>
     </nav>
   )
