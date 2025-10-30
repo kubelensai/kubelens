@@ -50,6 +50,7 @@ import RuntimeClasses from "../pages/RuntimeClasses";
 import Secrets from "../pages/Secrets";
 import SecretDetails from "../pages/SecretDetails";
 import ServiceAccounts from "../pages/ServiceAccounts";
+import ServiceAccountDetails from "../pages/ServiceAccountDetails";
 import Services from "../pages/Services";
 import ServiceDetails from "../pages/ServiceDetails";
 import Signup from "../pages/Signup";
@@ -232,6 +233,11 @@ const routes = [
       {
         path: "clusters/:cluster/namespaces/:namespace/services/:serviceName",
         element: withClusterCheck(<ServiceDetails />),
+      },
+      // ServiceAccount Details routes
+      {
+        path: "clusters/:cluster/namespaces/:namespace/serviceaccounts/:serviceAccountName",
+        element: withClusterCheck(<ServiceAccountDetails />),
       },
       // Endpoint Details routes
       {
