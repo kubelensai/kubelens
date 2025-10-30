@@ -1,28 +1,26 @@
-import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query'
-import { useParams } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useParams, useNavigate } from 'react-router-dom'
 import { getClusters, getNetworkPolicies } from '@/services/api'
-import { useMemo, useState, useEffect } from 'react'
-import { MagnifyingGlassIcon, PencilSquareIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { useMemo, useState } from 'react'
+import { 
+  PencilSquareIcon, 
+  TrashIcon, 
+  EyeIcon,
+  ShieldCheckIcon,
+} from '@heroicons/react/24/outline'
 import Breadcrumb from '@/components/shared/Breadcrumb'
-import ResizableTableHeader from '@/components/shared/ResizableTableHeader'
-import NetworkPolicyDetailsModal from '@/components/NetworkPolicies/NetworkPolicyDetailsModal'
+import { DataTable, Column } from '@/components/shared/DataTable'
 import EditNetworkPolicyYAMLModal from '@/components/NetworkPolicies/EditNetworkPolicyYAMLModal'
-import DeleteNetworkPolicyModal from '@/components/NetworkPolicies/DeleteNetworkPolicyModal'
+import ConfirmationModal from '@/components/shared/ConfirmationModal'
+import { useNotificationStore } from '@/stores/notificationStore'
+import api from '@/services/api'
 import { formatAge } from '@/utils/format'
-import { useTableSort } from '@/hooks/useTableSort'
-import { useResizableColumns } from '@/hooks/useResizableColumns'
-import { usePagination } from '@/hooks/usePagination'
-import Pagination from '@/components/shared/Pagination'
-import { useClusterStore } from '@/stores/clusterStore'
-import { useNamespaceStore } from '@/stores/namespaceStore'
 
-interface NetworkPolicy {
-  clusterName: string
+interface NetworkPolicyData {
   metadata: {
     name: string
     namespace: string
     creationTimestamp: string
-    uid: string
   }
   spec: {
     podSelector: any
@@ -30,390 +28,369 @@ interface NetworkPolicy {
     ingress?: any[]
     egress?: any[]
   }
+  clusterName: string
 }
 
 export default function NetworkPolicies() {
   const { cluster, namespace } = useParams<{ cluster?: string; namespace?: string }>()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const { selectedCluster } = useClusterStore()
-  const { selectedNamespace } = useNamespaceStore()
-  const [filterText, setFilterText] = useState('')
-  const [selectedNetworkPolicy, setSelectedNetworkPolicy] = useState<NetworkPolicy | null>(null)
-  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false)
-  const [isEditYAMLModalOpen, setIsEditYAMLModalOpen] = useState(false)
+  const { addNotification } = useNotificationStore()
+  const [selectedNetworkPolicy, setSelectedNetworkPolicy] = useState<NetworkPolicyData | null>(null)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
-
-  const currentCluster = cluster || selectedCluster
-  const currentNamespace = namespace || selectedNamespace
-
-  const { columnWidths, handleMouseDown: handleResizeStart } = useResizableColumns({
-    name: 200,
-    namespace: 150,
-    podSelector: 200,
-    policyTypes: 150,
-    age: 120,
-    actions: 150,
-  }, 'networkpolicies-column-widths')
-
-  // Reset state when cluster or namespace changes
-  useEffect(() => {
-    setSelectedNetworkPolicy(null)
-    setIsDetailsModalOpen(false)
-    setIsEditYAMLModalOpen(false)
-    setIsDeleteModalOpen(false)
-  }, [currentCluster, currentNamespace])
   
-  // Fetch clusters first
   const { data: clusters } = useQuery({
     queryKey: ['clusters'],
     queryFn: getClusters,
   })
 
-  // Build queries array
-  const networkPolicyQueries = useMemo(() => {
-    if (!clusters) return []
-
-    if (currentCluster) {
-      return [
-        {
-          queryKey: ['networkpolicies', currentCluster, currentNamespace || 'all'],
-          queryFn: () => getNetworkPolicies(currentCluster, currentNamespace || 'all'),
-          refetchInterval: 5000,
-        },
-      ]
-    }
-
-    return clusters.map((c: any) => ({
-      queryKey: ['networkpolicies', c.name, currentNamespace || 'all'],
-      queryFn: () => getNetworkPolicies(c.name, currentNamespace || 'all'),
-      refetchInterval: 5000,
-    }))
-  }, [clusters, currentCluster, currentNamespace])
-
-  // Use useQueries (NOT .map with useQuery!)
-  const networkPolicyResults = useQueries({ queries: networkPolicyQueries })
-  const isLoading = networkPolicyResults.some((result) => result.isLoading)
-
-  // Flatten results from all clusters
-  const allNetworkPolicies: any[] = useMemo(() => {
-    return networkPolicyResults.flatMap((result: any) => result.data || [])
-  }, [networkPolicyResults])
-
-  // Filter network policies
-  const filteredNetworkPolicies = useMemo(() => {
-    return allNetworkPolicies.filter((np: NetworkPolicy) => {
-      const searchText = filterText.toLowerCase()
-      const name = np.metadata?.name?.toLowerCase() || ''
-      const ns = np.metadata?.namespace?.toLowerCase() || ''
-      const policyTypes = (np.spec?.policyTypes || []).join(' ').toLowerCase()
-
-      return name.includes(searchText) || ns.includes(searchText) || policyTypes.includes(searchText)
-    })
-  }, [allNetworkPolicies, filterText])
-
-  // Apply sorting
-  const { sortedData: sortedNetworkPolicies, sortConfig, requestSort } = useTableSort(filteredNetworkPolicies, {
-    key: 'metadata.name',
-    direction: 'asc'
+  // Fetch network policies from all clusters or specific cluster/namespace
+  const { data: allNetworkPolicies, isLoading } = useQuery({
+    queryKey: namespace 
+      ? ['networkpolicies', cluster, namespace]
+      : cluster 
+        ? ['networkpolicies', cluster] 
+        : ['all-networkpolicies', clusters?.map(c => c.name).sort().join(',')],
+    queryFn: async () => {
+      // If specific cluster and namespace requested
+      if (cluster && namespace) {
+        const networkPolicies = await getNetworkPolicies(cluster, namespace)
+        return networkPolicies.map((np: any) => ({ ...np, clusterName: cluster, namespace }))
+      }
+      
+      // If specific cluster requested (all namespaces)
+      if (cluster) {
+        const networkPolicies = await getNetworkPolicies(cluster)
+        return networkPolicies.map((np: any) => ({ ...np, clusterName: cluster }))
+      }
+      
+      // Otherwise fetch from all clusters
+      if (!clusters || clusters.length === 0) return []
+      
+      const allNetworkPolicies = await Promise.all(
+        clusters.map(async (cluster) => {
+          try {
+            const networkPolicies = await getNetworkPolicies(cluster.name)
+            return networkPolicies.map((np: any) => ({ ...np, clusterName: cluster.name }))
+          } catch (error) {
+            console.error(`Error fetching network policies from ${cluster.name}:`, error)
+            return []
+          }
+        })
+      )
+      
+      return allNetworkPolicies.flat()
+    },
+    enabled: (cluster && namespace) ? true : cluster ? true : (!!clusters && clusters.length > 0),
+    refetchInterval: 5000,
   })
 
-  // Apply pagination
-  const {
-    paginatedData: networkPolicies,
-    currentPage,
-    totalPages,
-    pageSize,
-    totalItems,
-    goToPage,
-    goToNextPage,
-    goToPreviousPage,
-    changePageSize,
-    hasNextPage,
-    hasPreviousPage,
-  } = usePagination(sortedNetworkPolicies, 10, 'networkpolicies')
-
   // Helper functions
-  const getPodSelectorDisplay = (podSelector: any) => {
-    if (!podSelector) return 'All pods'
-    if (Object.keys(podSelector.matchLabels || {}).length === 0 && 
-        !podSelector.matchExpressions?.length) {
-      return 'All pods'
-    }
-    const labels = Object.entries(podSelector.matchLabels || {})
+  const formatPodSelector = (np: NetworkPolicyData): string => {
+    if (!np.spec.podSelector) return 'All pods'
+    if (Object.keys(np.spec.podSelector.matchLabels || {}).length === 0) return 'All pods'
+    const labels = Object.entries(np.spec.podSelector.matchLabels || {})
       .map(([key, value]) => `${key}=${value}`)
+      .slice(0, 2)
       .join(', ')
-    return labels || 'With expressions'
+    return labels + (Object.keys(np.spec.podSelector.matchLabels || {}).length > 2 ? '...' : '')
   }
 
-  const getPolicyTypesDisplay = (policyTypes: string[]) => {
-    if (!policyTypes || policyTypes.length === 0) return '-'
-    return policyTypes.join(', ')
+  const formatPolicyTypes = (np: NetworkPolicyData): string => {
+    return np.spec.policyTypes?.join(', ') || '-'
   }
 
   // Action handlers
-  const handleRowClick = (networkPolicy: NetworkPolicy) => {
-    setSelectedNetworkPolicy(networkPolicy)
-    setIsDetailsModalOpen(true)
-  }
-
-  const handleEditYAMLClick = (networkPolicy: NetworkPolicy, e: React.MouseEvent) => {
+  const handleEditClick = (networkPolicy: NetworkPolicyData, e: React.MouseEvent) => {
     e.stopPropagation()
     setSelectedNetworkPolicy(networkPolicy)
-    setIsEditYAMLModalOpen(true)
+    setIsEditModalOpen(true)
   }
 
-  const handleDeleteClick = (networkPolicy: NetworkPolicy, e: React.MouseEvent) => {
+  const handleDeleteClick = (networkPolicy: NetworkPolicyData, e: React.MouseEvent) => {
     e.stopPropagation()
     setSelectedNetworkPolicy(networkPolicy)
     setIsDeleteModalOpen(true)
   }
 
-  return (
-    <div className="space-y-4 sm:space-y-6">
-      {/* Breadcrumb */}
-      <div>
-        <Breadcrumb 
-          items={
-            currentCluster
-              ? [
-                  { name: currentCluster, href: "/dashboard" },
-                  { name: 'Network Policies' }
-                ]
-              : [{ name: 'Network Policies' }]
-          }
-        />
-      </div>
-      
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">Network Policies</h1>
-          <p className="mt-1 sm:mt-2 text-sm text-gray-600 dark:text-gray-400">
-            All network policies across {clusters?.length || 0} cluster(s)
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="relative w-full sm:w-80">
-            <MagnifyingGlassIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Filter by name, namespace..."
-              value={filterText}
-              onChange={(e) => setFilterText(e.target.value)}
-              className="w-full pl-11 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            />
+  const handleDeleteConfirm = async () => {
+    if (!selectedNetworkPolicy) return
+    try {
+      await api.delete(`/clusters/${selectedNetworkPolicy.clusterName}/namespaces/${selectedNetworkPolicy.metadata.namespace}/networkpolicies/${selectedNetworkPolicy.metadata.name}`)
+      addNotification({
+        type: 'success',
+        title: 'Success',
+        message: 'Network policy deleted successfully',
+      })
+      setIsDeleteModalOpen(false)
+      setSelectedNetworkPolicy(null)
+      // Invalidate queries to refetch
+      await queryClient.invalidateQueries({ queryKey: ['networkpolicies'] })
+      await queryClient.invalidateQueries({ queryKey: ['all-networkpolicies'] })
+      await queryClient.refetchQueries({ queryKey: ['networkpolicies'] })
+      await queryClient.refetchQueries({ queryKey: ['all-networkpolicies'] })
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: `Failed to delete network policy: ${error.message || 'Unknown error'}`,
+      })
+    }
+  }
+
+  // Define columns
+  const columns = useMemo<Column<NetworkPolicyData>[]>(() => [
+    {
+      key: 'name',
+      header: 'Name',
+      accessor: (networkPolicy) => (
+        <div className="flex items-center gap-2">
+          <ShieldCheckIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+          <div className="min-w-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                navigate(`/clusters/${networkPolicy.clusterName}/namespaces/${networkPolicy.metadata.namespace}/networkpolicies/${networkPolicy.metadata.name}`)
+              }}
+              className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate text-left"
+            >
+              {networkPolicy.metadata.name}
+            </button>
+            {!cluster && (
+              <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                {networkPolicy.clusterName}
+              </div>
+            )}
           </div>
         </div>
-      </div>
-
-      {/* Table */}
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                <ResizableTableHeader
-                  label="Name"
-                  columnKey="name"
-                  sortKey="metadata.name"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.name}
-                  onResizeStart={handleResizeStart}
-                />
-                <ResizableTableHeader
-                  label="Namespace"
-                  columnKey="namespace"
-                  sortKey="metadata.namespace"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.namespace}
-                  onResizeStart={handleResizeStart}
-                />
-                <ResizableTableHeader
-                  label="Pod Selector"
-                  columnKey="podSelector"
-                  sortKey="spec.podSelector"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.podSelector}
-                  onResizeStart={handleResizeStart}
-                />
-                <ResizableTableHeader
-                  label="Policy Types"
-                  columnKey="policyTypes"
-                  sortKey="spec.policyTypes"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.policyTypes}
-                  onResizeStart={handleResizeStart}
-                />
-                <ResizableTableHeader
-                  label="Age"
-                  columnKey="age"
-                  sortKey="metadata.creationTimestamp"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.age}
-                  onResizeStart={handleResizeStart}
-                />
-                <ResizableTableHeader
-                  label="Actions"
-                  columnKey="actions"
-                  sortKey=""
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.actions}
-                  onResizeStart={handleResizeStart}
-                  align="right"
-                />
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center">
-                    <div className="flex items-center justify-center">
-                      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-primary-600"></div>
-                      <span className="ml-3 text-gray-500 dark:text-gray-400">Loading network policies...</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : networkPolicies.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center">
-                    <p className="text-gray-500 dark:text-gray-400">
-                      {filterText ? 'No network policies found matching your filter' : 'No network policies found'}
-                    </p>
-                  </td>
-                </tr>
-              ) : (
-                networkPolicies.map((np: NetworkPolicy) => (
-                  <tr
-                    key={`${np.clusterName}-${np.metadata?.namespace}-${np.metadata?.name}`}
-                    onClick={() => handleRowClick(np)}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer"
-                  >
-                    <td
-                      className="px-2 sm:px-4 py-3 text-sm font-medium text-gray-900 dark:text-white truncate"
-                      style={{ width: columnWidths.name, maxWidth: columnWidths.name }}
-                    >
-                      {np.metadata?.name}
-                    </td>
-                    <td
-                      className="px-2 sm:px-4 py-3 text-sm text-gray-500 dark:text-gray-400 truncate"
-                      style={{ width: columnWidths.namespace, maxWidth: columnWidths.namespace }}
-                    >
-                      {np.metadata?.namespace}
-                    </td>
-                    <td
-                      className="px-2 sm:px-4 py-3 text-sm text-gray-500 dark:text-gray-400 truncate"
-                      style={{ width: columnWidths.podSelector, maxWidth: columnWidths.podSelector }}
-                      title={getPodSelectorDisplay(np.spec?.podSelector)}
-                    >
-                      {getPodSelectorDisplay(np.spec?.podSelector)}
-                    </td>
-                    <td
-                      className="px-2 sm:px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-                      style={{ width: columnWidths.policyTypes, maxWidth: columnWidths.policyTypes }}
-                    >
-                      {getPolicyTypesDisplay(np.spec?.policyTypes)}
-                    </td>
-                    <td
-                      className="px-2 sm:px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-                      style={{ width: columnWidths.age, maxWidth: columnWidths.age }}
-                    >
-                      {formatAge(np.metadata?.creationTimestamp)}
-                    </td>
-                    <td
-                      className="px-2 sm:px-4 py-3 text-right text-sm font-medium"
-                      style={{ width: columnWidths.actions, maxWidth: columnWidths.actions }}
-                    >
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={(e) => handleEditYAMLClick(np, e)}
-                          className="p-1.5 text-yellow-600 hover:text-yellow-900 dark:text-yellow-400 dark:hover:text-yellow-300 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded transition-colors"
-                          title="Edit YAML"
-                        >
-                          <PencilSquareIcon className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={(e) => handleDeleteClick(np, e)}
-                          className="p-1.5 text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
-                          title="Delete"
-                        >
-                          <TrashIcon className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+      ),
+      sortable: true,
+      sortValue: (networkPolicy) => networkPolicy.metadata.name,
+      searchValue: (networkPolicy) => `${networkPolicy.metadata.name} ${networkPolicy.clusterName}`,
+    },
+    {
+      key: 'namespace',
+      header: 'Namespace',
+      accessor: (networkPolicy) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {networkPolicy.metadata.namespace}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (networkPolicy) => networkPolicy.metadata.namespace,
+      searchValue: (networkPolicy) => networkPolicy.metadata.namespace,
+    },
+    {
+      key: 'podSelector',
+      header: 'Pod Selector',
+      accessor: (networkPolicy) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300 font-mono">
+          {formatPodSelector(networkPolicy)}
+        </span>
+      ),
+      sortable: false,
+      searchValue: (networkPolicy) => formatPodSelector(networkPolicy),
+    },
+    {
+      key: 'policyTypes',
+      header: 'Policy Types',
+      accessor: (networkPolicy) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {formatPolicyTypes(networkPolicy)}
+        </span>
+      ),
+      sortable: false,
+      searchValue: (networkPolicy) => formatPolicyTypes(networkPolicy),
+    },
+    {
+      key: 'age',
+      header: 'Age',
+      accessor: (networkPolicy) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {formatAge(networkPolicy.metadata.creationTimestamp)}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (networkPolicy) => new Date(networkPolicy.metadata.creationTimestamp).getTime(),
+      searchValue: (networkPolicy) => formatAge(networkPolicy.metadata.creationTimestamp),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      accessor: (networkPolicy) => (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              navigate(`/clusters/${networkPolicy.clusterName}/namespaces/${networkPolicy.metadata.namespace}/networkpolicies/${networkPolicy.metadata.name}`)
+            }}
+            className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+            title="View Details"
+          >
+            <EyeIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleEditClick(networkPolicy, e)}
+            className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+            title="Edit YAML"
+          >
+            <PencilSquareIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleDeleteClick(networkPolicy, e)}
+            className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+            title="Delete"
+          >
+            <TrashIcon className="w-4 h-4" />
+          </button>
         </div>
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          pageSize={pageSize}
-          totalItems={totalItems}
-          onPageChange={goToPage}
-          onPageSizeChange={changePageSize}
-          onNextPage={goToNextPage}
-          onPreviousPage={goToPreviousPage}
-          hasNextPage={hasNextPage}
-          hasPreviousPage={hasPreviousPage}
-        />
+      ),
+      sortable: false,
+    },
+  ], [cluster, navigate])
+
+  return (
+    <div className="space-y-4 md:space-y-6">
+      <Breadcrumb
+        items={[
+          ...(cluster ? [{ name: cluster, href: `/clusters/${cluster}` }] : []),
+          { name: 'Network Policies' }
+        ]}
+      />
+
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
+          Network Policies
+        </h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          {namespace 
+            ? `Network policies in ${cluster} / ${namespace}`
+            : cluster 
+              ? `All network policies in ${cluster}`
+              : `All network policies across ${clusters?.length || 0} cluster(s)`
+          }
+        </p>
       </div>
+      
+      <DataTable
+        data={allNetworkPolicies || []}
+        columns={columns}
+        keyExtractor={(networkPolicy) => `${networkPolicy.clusterName}-${networkPolicy.metadata.namespace}-${networkPolicy.metadata.name}`}
+        searchPlaceholder="Search network policies by name, cluster, namespace..."
+        isLoading={isLoading}
+        emptyMessage="No network policies found"
+        emptyIcon={
+          <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
+            <ShieldCheckIcon className="w-6 h-6 text-gray-400 dark:text-gray-500" />
+          </div>
+        }
+        mobileCardRenderer={(networkPolicy) => (
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <ShieldCheckIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+                <div className="min-w-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      navigate(`/clusters/${networkPolicy.clusterName}/namespaces/${networkPolicy.metadata.namespace}/networkpolicies/${networkPolicy.metadata.name}`)
+                    }}
+                    className="font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate text-left"
+                  >
+                    {networkPolicy.metadata.name}
+                  </button>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                    {networkPolicy.metadata.namespace}
+                  </div>
+                  {!cluster && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      {networkPolicy.clusterName}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 gap-2 text-sm">
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Pod Selector:</span>
+                <span className="ml-1 text-gray-900 dark:text-white font-mono text-xs">{formatPodSelector(networkPolicy)}</span>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Policy Types:</span>
+                <span className="ml-1 text-gray-900 dark:text-white">{formatPolicyTypes(networkPolicy)}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {formatAge(networkPolicy.metadata.creationTimestamp)}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    navigate(`/clusters/${networkPolicy.clusterName}/namespaces/${networkPolicy.metadata.namespace}/networkpolicies/${networkPolicy.metadata.name}`)
+                  }}
+                  className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                  title="View Details"
+                >
+                  <EyeIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleEditClick(networkPolicy, e)}
+                  className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+                  title="Edit YAML"
+                >
+                  <PencilSquareIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleDeleteClick(networkPolicy, e)}
+                  className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                  title="Delete"
+                >
+                  <TrashIcon className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      />
 
       {/* Modals */}
       {selectedNetworkPolicy && (
         <>
-          <NetworkPolicyDetailsModal
-            networkPolicy={selectedNetworkPolicy}
-            isOpen={isDetailsModalOpen}
-            onClose={() => {
-              setIsDetailsModalOpen(false)
-              setSelectedNetworkPolicy(null)
-            }}
-          />
           <EditNetworkPolicyYAMLModal
             networkPolicy={selectedNetworkPolicy}
-            isOpen={isEditYAMLModalOpen}
+            isOpen={isEditModalOpen}
             onClose={() => {
-              setIsEditYAMLModalOpen(false)
+              setIsEditModalOpen(false)
               setSelectedNetworkPolicy(null)
             }}
             onSuccess={async () => {
               await queryClient.invalidateQueries({ queryKey: ['networkpolicies'] })
+              await queryClient.invalidateQueries({ queryKey: ['all-networkpolicies'] })
               await queryClient.refetchQueries({ queryKey: ['networkpolicies'] })
-              setIsEditYAMLModalOpen(false)
+              await queryClient.refetchQueries({ queryKey: ['all-networkpolicies'] })
+              setIsEditModalOpen(false)
               setSelectedNetworkPolicy(null)
             }}
           />
-          <DeleteNetworkPolicyModal
-            networkPolicy={selectedNetworkPolicy}
+          <ConfirmationModal
             isOpen={isDeleteModalOpen}
             onClose={() => {
               setIsDeleteModalOpen(false)
               setSelectedNetworkPolicy(null)
             }}
-            onSuccess={async () => {
-              await queryClient.invalidateQueries({ queryKey: ['networkpolicies'] })
-              await queryClient.refetchQueries({ queryKey: ['networkpolicies'] })
-              setIsDeleteModalOpen(false)
-              setSelectedNetworkPolicy(null)
-            }}
+            onConfirm={handleDeleteConfirm}
+            title="Delete Network Policy"
+            message={`Are you sure you want to delete network policy "${selectedNetworkPolicy.metadata.name}"? This action cannot be undone.`}
+            confirmText="Delete"
+            type="danger"
           />
         </>
       )}
     </div>
   )
 }
-

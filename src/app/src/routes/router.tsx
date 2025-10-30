@@ -6,6 +6,7 @@ import ClusterManagement from "../pages/ClusterManagement";
 import ClusterRoleBindings from "../pages/ClusterRoleBindings";
 import ClusterRoles from "../pages/ClusterRoles";
 import ConfigMaps from "../pages/ConfigMaps";
+import ConfigMapDetails from "../pages/ConfigMapDetails";
 import CronJobs from "../pages/CronJobs";
 import CronJobDetails from "../pages/CronJobDetails";
 import CustomResourceDefinitions from "../pages/CustomResourceDefinitions/CustomResourceDefinitions";
@@ -16,10 +17,13 @@ import Dashboard from "../pages/Dashboard";
 import Deployments from "../pages/Deployments";
 import DeploymentDetails from "../pages/DeploymentDetails";
 import Endpoints from "../pages/Endpoints";
+import EndpointDetails from "../pages/EndpointDetails";
 import Events from "../pages/Events";
 import HPAs from "../pages/HPAs";
 import IngressClasses from "../pages/IngressClasses";
+import IngressClassDetails from "../pages/IngressClassDetails";
 import Ingresses from "../pages/Ingresses";
+import IngressDetails from "../pages/IngressDetails";
 import Integrations from "../pages/Integrations";
 import Jobs from "../pages/Jobs";
 import JobDetails from "../pages/JobDetails";
@@ -29,6 +33,7 @@ import MutatingWebhookConfigurations from "../pages/MutatingWebhookConfiguration
 import Namespaces from "../pages/Namespaces";
 import Profile from "../pages/Profile";
 import NetworkPolicies from "../pages/NetworkPolicies";
+import NetworkPolicyDetails from "../pages/NetworkPolicyDetails";
 import Nodes from "../pages/Nodes";
 import NodeDetails from "../pages/NodeDetails";
 import PDBs from "../pages/PDBs";
@@ -43,6 +48,7 @@ import RoleBindings from "../pages/RoleBindings";
 import Roles from "../pages/Roles";
 import RuntimeClasses from "../pages/RuntimeClasses";
 import Secrets from "../pages/Secrets";
+import SecretDetails from "../pages/SecretDetails";
 import ServiceAccounts from "../pages/ServiceAccounts";
 import Services from "../pages/Services";
 import ServiceDetails from "../pages/ServiceDetails";
@@ -223,6 +229,36 @@ const routes = [
       {
         path: "clusters/:cluster/namespaces/:namespace/services/:serviceName",
         element: withClusterCheck(<ServiceDetails />),
+      },
+      // Endpoint Details routes
+      {
+        path: "clusters/:cluster/namespaces/:namespace/endpoints/:endpointName",
+        element: withClusterCheck(<EndpointDetails />),
+      },
+      // Ingress Details routes
+      {
+        path: "clusters/:cluster/namespaces/:namespace/ingresses/:ingressName",
+        element: withClusterCheck(<IngressDetails />),
+      },
+      // Ingress Class Details routes
+      {
+        path: "clusters/:cluster/ingressclasses/:ingressClassName",
+        element: withClusterCheck(<IngressClassDetails />),
+      },
+      // Network Policy Details routes
+      {
+        path: "clusters/:cluster/namespaces/:namespace/networkpolicies/:networkPolicyName",
+        element: withClusterCheck(<NetworkPolicyDetails />),
+      },
+      // ConfigMap Details routes
+      {
+        path: "clusters/:cluster/namespaces/:namespace/configmaps/:configMapName",
+        element: withClusterCheck(<ConfigMapDetails />),
+      },
+      // Secret Details routes
+      {
+        path: "clusters/:cluster/namespaces/:namespace/secrets/:secretName",
+        element: withClusterCheck(<SecretDetails />),
       },
       // Custom Resources routes
       {

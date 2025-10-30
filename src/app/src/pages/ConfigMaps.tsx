@@ -1,40 +1,40 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { getClusters, getConfigMaps } from '@/services/api'
 import { useMemo, useState } from 'react'
-import { MagnifyingGlassIcon, PencilSquareIcon, TrashIcon, PlusIcon } from '@heroicons/react/24/outline'
-
+import { 
+  PencilSquareIcon, 
+  TrashIcon, 
+  EyeIcon,
+  DocumentTextIcon,
+} from '@heroicons/react/24/outline'
 import Breadcrumb from '@/components/shared/Breadcrumb'
-import ResizableTableHeader from '@/components/shared/ResizableTableHeader'
-import ConfigMapDetailsModal from '@/components/ConfigMaps/ConfigMapDetailsModal'
+import { DataTable, Column } from '@/components/shared/DataTable'
 import EditConfigMapYAMLModal from '@/components/ConfigMaps/EditConfigMapYAMLModal'
-import DeleteConfigMapModal from '@/components/ConfigMaps/DeleteConfigMapModal'
-import CreateConfigMapModal from '@/components/ConfigMaps/CreateConfigMapModal'
+import ConfirmationModal from '@/components/shared/ConfirmationModal'
+import { useNotificationStore } from '@/stores/notificationStore'
+import api from '@/services/api'
 import { formatAge } from '@/utils/format'
-import { useTableSort } from '@/hooks/useTableSort'
-import { useResizableColumns } from '@/hooks/useResizableColumns'
-import { usePagination } from '@/hooks/usePagination'
-import Pagination from '@/components/shared/Pagination'
+
+interface ConfigMapData {
+  metadata: {
+    name: string
+    namespace: string
+    creationTimestamp: string
+  }
+  data?: Record<string, string>
+  binaryData?: Record<string, string>
+  clusterName: string
+}
 
 export default function ConfigMaps() {
   const { cluster, namespace } = useParams<{ cluster?: string; namespace?: string }>()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [filterText, setFilterText] = useState('')
-  const [selectedConfigMap, setSelectedConfigMap] = useState<any>(null)
-  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false)
-  const [isEditYAMLModalOpen, setIsEditYAMLModalOpen] = useState(false)
+  const { addNotification } = useNotificationStore()
+  const [selectedConfigMap, setSelectedConfigMap] = useState<ConfigMapData | null>(null)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
-  const [createNamespace, setCreateNamespace] = useState(namespace || 'default')
-
-  // Resizable columns
-  const { columnWidths, handleMouseDown: handleResizeStart } = useResizableColumns({
-    name: 200,
-    namespace: 150,
-    keys: 150,
-    age: 120,
-    actions: 150,
-  }, 'configmaps-column-widths')
   
   const { data: clusters } = useQuery({
     queryKey: ['clusters'],
@@ -42,12 +42,12 @@ export default function ConfigMaps() {
   })
 
   // Fetch configmaps from all clusters or specific cluster/namespace
-  const configMapQueries = useQuery({
+  const { data: allConfigMaps, isLoading } = useQuery({
     queryKey: namespace 
       ? ['configmaps', cluster, namespace]
       : cluster 
         ? ['configmaps', cluster] 
-        : ['all-configmaps', clusters?.map(c => c.name)],
+        : ['all-configmaps', clusters?.map(c => c.name).sort().join(',')],
     queryFn: async () => {
       // If specific cluster and namespace requested
       if (cluster && namespace) {
@@ -79,268 +79,267 @@ export default function ConfigMaps() {
       return allConfigMaps.flat()
     },
     enabled: (cluster && namespace) ? true : cluster ? true : (!!clusters && clusters.length > 0),
+    refetchInterval: 5000,
   })
-
-  const isLoading = configMapQueries.isLoading
-  const allConfigMaps = configMapQueries.data || []
-
-  // Filter configmaps by name
-  const filteredConfigMaps = useMemo(() => {
-    if (!filterText) return allConfigMaps
-    const lowerFilter = filterText.toLowerCase()
-    return allConfigMaps.filter((cm: any) => {
-      // Filter by name
-      if (cm.metadata?.name?.toLowerCase().includes(lowerFilter)) return true
-      return false
-    })
-  }, [allConfigMaps, filterText])
-
-  // Apply sorting
-  const { sortedData: sortedConfigMaps, sortConfig, requestSort } = useTableSort(filteredConfigMaps, {
-    key: 'metadata.name',
-    direction: 'asc'
-  })
-
-  // Apply pagination
-  const {
-    paginatedData: configMaps,
-    currentPage,
-    totalPages,
-    pageSize,
-    totalItems,
-    goToPage,
-    goToNextPage,
-    goToPreviousPage,
-    changePageSize,
-    hasNextPage,
-    hasPreviousPage,
-  } = usePagination(sortedConfigMaps, 10, 'configmaps')
 
   // Helper functions
-  const getDataKeysCount = (configMap: any) => {
-    if (!configMap.data) return 0
-    return Object.keys(configMap.data).length
+  const getKeysCount = (configMap: ConfigMapData): number => {
+    const dataKeys = Object.keys(configMap.data || {}).length
+    const binaryDataKeys = Object.keys(configMap.binaryData || {}).length
+    return dataKeys + binaryDataKeys
   }
 
   // Action handlers
-  const handleRowClick = (configMap: any) => {
-    setSelectedConfigMap(configMap)
-    setIsDetailsModalOpen(true)
-  }
-
-  const handleEditYAMLClick = (configMap: any, e: React.MouseEvent) => {
+  const handleEditClick = (configMap: ConfigMapData, e: React.MouseEvent) => {
     e.stopPropagation()
     setSelectedConfigMap(configMap)
-    setIsEditYAMLModalOpen(true)
+    setIsEditModalOpen(true)
   }
 
-  const handleDeleteClick = (configMap: any, e: React.MouseEvent) => {
+  const handleDeleteClick = (configMap: ConfigMapData, e: React.MouseEvent) => {
     e.stopPropagation()
     setSelectedConfigMap(configMap)
     setIsDeleteModalOpen(true)
   }
 
+  const handleDeleteConfirm = async () => {
+    if (!selectedConfigMap) return
+    try {
+      await api.delete(`/clusters/${selectedConfigMap.clusterName}/namespaces/${selectedConfigMap.metadata.namespace}/configmaps/${selectedConfigMap.metadata.name}`)
+      addNotification({
+        type: 'success',
+        title: 'Success',
+        message: 'ConfigMap deleted successfully',
+      })
+      setIsDeleteModalOpen(false)
+      setSelectedConfigMap(null)
+      // Invalidate queries to refetch
+      await queryClient.invalidateQueries({ queryKey: ['configmaps'] })
+      await queryClient.invalidateQueries({ queryKey: ['all-configmaps'] })
+      await queryClient.refetchQueries({ queryKey: ['configmaps'] })
+      await queryClient.refetchQueries({ queryKey: ['all-configmaps'] })
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: `Failed to delete configmap: ${error.message || 'Unknown error'}`,
+      })
+    }
+  }
+
+  // Define columns
+  const columns = useMemo<Column<ConfigMapData>[]>(() => [
+    {
+      key: 'name',
+      header: 'Name',
+      accessor: (configMap) => (
+        <div className="flex items-center gap-2">
+          <DocumentTextIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+          <div className="min-w-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                navigate(`/clusters/${configMap.clusterName}/namespaces/${configMap.metadata.namespace}/configmaps/${configMap.metadata.name}`)
+              }}
+              className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate text-left"
+            >
+              {configMap.metadata.name}
+            </button>
+            {!cluster && (
+              <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                {configMap.clusterName}
+              </div>
+            )}
+          </div>
+        </div>
+      ),
+      sortable: true,
+      sortValue: (configMap) => configMap.metadata.name,
+      searchValue: (configMap) => `${configMap.metadata.name} ${configMap.clusterName}`,
+    },
+    {
+      key: 'namespace',
+      header: 'Namespace',
+      accessor: (configMap) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {configMap.metadata.namespace}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (configMap) => configMap.metadata.namespace,
+      searchValue: (configMap) => configMap.metadata.namespace,
+    },
+    {
+      key: 'keys',
+      header: 'Keys',
+      accessor: (configMap) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {getKeysCount(configMap)}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (configMap) => getKeysCount(configMap),
+      searchValue: (configMap) => String(getKeysCount(configMap)),
+    },
+    {
+      key: 'age',
+      header: 'Age',
+      accessor: (configMap) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {formatAge(configMap.metadata.creationTimestamp)}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (configMap) => new Date(configMap.metadata.creationTimestamp).getTime(),
+      searchValue: (configMap) => formatAge(configMap.metadata.creationTimestamp),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      accessor: (configMap) => (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              navigate(`/clusters/${configMap.clusterName}/namespaces/${configMap.metadata.namespace}/configmaps/${configMap.metadata.name}`)
+            }}
+            className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+            title="View Details"
+          >
+            <EyeIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleEditClick(configMap, e)}
+            className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+            title="Edit YAML"
+          >
+            <PencilSquareIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleDeleteClick(configMap, e)}
+            className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+            title="Delete"
+          >
+            <TrashIcon className="w-4 h-4" />
+          </button>
+        </div>
+      ),
+      sortable: false,
+    },
+  ], [cluster, navigate])
+
   return (
-    <div className="space-y-4 sm:space-y-6">
+    <div className="space-y-4 md:space-y-6">
+      <Breadcrumb
+        items={[
+          ...(cluster ? [{ name: cluster, href: `/clusters/${cluster}` }] : []),
+          { name: 'ConfigMaps' }
+        ]}
+      />
+
       <div>
-        <Breadcrumb 
-              items={
-                cluster
-                  ? [
-                      { name: cluster, href: "/dashboard" },
-                      { name: 'ConfigMaps' }
-                    ]
-                  : [{ name: 'ConfigMaps' }]
-              }
-        />
+        <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
+          ConfigMaps
+        </h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          {namespace 
+            ? `ConfigMaps in ${cluster} / ${namespace}`
+            : cluster 
+              ? `All configmaps in ${cluster}`
+              : `All configmaps across ${clusters?.length || 0} cluster(s)`
+          }
+        </p>
       </div>
       
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">ConfigMaps</h1>
-          <p className="mt-1 sm:mt-2 text-sm text-gray-600 dark:text-gray-400">
-            All configmaps across {clusters?.length || 0} cluster(s)
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="relative w-full sm:w-80">
-            <MagnifyingGlassIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Filter by name..."
-              value={filterText}
-              onChange={(e) => setFilterText(e.target.value)}
-              className="w-full pl-11 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            />
+      <DataTable
+        data={allConfigMaps || []}
+        columns={columns}
+        keyExtractor={(configMap) => `${configMap.clusterName}-${configMap.metadata.namespace}-${configMap.metadata.name}`}
+        searchPlaceholder="Search configmaps by name, cluster, namespace..."
+        isLoading={isLoading}
+        emptyMessage="No configmaps found"
+        emptyIcon={
+          <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
+            <DocumentTextIcon className="w-6 h-6 text-gray-400 dark:text-gray-500" />
           </div>
-          {cluster && (
-            <button
-              onClick={() => {
-                setCreateNamespace(namespace || 'default')
-                setIsCreateModalOpen(true)
-              }}
-              className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors whitespace-nowrap"
-            >
-              <PlusIcon className="h-5 w-5" />
-              Create
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                <ResizableTableHeader
-                  label="Name"
-                  columnKey="name"
-                  sortKey="metadata.name"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.name}
-                />
-                <ResizableTableHeader
-                  label="Namespace"
-                  columnKey="namespace"
-                  sortKey="metadata.namespace"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.namespace}
-                />
-                <ResizableTableHeader
-                  label="Data Keys"
-                  columnKey="keys"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.keys}
-                />
-                <ResizableTableHeader
-                  label="Age"
-                  columnKey="age"
-                  sortKey="metadata.creationTimestamp"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.age}
-                />
-                <ResizableTableHeader
-                  label="Actions"
-                  columnKey="actions"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.actions}
-                  align="right"
-                />
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center">
-                    <div className="flex items-center justify-center">
-                      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-primary-600"></div>
-                      <span className="ml-3 text-gray-500 dark:text-gray-400">Loading config maps...</span>
+        }
+        mobileCardRenderer={(configMap) => (
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <DocumentTextIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+                <div className="min-w-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      navigate(`/clusters/${configMap.clusterName}/namespaces/${configMap.metadata.namespace}/configmaps/${configMap.metadata.name}`)
+                    }}
+                    className="font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate text-left"
+                  >
+                    {configMap.metadata.name}
+                  </button>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                    {configMap.metadata.namespace}
+                  </div>
+                  {!cluster && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      {configMap.clusterName}
                     </div>
-                  </td>
-                </tr>
-              ) : configMaps.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center">
-                    <p className="text-gray-500 dark:text-gray-400">No config maps found</p>
-                  </td>
-                </tr>
-              ) : (
-                configMaps.map((configMap) => {
-                  return (
-                    <tr 
-                      key={`${configMap.clusterName}-${configMap.metadata.namespace}-${configMap.metadata.name}`} 
-                      onClick={() => handleRowClick(configMap)}
-                      className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer"
-                    >
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 text-xs sm:text-sm font-medium text-gray-900 dark:text-white">
-                        <div className="truncate max-w-[150px] sm:max-w-none">
-                          {configMap.metadata.name}
-                        </div>
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {configMap.metadata.namespace}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
-                          {getDataKeysCount(configMap)} keys
-                        </span>
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {formatAge(configMap.metadata.creationTimestamp)}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={(e) => handleEditYAMLClick(configMap, e)}
-                            className="p-1.5 text-yellow-600 hover:text-yellow-900 dark:text-yellow-400 dark:hover:text-yellow-300 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded transition-colors"
-                            title="Edit YAML"
-                          >
-                            <PencilSquareIcon className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={(e) => handleDeleteClick(configMap, e)}
-                            className="p-1.5 text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
-                            title="Delete configmap"
-                          >
-                            <TrashIcon className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          pageSize={pageSize}
-          totalItems={totalItems}
-          onPageChange={goToPage}
-          onPageSizeChange={changePageSize}
-          onNextPage={goToNextPage}
-          onPreviousPage={goToPreviousPage}
-          hasNextPage={hasNextPage}
-          hasPreviousPage={hasPreviousPage}
-        />
-      </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 gap-2 text-sm">
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Keys:</span>
+                <span className="ml-1 text-gray-900 dark:text-white">{getKeysCount(configMap)}</span>
+              </div>
+            </div>
 
-      {/* ConfigMap Modals */}
+            <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {formatAge(configMap.metadata.creationTimestamp)}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    navigate(`/clusters/${configMap.clusterName}/namespaces/${configMap.metadata.namespace}/configmaps/${configMap.metadata.name}`)
+                  }}
+                  className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                  title="View Details"
+                >
+                  <EyeIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleEditClick(configMap, e)}
+                  className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+                  title="Edit YAML"
+                >
+                  <PencilSquareIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleDeleteClick(configMap, e)}
+                  className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                  title="Delete"
+                >
+                  <TrashIcon className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      />
+
+      {/* Modals */}
       {selectedConfigMap && (
         <>
-          <ConfigMapDetailsModal
-            configMap={selectedConfigMap}
-            isOpen={isDetailsModalOpen}
-            onClose={() => {
-              setIsDetailsModalOpen(false)
-              setSelectedConfigMap(null)
-            }}
-            onSuccess={async () => {
-              await queryClient.invalidateQueries({ queryKey: ['configmaps'] })
-              await queryClient.invalidateQueries({ queryKey: ['all-configmaps'] })
-              await queryClient.refetchQueries({ queryKey: ['configmaps'] })
-              await queryClient.refetchQueries({ queryKey: ['all-configmaps'] })
-            }}
-          />
           <EditConfigMapYAMLModal
             configMap={selectedConfigMap}
-            isOpen={isEditYAMLModalOpen}
+            isOpen={isEditModalOpen}
             onClose={() => {
-              setIsEditYAMLModalOpen(false)
+              setIsEditModalOpen(false)
               setSelectedConfigMap(null)
             }}
             onSuccess={async () => {
@@ -348,46 +347,24 @@ export default function ConfigMaps() {
               await queryClient.invalidateQueries({ queryKey: ['all-configmaps'] })
               await queryClient.refetchQueries({ queryKey: ['configmaps'] })
               await queryClient.refetchQueries({ queryKey: ['all-configmaps'] })
-              setIsEditYAMLModalOpen(false)
+              setIsEditModalOpen(false)
               setSelectedConfigMap(null)
             }}
           />
-          <DeleteConfigMapModal
-            configMap={selectedConfigMap}
+          <ConfirmationModal
             isOpen={isDeleteModalOpen}
             onClose={() => {
               setIsDeleteModalOpen(false)
               setSelectedConfigMap(null)
             }}
-            onSuccess={async () => {
-              await queryClient.invalidateQueries({ queryKey: ['configmaps'] })
-              await queryClient.invalidateQueries({ queryKey: ['all-configmaps'] })
-              await queryClient.refetchQueries({ queryKey: ['configmaps'] })
-              await queryClient.refetchQueries({ queryKey: ['all-configmaps'] })
-              setIsDeleteModalOpen(false)
-              setSelectedConfigMap(null)
-            }}
+            onConfirm={handleDeleteConfirm}
+            title="Delete ConfigMap"
+            message={`Are you sure you want to delete configmap "${selectedConfigMap.metadata.name}"? This action cannot be undone.`}
+            confirmText="Delete"
+            type="danger"
           />
         </>
-      )}
-
-      {/* Create ConfigMap Modal - separate from selectedConfigMap condition */}
-      {cluster && createNamespace && (
-        <CreateConfigMapModal
-          clusterName={cluster}
-          namespace={createNamespace}
-          isOpen={isCreateModalOpen}
-          onClose={() => setIsCreateModalOpen(false)}
-          onSuccess={async () => {
-            await queryClient.invalidateQueries({ queryKey: ['configmaps'] })
-            await queryClient.invalidateQueries({ queryKey: ['all-configmaps'] })
-            await queryClient.refetchQueries({ queryKey: ['configmaps'] })
-            await queryClient.refetchQueries({ queryKey: ['all-configmaps'] })
-            setIsCreateModalOpen(false)
-          }}
-        />
       )}
     </div>
   )
 }
-

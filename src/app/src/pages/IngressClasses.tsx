@@ -1,48 +1,46 @@
-import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query'
-import { useParams } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useParams, useNavigate } from 'react-router-dom'
 import { getClusters, getIngressClasses } from '@/services/api'
-import { useMemo, useState, useEffect } from 'react'
-import { MagnifyingGlassIcon, PencilSquareIcon, TrashIcon, PlusIcon, RectangleGroupIcon } from '@heroicons/react/24/outline'
+import { useMemo } from 'react'
+import { 
+  PencilSquareIcon, 
+  TrashIcon, 
+  EyeIcon,
+  RectangleGroupIcon,
+} from '@heroicons/react/24/outline'
 import Breadcrumb from '@/components/shared/Breadcrumb'
-import ResizableTableHeader from '@/components/shared/ResizableTableHeader'
-import IngressClassDetailsModal from '@/components/IngressClasses/IngressClassDetailsModal'
+import { DataTable, Column } from '@/components/shared/DataTable'
 import EditIngressClassYAMLModal from '@/components/IngressClasses/EditIngressClassYAMLModal'
-import DeleteIngressClassModal from '@/components/IngressClasses/DeleteIngressClassModal'
-import CreateIngressClassModal from '@/components/IngressClasses/CreateIngressClassModal'
+import ConfirmationModal from '@/components/shared/ConfirmationModal'
+import { useNotificationStore } from '@/stores/notificationStore'
+import api from '@/services/api'
 import { formatAge } from '@/utils/format'
-import { useTableSort } from '@/hooks/useTableSort'
-import { useResizableColumns } from '@/hooks/useResizableColumns'
-import { usePagination } from '@/hooks/usePagination'
-import Pagination from '@/components/shared/Pagination'
+import { useState } from 'react'
+
+interface IngressClassData {
+  metadata: {
+    name: string
+    creationTimestamp: string
+  }
+  spec: {
+    controller: string
+    parameters?: {
+      apiGroup?: string
+      kind: string
+      name: string
+    }
+  }
+  clusterName: string
+}
 
 export default function IngressClasses() {
   const { cluster } = useParams<{ cluster?: string }>()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
-
-  const [filterText, setFilterText] = useState('')
-  const [selectedIngressClass, setSelectedIngressClass] = useState<any>(null)
-  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false)
-  const [isEditYAMLModalOpen, setIsEditYAMLModalOpen] = useState(false)
+  const { addNotification } = useNotificationStore()
+  const [selectedIngressClass, setSelectedIngressClass] = useState<IngressClassData | null>(null)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
-
-  // Resizable columns
-  const { columnWidths, handleMouseDown: handleResizeStart } = useResizableColumns({
-    name: 250,
-    controller: 200,
-    parameters: 150,
-    age: 120,
-    actions: 150,
-  }, 'ingressclasses-column-widths')
-
-  // Reset state when cluster changes
-  useEffect(() => {
-    setSelectedIngressClass(null)
-    setIsDetailsModalOpen(false)
-    setIsEditYAMLModalOpen(false)
-    setIsDeleteModalOpen(false)
-    setIsCreateModalOpen(false)
-  }, [cluster])
   
   const { data: clusters } = useQuery({
     queryKey: ['clusters'],
@@ -50,290 +48,319 @@ export default function IngressClasses() {
   })
 
   // Fetch ingress classes from all clusters or specific cluster
-  const ingressClassQueries = useMemo(() => {
-    if (!clusters) return []
-
-    if (cluster) {
-      return [
-        {
-          queryKey: ['ingressclasses', cluster],
-          queryFn: () => getIngressClasses(cluster),
-          refetchInterval: 5000,
-        },
-      ]
-    }
-
-    return clusters.map((c: any) => ({
-      queryKey: ['ingressclasses', c.name],
-      queryFn: () => getIngressClasses(c.name),
-      refetchInterval: 5000,
-    }))
-  }, [clusters, cluster])
-
-  const ingressClassResults = useQueries({ queries: ingressClassQueries })
-  const isLoading = ingressClassResults.some((result) => result.isLoading)
-
-  const allIngressClasses = useMemo(() => {
-    return ingressClassResults.flatMap((result) => result.data || [])
-  }, [ingressClassResults])
-
-  // Filter ingress classes
-  const filteredIngressClasses = useMemo(() => {
-    return allIngressClasses.filter((ic: any) => {
-      const searchText = filterText.toLowerCase()
-      const name = ic.metadata?.name?.toLowerCase() || ''
-      const controller = ic.spec?.controller?.toLowerCase() || ''
-
-      return name.includes(searchText) || controller.includes(searchText)
-    })
-  }, [allIngressClasses, filterText])
-
-  // Apply sorting
-  const { sortedData: sortedIngressClasses, sortConfig, requestSort } = useTableSort(filteredIngressClasses, {
-    key: 'metadata.name',
-    direction: 'asc'
+  const { data: allIngressClasses, isLoading } = useQuery({
+    queryKey: cluster 
+      ? ['ingressclasses', cluster] 
+      : ['all-ingressclasses', clusters?.map(c => c.name).sort().join(',')],
+    queryFn: async () => {
+      // If specific cluster requested
+      if (cluster) {
+        const ingressClasses = await getIngressClasses(cluster)
+        return ingressClasses.map((ic: any) => ({ ...ic, clusterName: cluster }))
+      }
+      
+      // Otherwise fetch from all clusters
+      if (!clusters || clusters.length === 0) return []
+      
+      const allIngressClasses = await Promise.all(
+        clusters.map(async (cluster) => {
+          try {
+            const ingressClasses = await getIngressClasses(cluster.name)
+            return ingressClasses.map((ic: any) => ({ ...ic, clusterName: cluster.name }))
+          } catch (error) {
+            console.error(`Error fetching ingress classes from ${cluster.name}:`, error)
+            return []
+          }
+        })
+      )
+      
+      return allIngressClasses.flat()
+    },
+    enabled: cluster ? true : (!!clusters && clusters.length > 0),
+    refetchInterval: 5000,
   })
 
-  // Apply pagination
-  const {
-    paginatedData: ingressClasses,
-    currentPage,
-    totalPages,
-    pageSize,
-    totalItems,
-    goToPage,
-    goToNextPage,
-    goToPreviousPage,
-    changePageSize,
-    hasNextPage,
-    hasPreviousPage,
-  } = usePagination(sortedIngressClasses, 10, 'ingressclasses')
-
-  // Helper functions
-  const getParametersCount = (ic: any) => {
-    return ic.spec?.parameters ? Object.keys(ic.spec.parameters).length : 0
-  }
-
   // Action handlers
-  const handleRowClick = (ic: any) => {
-    setSelectedIngressClass(ic)
-    setIsDetailsModalOpen(true)
+  const handleEditClick = (ingressClass: IngressClassData, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setSelectedIngressClass(ingressClass)
+    setIsEditModalOpen(true)
   }
 
-  const handleEditYAMLClick = (ic: any, e: React.MouseEvent) => {
+  const handleDeleteClick = (ingressClass: IngressClassData, e: React.MouseEvent) => {
     e.stopPropagation()
-    setSelectedIngressClass(ic)
-    setIsEditYAMLModalOpen(true)
-  }
-
-  const handleDeleteClick = (ic: any, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setSelectedIngressClass(ic)
+    setSelectedIngressClass(ingressClass)
     setIsDeleteModalOpen(true)
   }
 
+  const handleDeleteConfirm = async () => {
+    if (!selectedIngressClass) return
+    try {
+      await api.delete(`/clusters/${selectedIngressClass.clusterName}/ingressclasses/${selectedIngressClass.metadata.name}`)
+      addNotification({
+        type: 'success',
+        title: 'Success',
+        message: 'Ingress class deleted successfully',
+      })
+      setIsDeleteModalOpen(false)
+      setSelectedIngressClass(null)
+      // Invalidate queries to refetch
+      await queryClient.invalidateQueries({ queryKey: ['ingressclasses'] })
+      await queryClient.invalidateQueries({ queryKey: ['all-ingressclasses'] })
+      await queryClient.refetchQueries({ queryKey: ['ingressclasses'] })
+      await queryClient.refetchQueries({ queryKey: ['all-ingressclasses'] })
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: `Failed to delete ingress class: ${error.message || 'Unknown error'}`,
+      })
+    }
+  }
+
+  // Define columns
+  const columns = useMemo<Column<IngressClassData>[]>(() => [
+    {
+      key: 'name',
+      header: 'Name',
+      accessor: (ingressClass) => (
+        <div className="flex items-center gap-2">
+          <RectangleGroupIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+          <div className="min-w-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                navigate(`/clusters/${ingressClass.clusterName}/ingressclasses/${ingressClass.metadata.name}`)
+              }}
+              className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate text-left"
+            >
+              {ingressClass.metadata.name}
+            </button>
+            {!cluster && (
+              <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                {ingressClass.clusterName}
+              </div>
+            )}
+          </div>
+        </div>
+      ),
+      sortable: true,
+      sortValue: (ingressClass) => ingressClass.metadata.name,
+      searchValue: (ingressClass) => `${ingressClass.metadata.name} ${ingressClass.clusterName}`,
+    },
+    {
+      key: 'controller',
+      header: 'Controller',
+      accessor: (ingressClass) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300 font-mono">
+          {ingressClass.spec.controller}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (ingressClass) => ingressClass.spec.controller,
+      searchValue: (ingressClass) => ingressClass.spec.controller,
+    },
+    {
+      key: 'parameters',
+      header: 'Parameters',
+      accessor: (ingressClass) => {
+        if (!ingressClass.spec.parameters) {
+          return <span className="text-sm text-gray-500 dark:text-gray-400">-</span>
+        }
+        return (
+          <span className="text-sm text-gray-700 dark:text-gray-300">
+            {ingressClass.spec.parameters.kind}/{ingressClass.spec.parameters.name}
+          </span>
+        )
+      },
+      sortable: false,
+      searchValue: (ingressClass) => ingressClass.spec.parameters ? `${ingressClass.spec.parameters.kind}/${ingressClass.spec.parameters.name}` : '',
+    },
+    {
+      key: 'age',
+      header: 'Age',
+      accessor: (ingressClass) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {formatAge(ingressClass.metadata.creationTimestamp)}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (ingressClass) => new Date(ingressClass.metadata.creationTimestamp).getTime(),
+      searchValue: (ingressClass) => formatAge(ingressClass.metadata.creationTimestamp),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      accessor: (ingressClass) => (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              navigate(`/clusters/${ingressClass.clusterName}/ingressclasses/${ingressClass.metadata.name}`)
+            }}
+            className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+            title="View Details"
+          >
+            <EyeIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleEditClick(ingressClass, e)}
+            className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+            title="Edit YAML"
+          >
+            <PencilSquareIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleDeleteClick(ingressClass, e)}
+            className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+            title="Delete"
+          >
+            <TrashIcon className="w-4 h-4" />
+          </button>
+        </div>
+      ),
+      sortable: false,
+    },
+  ], [cluster, navigate])
+
   return (
-    <div className="space-y-4 sm:space-y-6">
-      {/* Breadcrumb */}
+    <div className="space-y-4 md:space-y-6">
+      <Breadcrumb
+        items={[
+          ...(cluster ? [{ name: cluster, href: `/clusters/${cluster}` }] : []),
+          { name: 'Ingress Classes' }
+        ]}
+      />
+
       <div>
-        <Breadcrumb 
-          items={
-            cluster
-              ? [
-                  { name: cluster, href: "/dashboard" },
-                  { name: 'Ingress Classes' }
-                ]
-              : [{ name: 'Ingress Classes' }]
+        <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
+          Ingress Classes
+        </h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          {cluster 
+            ? `All ingress classes in ${cluster}`
+            : `All ingress classes across ${clusters?.length || 0} cluster(s)`
           }
-        />
+        </p>
       </div>
       
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">Ingress Classes</h1>
-          <p className="mt-1 sm:mt-2 text-sm text-gray-600 dark:text-gray-400">
-            Ingress controller implementations across {clusters?.length || 0} cluster(s)
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="relative w-full sm:w-80">
-            <MagnifyingGlassIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Filter by name or controller..."
-              value={filterText}
-              onChange={(e) => setFilterText(e.target.value)}
-              className="w-full pl-11 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            />
+      <DataTable
+        data={allIngressClasses || []}
+        columns={columns}
+        keyExtractor={(ingressClass) => `${ingressClass.clusterName}-${ingressClass.metadata.name}`}
+        searchPlaceholder="Search ingress classes by name, cluster, controller..."
+        isLoading={isLoading}
+        emptyMessage="No ingress classes found"
+        emptyIcon={
+          <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
+            <RectangleGroupIcon className="w-6 h-6 text-gray-400 dark:text-gray-500" />
           </div>
-          {cluster && (
-            <button
-              onClick={() => setIsCreateModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors whitespace-nowrap"
-            >
-              <PlusIcon className="h-5 w-5" />
-              Create
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                <ResizableTableHeader
-                  label="Name"
-                  columnKey="name"
-                  sortKey="metadata.name"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.name}
-                  onResizeStart={handleResizeStart}
-                />
-                <ResizableTableHeader
-                  label="Controller"
-                  columnKey="controller"
-                  sortKey="spec.controller"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.controller}
-                  onResizeStart={handleResizeStart}
-                />
-                <ResizableTableHeader
-                  label="Parameters"
-                  columnKey="parameters"
-                  sortKey="parameters"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.parameters}
-                  onResizeStart={handleResizeStart}
-                />
-                <ResizableTableHeader
-                  label="Age"
-                  columnKey="age"
-                  sortKey="metadata.creationTimestamp"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.age}
-                  onResizeStart={handleResizeStart}
-                />
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center">
-                    <div className="flex items-center justify-center">
-                      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-primary-600"></div>
-                      <span className="ml-3 text-gray-500 dark:text-gray-400">Loading ingress classes...</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : ingressClasses.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
-                    {filterText ? 'No ingress classes found matching your search.' : 'No ingress classes found.'}
-                  </td>
-                </tr>
-              ) : (
-                ingressClasses.map((ic: any) => (
-                  <tr
-                    key={ic.metadata.uid}
-                    onClick={() => handleRowClick(ic)}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer transition-colors"
+        }
+        mobileCardRenderer={(ingressClass) => (
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <RectangleGroupIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+                <div className="min-w-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      navigate(`/clusters/${ingressClass.clusterName}/ingressclasses/${ingressClass.metadata.name}`)
+                    }}
+                    className="font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate text-left"
                   >
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <RectangleGroupIcon className="h-5 w-5 text-primary-600 dark:text-primary-400 mr-3" />
-                        <span className="text-sm font-medium text-gray-900 dark:text-white">
-                          {ic.metadata.name}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                      {ic.spec?.controller || '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                      {getParametersCount(ic) > 0 ? `${getParametersCount(ic)} param(s)` : '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                      {formatAge(ic.metadata.creationTimestamp)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={(e) => handleEditYAMLClick(ic, e)}
-                          className="p-1.5 text-yellow-600 hover:text-yellow-700 dark:text-yellow-500 dark:hover:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded transition-all"
-                          title="Edit YAML"
-                        >
-                          <PencilSquareIcon className="h-5 w-5" />
-                        </button>
-                        <button
-                          onClick={(e) => handleDeleteClick(ic, e)}
-                          className="p-1.5 text-red-600 hover:text-red-700 dark:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-all"
-                          title="Delete"
-                        >
-                          <TrashIcon className="h-5 w-5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                    {ingressClass.metadata.name}
+                  </button>
+                  {!cluster && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      {ingressClass.clusterName}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 gap-2 text-sm">
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Controller:</span>
+                <span className="ml-1 text-gray-900 dark:text-white font-mono text-xs">{ingressClass.spec.controller}</span>
+              </div>
+              {ingressClass.spec.parameters && (
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400">Parameters:</span>
+                  <span className="ml-1 text-gray-900 dark:text-white">{ingressClass.spec.parameters.kind}/{ingressClass.spec.parameters.name}</span>
+                </div>
               )}
-            </tbody>
-          </table>
-        </div>
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          pageSize={pageSize}
-          totalItems={totalItems}
-          onPageChange={goToPage}
-          onPageSizeChange={changePageSize}
-          onNextPage={goToNextPage}
-          onPreviousPage={goToPreviousPage}
-          hasNextPage={hasNextPage}
-          hasPreviousPage={hasPreviousPage}
-        />
-      </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {formatAge(ingressClass.metadata.creationTimestamp)}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    navigate(`/clusters/${ingressClass.clusterName}/ingressclasses/${ingressClass.metadata.name}`)
+                  }}
+                  className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                  title="View Details"
+                >
+                  <EyeIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleEditClick(ingressClass, e)}
+                  className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+                  title="Edit YAML"
+                >
+                  <PencilSquareIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleDeleteClick(ingressClass, e)}
+                  className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                  title="Delete"
+                >
+                  <TrashIcon className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      />
 
       {/* Modals */}
       {selectedIngressClass && (
         <>
-          <IngressClassDetailsModal
-            isOpen={isDetailsModalOpen}
-            onClose={() => setIsDetailsModalOpen(false)}
-            ingressClass={selectedIngressClass}
-          />
           <EditIngressClassYAMLModal
-            isOpen={isEditYAMLModalOpen}
-            onClose={() => setIsEditYAMLModalOpen(false)}
             ingressClass={selectedIngressClass}
-            onSuccess={() => queryClient.invalidateQueries({ queryKey: ['ingressclasses'] })}
+            isOpen={isEditModalOpen}
+            onClose={() => {
+              setIsEditModalOpen(false)
+              setSelectedIngressClass(null)
+            }}
+            onSuccess={async () => {
+              await queryClient.invalidateQueries({ queryKey: ['ingressclasses'] })
+              await queryClient.invalidateQueries({ queryKey: ['all-ingressclasses'] })
+              await queryClient.refetchQueries({ queryKey: ['ingressclasses'] })
+              await queryClient.refetchQueries({ queryKey: ['all-ingressclasses'] })
+              setIsEditModalOpen(false)
+              setSelectedIngressClass(null)
+            }}
           />
-          <DeleteIngressClassModal isOpen={isDeleteModalOpen} onClose={() => { setIsDeleteModalOpen(false); setSelectedIngressClass(null); }} ingressClass={selectedIngressClass} onSuccess={() => { queryClient.invalidateQueries({ queryKey: ['ingressclasses'] }); }} />
+          <ConfirmationModal
+            isOpen={isDeleteModalOpen}
+            onClose={() => {
+              setIsDeleteModalOpen(false)
+              setSelectedIngressClass(null)
+            }}
+            onConfirm={handleDeleteConfirm}
+            title="Delete Ingress Class"
+            message={`Are you sure you want to delete ingress class "${selectedIngressClass.metadata.name}"? This action cannot be undone.`}
+            confirmText="Delete"
+            type="danger"
+          />
         </>
-      )}
-
-      {cluster && (
-        <CreateIngressClassModal
-          isOpen={isCreateModalOpen}
-          onClose={() => setIsCreateModalOpen(false)}
-          clusterName={cluster}
-        />
       )}
     </div>
   )
 }
-
