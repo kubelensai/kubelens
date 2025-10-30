@@ -1,42 +1,60 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { getClusters, getServices } from '@/services/api'
-import { useMemo, useState } from 'react'
-import { MagnifyingGlassIcon, PencilSquareIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { useState, useMemo } from 'react'
 import clsx from 'clsx'
+import { 
+  PencilSquareIcon, 
+  TrashIcon, 
+  EyeIcon,
+  GlobeAltIcon,
+} from '@heroicons/react/24/outline'
 import Breadcrumb from '@/components/shared/Breadcrumb'
-import ResizableTableHeader from '@/components/shared/ResizableTableHeader'
-import ServiceDetailsModal from '@/components/Services/ServiceDetailsModal'
+import { DataTable, Column } from '@/components/shared/DataTable'
 import EditServiceModal from '@/components/Services/EditServiceModal'
-import DeleteServiceModal from '@/components/Services/DeleteServiceModal'
+import ConfirmationModal from '@/components/shared/ConfirmationModal'
+import { useNotificationStore } from '@/stores/notificationStore'
+import api from '@/services/api'
 import { formatAge } from '@/utils/format'
-import { useTableSort } from '@/hooks/useTableSort'
-import { useResizableColumns } from '@/hooks/useResizableColumns'
-import { usePagination } from '@/hooks/usePagination'
-import Pagination from '@/components/shared/Pagination'
+
+interface ServiceData {
+  metadata: {
+    name: string
+    namespace: string
+    creationTimestamp: string
+  }
+  spec: {
+    type: string
+    clusterIP?: string
+    ports?: Array<{
+      port: number
+      nodePort?: number
+      protocol: string
+      name?: string
+    }>
+    selector?: Record<string, string>
+    externalIPs?: string[]
+    externalName?: string
+  }
+  status?: {
+    loadBalancer?: {
+      ingress?: Array<{
+        ip?: string
+        hostname?: string
+      }>
+    }
+  }
+  clusterName: string
+}
 
 export default function Services() {
   const { cluster, namespace } = useParams<{ cluster?: string; namespace?: string }>()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [filterText, setFilterText] = useState('')
-  const [selectedService, setSelectedService] = useState<any>(null)
-  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false)
+  const { addNotification } = useNotificationStore()
+  const [selectedService, setSelectedService] = useState<ServiceData | null>(null)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
-
-  // Resizable columns
-  const { columnWidths, handleMouseDown: handleResizeStart } = useResizableColumns({
-    name: 200,
-    namespace: 150,
-    type: 120,
-    clusterIP: 130,
-    ports: 200,
-    externalIP: 150,
-    selector: 150, // Same width as externalIP
-    status: 100,
-    age: 120,
-    actions: 120,
-  }, 'services-column-widths')
   
   const { data: clusters } = useQuery({
     queryKey: ['clusters'],
@@ -44,12 +62,12 @@ export default function Services() {
   })
 
   // Fetch services from all clusters or specific cluster/namespace
-  const serviceQueries = useQuery({
+  const { data: allServices, isLoading } = useQuery({
     queryKey: namespace 
       ? ['services', cluster, namespace]
       : cluster 
         ? ['services', cluster] 
-        : ['all-services', clusters?.map(c => c.name)],
+        : ['all-services', clusters?.map(c => c.name).sort().join(',')],
     queryFn: async () => {
       // If specific cluster and namespace requested
       if (cluster && namespace) {
@@ -81,74 +99,18 @@ export default function Services() {
       return allServices.flat()
     },
     enabled: (cluster && namespace) ? true : cluster ? true : (!!clusters && clusters.length > 0),
+    refetchInterval: 5000,
   })
-
-  const isLoading = serviceQueries.isLoading
-  const allServices = serviceQueries.data || []
-
-  // Filter services by name, cluster IP, external IP, ports, or selector
-  const filteredServices = useMemo(() => {
-    if (!filterText) return allServices
-    const lowerFilter = filterText.toLowerCase()
-    return allServices.filter((service: any) => {
-      // Filter by name
-      if (service.metadata?.name?.toLowerCase().includes(lowerFilter)) return true
-      
-      // Filter by cluster IP
-      if (service.spec?.clusterIP?.toLowerCase().includes(lowerFilter)) return true
-      
-      // Filter by external IP
-      const externalIP = getExternalIP(service).toLowerCase()
-      if (externalIP.includes(lowerFilter)) return true
-      
-      // Filter by ports
-      const ports = formatPorts(service).toLowerCase()
-      if (ports.includes(lowerFilter)) return true
-      
-      // Filter by selector
-      const selectors = formatSelector(service)
-      if (selectors) {
-        const selectorText = selectors
-          .map((s: any) => `${s.key}=${s.value}`)
-          .join(' ')
-          .toLowerCase()
-        if (selectorText.includes(lowerFilter)) return true
-      }
-      
-      return false
-    })
-  }, [allServices, filterText])
-
-  // Apply sorting
-  const { sortedData: sortedServices, sortConfig, requestSort } = useTableSort(filteredServices, {
-    key: 'metadata.name',
-    direction: 'asc'
-  })
-
-  // Apply pagination
-  const {
-    paginatedData: services,
-    currentPage,
-    totalPages,
-    pageSize,
-    totalItems,
-    goToPage,
-    goToNextPage,
-    goToPreviousPage,
-    changePageSize,
-    hasNextPage,
-    hasPreviousPage,
-  } = usePagination(sortedServices, 10, 'services')
 
   // Helper functions
-  const formatPorts = (service: any) => {
+  const formatPorts = (service: ServiceData): string => {
     if (!service.spec?.ports || service.spec.ports.length === 0) return 'None'
     return service.spec.ports
-      .map((port: any) => `${port.port}${port.nodePort ? ':' + port.nodePort : ''}/${port.protocol}`)
+      .map((port) => `${port.port}${port.nodePort ? ':' + port.nodePort : ''}/${port.protocol}`)
       .join(', ')
   }
 
-  const getExternalIP = (service: any) => {
+  const getExternalIP = (service: ServiceData): string => {
     // For LoadBalancer services
     if (service.status?.loadBalancer?.ingress && service.status.loadBalancer.ingress.length > 0) {
       const ingress = service.status.loadBalancer.ingress[0]
@@ -173,320 +135,383 @@ export default function Services() {
     return 'None'
   }
 
-  const formatSelector = (service: any) => {
-    if (!service.spec?.selector) return null
-    const selector = service.spec.selector
-    return Object.entries(selector).map(([key, value]) => ({
-      key,
-      value: value as string
-    }))
-  }
-
-  const getServiceStatus = (service: any) => {
+  const getServiceStatus = (service: ServiceData) => {
     // ExternalName services are always considered active
     if (service.spec?.type === 'ExternalName') {
-      return { status: 'Active', color: 'badge-success' }
+      return { status: 'Active', color: 'green' }
     }
     
     // LoadBalancer services
     if (service.spec?.type === 'LoadBalancer') {
       if (service.status?.loadBalancer?.ingress && service.status.loadBalancer.ingress.length > 0) {
-        return { status: 'Active', color: 'badge-success' }
+        return { status: 'Active', color: 'green' }
       }
-      return { status: 'Pending', color: 'badge-warning' }
+      return { status: 'Pending', color: 'yellow' }
     }
     
     // Services with selectors should have endpoints
     if (service.spec?.selector) {
-      // We'd need to fetch endpoints to determine this accurately
-      // For now, assume active if selector is present
-      return { status: 'Active', color: 'badge-success' }
+      return { status: 'Active', color: 'green' }
     }
     
     // Headless services (ClusterIP: None)
     if (service.spec?.clusterIP === 'None') {
-      return { status: 'Headless', color: 'badge-info' }
+      return { status: 'Headless', color: 'blue' }
     }
     
-    return { status: 'Active', color: 'badge-success' }
+    return { status: 'Active', color: 'green' }
   }
 
   // Action handlers
-  const handleRowClick = (service: any) => {
-    setSelectedService(service)
-    setIsDetailsModalOpen(true)
-  }
-
-  const handleEditClick = (service: any, e: React.MouseEvent) => {
+  const handleEditClick = (service: ServiceData, e: React.MouseEvent) => {
     e.stopPropagation()
     setSelectedService(service)
     setIsEditModalOpen(true)
   }
 
-  const handleDeleteClick = (service: any, e: React.MouseEvent) => {
+  const handleDeleteClick = (service: ServiceData, e: React.MouseEvent) => {
     e.stopPropagation()
     setSelectedService(service)
     setIsDeleteModalOpen(true)
   }
 
+  const handleDeleteConfirm = async () => {
+    if (!selectedService) return
+    try {
+      await api.delete(`/clusters/${selectedService.clusterName}/namespaces/${selectedService.metadata.namespace}/services/${selectedService.metadata.name}`)
+      addNotification({
+        type: 'success',
+        title: 'Success',
+        message: 'Service deleted successfully',
+      })
+      setIsDeleteModalOpen(false)
+      setSelectedService(null)
+      // Invalidate queries to refetch
+      await queryClient.invalidateQueries({ queryKey: ['services'] })
+      await queryClient.invalidateQueries({ queryKey: ['all-services'] })
+      await queryClient.refetchQueries({ queryKey: ['services'] })
+      await queryClient.refetchQueries({ queryKey: ['all-services'] })
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: `Failed to delete service: ${error.message || 'Unknown error'}`,
+      })
+    }
+  }
+
+  // Define columns
+  const columns = useMemo<Column<ServiceData>[]>(() => [
+    {
+      key: 'name',
+      header: 'Name',
+      accessor: (service) => (
+        <div className="flex items-center gap-2">
+          <GlobeAltIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+          <div className="min-w-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                navigate(`/clusters/${service.clusterName}/namespaces/${service.metadata.namespace}/services/${service.metadata.name}`)
+              }}
+              className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate text-left"
+            >
+              {service.metadata.name}
+            </button>
+            {!cluster && (
+              <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                {service.clusterName}
+              </div>
+            )}
+          </div>
+        </div>
+      ),
+      sortable: true,
+      sortValue: (service) => service.metadata.name,
+      searchValue: (service) => `${service.metadata.name} ${service.clusterName}`,
+    },
+    {
+      key: 'namespace',
+      header: 'Namespace',
+      accessor: (service) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {service.metadata.namespace}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (service) => service.metadata.namespace,
+      searchValue: (service) => service.metadata.namespace,
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      accessor: (service) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {service.spec.type}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (service) => service.spec.type,
+      searchValue: (service) => service.spec.type,
+      filterable: true,
+      filterOptions: (data) => {
+        const types = new Set(data.map(s => s.spec.type))
+        return Array.from(types).sort()
+      },
+      filterValue: (service) => service.spec.type,
+    },
+    {
+      key: 'clusterIP',
+      header: 'Cluster IP',
+      accessor: (service) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300 font-mono">
+          {service.spec.clusterIP || 'None'}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (service) => service.spec.clusterIP || '',
+      searchValue: (service) => service.spec.clusterIP || '',
+    },
+    {
+      key: 'externalIP',
+      header: 'External IP',
+      accessor: (service) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300 font-mono">
+          {getExternalIP(service)}
+        </span>
+      ),
+      sortable: false,
+      searchValue: (service) => getExternalIP(service),
+    },
+    {
+      key: 'ports',
+      header: 'Ports',
+      accessor: (service) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300 font-mono">
+          {formatPorts(service)}
+        </span>
+      ),
+      sortable: false,
+      searchValue: (service) => formatPorts(service),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      accessor: (service) => {
+        const serviceStatus = getServiceStatus(service)
+        const colorClasses = {
+          green: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400',
+          yellow: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400',
+          blue: 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400',
+        }
+        
+        return (
+          <span className={clsx(
+            'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full',
+            colorClasses[serviceStatus.color as keyof typeof colorClasses]
+          )}>
+            <span className={clsx(
+              'w-1.5 h-1.5 rounded-full',
+              serviceStatus.color === 'green' ? 'bg-green-600' :
+              serviceStatus.color === 'yellow' ? 'bg-yellow-600' :
+              'bg-blue-600'
+            )} />
+            {serviceStatus.status}
+          </span>
+        )
+      },
+      sortable: true,
+      sortValue: (service) => getServiceStatus(service).status,
+      searchValue: (service) => getServiceStatus(service).status,
+      filterable: true,
+      filterOptions: (data) => {
+        const statuses = new Set(data.map(s => getServiceStatus(s).status))
+        return Array.from(statuses).sort()
+      },
+      filterValue: (service) => getServiceStatus(service).status,
+    },
+    {
+      key: 'age',
+      header: 'Age',
+      accessor: (service) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {formatAge(service.metadata.creationTimestamp)}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (service) => new Date(service.metadata.creationTimestamp).getTime(),
+      searchValue: (service) => formatAge(service.metadata.creationTimestamp),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      accessor: (service) => (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              navigate(`/clusters/${service.clusterName}/namespaces/${service.metadata.namespace}/services/${service.metadata.name}`)
+            }}
+            className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+            title="View Details"
+          >
+            <EyeIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleEditClick(service, e)}
+            className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+            title="Edit YAML"
+          >
+            <PencilSquareIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleDeleteClick(service, e)}
+            className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+            title="Delete"
+          >
+            <TrashIcon className="w-4 h-4" />
+          </button>
+        </div>
+      ),
+      sortable: false,
+    },
+  ], [cluster, navigate])
+
   return (
-    <div className="space-y-4 sm:space-y-6">
+    <div className="space-y-4 md:space-y-6">
+      <Breadcrumb
+        items={[
+          ...(cluster ? [{ name: cluster, href: `/clusters/${cluster}` }] : []),
+          { name: 'Services' }
+        ]}
+      />
+
       <div>
-        <Breadcrumb 
-              items={
-                cluster
-                  ? [
-                      { name: cluster, href: "/dashboard" },
-                      { name: 'Services' }
-                    ]
-                  : [{ name: 'Services' }]
-              }
-        />
+        <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
+          Services
+        </h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          {namespace 
+            ? `Services in ${cluster} / ${namespace}`
+            : cluster 
+              ? `All services in ${cluster}`
+              : `All services across ${clusters?.length || 0} cluster(s)`
+          }
+        </p>
       </div>
       
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">Services</h1>
-          <p className="mt-1 sm:mt-2 text-sm text-gray-600 dark:text-gray-400">
-            All services across {clusters?.length || 0} cluster(s)
-          </p>
-        </div>
-        <div className="relative w-full sm:w-80">
-          <MagnifyingGlassIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Filter by name, IP, ports, selector..."
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            className="w-full pl-11 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-          />
-        </div>
-      </div>
-
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                <ResizableTableHeader
-                  label="Name"
-                  columnKey="name"
-                  sortKey="metadata.name"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.name}
-                />
-                <ResizableTableHeader
-                  label="Namespace"
-                  columnKey="namespace"
-                  sortKey="metadata.namespace"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.namespace}
-                />
-                <ResizableTableHeader
-                  label="Type"
-                  columnKey="type"
-                  sortKey="spec.type"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.type}
-                />
-                <ResizableTableHeader
-                  label="Cluster IP"
-                  columnKey="clusterIP"
-                  sortKey="spec.clusterIP"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.clusterIP}
-                />
-                <ResizableTableHeader
-                  label="Ports"
-                  columnKey="ports"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.ports}
-                />
-                <ResizableTableHeader
-                  label="External IP"
-                  columnKey="externalIP"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.externalIP}
-                />
-                <ResizableTableHeader
-                  label="Selector"
-                  columnKey="selector"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.selector}
-                />
-                <ResizableTableHeader
-                  label="Status"
-                  columnKey="status"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.status}
-                />
-                <ResizableTableHeader
-                  label="Age"
-                  columnKey="age"
-                  sortKey="metadata.creationTimestamp"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.age}
-                />
-                <ResizableTableHeader
-                  label="Actions"
-                  columnKey="actions"
-                  sortable={false}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.actions}
-                  align="right"
-                />
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={10} className="px-6 py-12 text-center">
-                    <div className="flex items-center justify-center">
-                      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-primary-600"></div>
-                      <span className="ml-3 text-gray-500 dark:text-gray-400">Loading services...</span>
+      <DataTable
+        data={allServices || []}
+        columns={columns}
+        keyExtractor={(service) => `${service.clusterName}-${service.metadata.namespace}-${service.metadata.name}`}
+        searchPlaceholder="Search services by name, cluster, namespace, IP, ports..."
+        isLoading={isLoading}
+        emptyMessage="No services found"
+        emptyIcon={
+          <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
+            <GlobeAltIcon className="w-6 h-6 text-gray-400 dark:text-gray-500" />
+          </div>
+        }
+        mobileCardRenderer={(service) => (
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <GlobeAltIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+                <div className="min-w-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      navigate(`/clusters/${service.clusterName}/namespaces/${service.metadata.namespace}/services/${service.metadata.name}`)
+                    }}
+                    className="font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate text-left"
+                  >
+                    {service.metadata.name}
+                  </button>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                    {service.metadata.namespace}
+                  </div>
+                  {!cluster && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      {service.clusterName}
                     </div>
-                  </td>
-                </tr>
-              ) : services.length === 0 ? (
-                <tr>
-                  <td colSpan={10} className="px-6 py-12 text-center">
-                    <p className="text-gray-500 dark:text-gray-400">No services found</p>
-                  </td>
-                </tr>
-              ) : (
-                services.map((service) => {
-                  const status = getServiceStatus(service)
-                  
-                  return (
-                    <tr 
-                      key={`${service.clusterName}-${service.metadata.namespace}-${service.metadata.name}`} 
-                      onClick={() => handleRowClick(service)}
-                      className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer"
-                    >
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 text-xs sm:text-sm font-medium text-gray-900 dark:text-white">
-                        <div className="truncate max-w-[150px] sm:max-w-none">
-                          {service.metadata.name}
-                        </div>
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {service.metadata.namespace}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {service.spec.type}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {service.spec.clusterIP || 'None'}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        <div className="break-words">
-                          {formatPorts(service)}
-                        </div>
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        <div className="break-words">
-                          {getExternalIP(service)}
-                        </div>
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {(() => {
-                          const selectors = formatSelector(service)
-                          if (!selectors || selectors.length === 0) {
-                            return <span className="text-gray-400 dark:text-gray-500">None</span>
-                          }
-                          return (
-                            <div className="flex flex-wrap gap-1">
-                              {selectors.map((selector: any, idx: number) => (
-                                <span
-                                  key={idx}
-                                  className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                                  title={`${selector.key}=${selector.value}`}
-                                >
-                                  <span className="font-semibold">{selector.key}</span>
-                                  <span className="mx-0.5">=</span>
-                                  <span>{selector.value}</span>
-                                </span>
-                              ))}
-                            </div>
-                          )
-                        })()}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap">
-                        <span className={clsx('badge text-xs', status.color)}>
-                          {status.status}
-                        </span>
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                        {formatAge(service.metadata.creationTimestamp)}
-                      </td>
-                      <td className="px-2 sm:px-4 py-3 sm:py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={(e) => handleEditClick(service, e)}
-                            className="p-1.5 text-yellow-600 hover:text-yellow-900 dark:text-yellow-400 dark:hover:text-yellow-300 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded transition-colors"
-                            title="Edit service"
-                          >
-                            <PencilSquareIcon className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={(e) => handleDeleteClick(service, e)}
-                            className="p-1.5 text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
-                            title="Delete service"
-                          >
-                            <TrashIcon className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          pageSize={pageSize}
-          totalItems={totalItems}
-          onPageChange={goToPage}
-          onPageSizeChange={changePageSize}
-          onNextPage={goToNextPage}
-          onPreviousPage={goToPreviousPage}
-          hasNextPage={hasNextPage}
-          hasPreviousPage={hasPreviousPage}
-        />
-      </div>
+                  )}
+                </div>
+              </div>
+              <span className={clsx(
+                'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full shrink-0',
+                getServiceStatus(service).color === 'green'
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+                  : getServiceStatus(service).color === 'yellow'
+                  ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400'
+                  : 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400'
+              )}>
+                <span className={clsx(
+                  'w-1.5 h-1.5 rounded-full',
+                  getServiceStatus(service).color === 'green' ? 'bg-green-600' :
+                  getServiceStatus(service).color === 'yellow' ? 'bg-yellow-600' :
+                  'bg-blue-600'
+                )} />
+                {getServiceStatus(service).status}
+              </span>
+            </div>
+            
+            <div className="grid grid-cols-1 gap-2 text-sm">
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Type:</span>
+                <span className="ml-1 text-gray-900 dark:text-white">{service.spec.type}</span>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Cluster IP:</span>
+                <span className="ml-1 text-gray-900 dark:text-white font-mono text-xs">{service.spec.clusterIP || 'None'}</span>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">External IP:</span>
+                <span className="ml-1 text-gray-900 dark:text-white font-mono text-xs">{getExternalIP(service)}</span>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Ports:</span>
+                <span className="ml-1 text-gray-900 dark:text-white font-mono text-xs">{formatPorts(service)}</span>
+              </div>
+            </div>
 
-      {/* Service Modals */}
+            <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {formatAge(service.metadata.creationTimestamp)}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    navigate(`/clusters/${service.clusterName}/namespaces/${service.metadata.namespace}/services/${service.metadata.name}`)
+                  }}
+                  className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                  title="View Details"
+                >
+                  <EyeIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleEditClick(service, e)}
+                  className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+                  title="Edit YAML"
+                >
+                  <PencilSquareIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleDeleteClick(service, e)}
+                  className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                  title="Delete"
+                >
+                  <TrashIcon className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      />
+
+      {/* Modals */}
       {selectedService && (
         <>
-          <ServiceDetailsModal
-            service={selectedService}
-            isOpen={isDetailsModalOpen}
-            onClose={() => {
-              setIsDetailsModalOpen(false)
-              setSelectedService(null)
-            }}
-          />
           <EditServiceModal
             service={selectedService}
             isOpen={isEditModalOpen}
@@ -503,25 +528,20 @@ export default function Services() {
               setSelectedService(null)
             }}
           />
-          <DeleteServiceModal
-            service={selectedService}
+          <ConfirmationModal
             isOpen={isDeleteModalOpen}
             onClose={() => {
               setIsDeleteModalOpen(false)
               setSelectedService(null)
             }}
-            onSuccess={async () => {
-              await queryClient.invalidateQueries({ queryKey: ['services'] })
-              await queryClient.invalidateQueries({ queryKey: ['all-services'] })
-              await queryClient.refetchQueries({ queryKey: ['services'] })
-              await queryClient.refetchQueries({ queryKey: ['all-services'] })
-              setIsDeleteModalOpen(false)
-              setSelectedService(null)
-            }}
+            onConfirm={handleDeleteConfirm}
+            title="Delete Service"
+            message={`Are you sure you want to delete service "${selectedService.metadata.name}"? This action cannot be undone. Any pods using this service will lose their network endpoint.`}
+            confirmText="Delete"
+            type="danger"
           />
         </>
       )}
     </div>
   )
 }
-

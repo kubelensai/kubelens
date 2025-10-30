@@ -45,6 +45,7 @@ import RuntimeClasses from "../pages/RuntimeClasses";
 import Secrets from "../pages/Secrets";
 import ServiceAccounts from "../pages/ServiceAccounts";
 import Services from "../pages/Services";
+import ServiceDetails from "../pages/ServiceDetails";
 import Signup from "../pages/Signup";
 import StatefulSets from "../pages/StatefulSets";
 import StatefulSetDetails from "../pages/StatefulSetDetails";
@@ -217,6 +218,11 @@ const routes = [
       {
         path: "clusters/:cluster/namespaces/:namespace/cronjobs/:cronjobName",
         element: withClusterCheck(<CronJobDetails />),
+      },
+      // Service Details routes
+      {
+        path: "clusters/:cluster/namespaces/:namespace/services/:serviceName",
+        element: withClusterCheck(<ServiceDetails />),
       },
       // Custom Resources routes
       {

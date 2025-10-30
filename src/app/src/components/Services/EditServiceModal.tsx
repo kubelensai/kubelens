@@ -7,6 +7,7 @@ import yaml from 'js-yaml'
 import clsx from 'clsx'
 import { cleanKubernetesManifest } from '@/utils/kubernetes'
 import YamlEditor from '@/components/shared/YamlEditor'
+import { useNotificationStore } from '@/stores/notificationStore'
 
 interface EditServiceModalProps {
   service: any
@@ -18,6 +19,7 @@ interface EditServiceModalProps {
 export default function EditServiceModal({ service, isOpen, onClose, onSuccess }: EditServiceModalProps) {
   const [serviceYaml, setServiceYaml] = useState('')
   const [error, setError] = useState('')
+  const { addNotification } = useNotificationStore()
 
   useEffect(() => {
     if (service && isOpen) {
@@ -56,10 +58,20 @@ export default function EditServiceModal({ service, isOpen, onClose, onSuccess }
       }
     },
     onSuccess: () => {
+      addNotification({
+        type: 'success',
+        title: 'Success',
+        message: 'Service updated successfully',
+      })
       onSuccess()
     },
     onError: (error: Error) => {
       setError(error.message)
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: `Failed to update service: ${error.message}`,
+      })
     },
   })
 
