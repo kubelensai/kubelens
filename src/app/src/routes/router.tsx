@@ -4,7 +4,9 @@ import App from "../App";
 import RequireEnabledCluster from "../components/shared/RequireEnabledCluster";
 import ClusterManagement from "../pages/ClusterManagement";
 import ClusterRoleBindings from "../pages/ClusterRoleBindings";
+import ClusterRoleBindingDetails from "../pages/ClusterRoleBindingDetails";
 import ClusterRoles from "../pages/ClusterRoles";
+import ClusterRoleDetails from "../pages/ClusterRoleDetails";
 import ConfigMaps from "../pages/ConfigMaps";
 import ConfigMapDetails from "../pages/ConfigMapDetails";
 import CronJobs from "../pages/CronJobs";
@@ -45,7 +47,9 @@ import PriorityClasses from "../pages/PriorityClasses";
 import ReplicaSets from "../pages/ReplicaSets";
 import ReplicaSetDetails from "../pages/ReplicaSetDetails";
 import RoleBindings from "../pages/RoleBindings";
+import RoleBindingDetails from "../pages/RoleBindingDetails";
 import Roles from "../pages/Roles";
+import RoleDetails from "../pages/RoleDetails";
 import RuntimeClasses from "../pages/RuntimeClasses";
 import Secrets from "../pages/Secrets";
 import SecretDetails from "../pages/SecretDetails";
@@ -238,6 +242,26 @@ const routes = [
       {
         path: "clusters/:cluster/namespaces/:namespace/serviceaccounts/:serviceAccountName",
         element: withClusterCheck(<ServiceAccountDetails />),
+      },
+      // Role Details routes
+      {
+        path: "clusters/:cluster/namespaces/:namespace/roles/:roleName",
+        element: withClusterCheck(<RoleDetails />),
+      },
+      // RoleBinding Details routes
+      {
+        path: "clusters/:cluster/namespaces/:namespace/rolebindings/:roleBindingName",
+        element: withClusterCheck(<RoleBindingDetails />),
+      },
+      // ClusterRole Details routes
+      {
+        path: "clusters/:cluster/clusterroles/:clusterRoleName",
+        element: withClusterCheck(<ClusterRoleDetails />),
+      },
+      // ClusterRoleBinding Details routes
+      {
+        path: "clusters/:cluster/clusterrolebindings/:clusterRoleBindingName",
+        element: withClusterCheck(<ClusterRoleBindingDetails />),
       },
       // Endpoint Details routes
       {

@@ -1,455 +1,454 @@
-import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query'
-import { useParams } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useParams, useNavigate } from 'react-router-dom'
 import { getClusters, getRoleBindings } from '@/services/api'
-import { useMemo, useState, useEffect } from 'react'
-import { MagnifyingGlassIcon, PencilSquareIcon, TrashIcon, PlusIcon } from '@heroicons/react/24/outline'
-
+import { useMemo, useState } from 'react'
+import { 
+  PencilSquareIcon, 
+  TrashIcon, 
+  EyeIcon,
+  LinkIcon,
+  PlusIcon,
+} from '@heroicons/react/24/outline'
 import Breadcrumb from '@/components/shared/Breadcrumb'
-import ResizableTableHeader from '@/components/shared/ResizableTableHeader'
-import RoleBindingDetailsModal from '@/components/RoleBindings/RoleBindingDetailsModal'
-import EditRoleBindingYAMLModal from '@/components/RoleBindings/EditRoleBindingYAMLModal'
-import DeleteRoleBindingModal from '@/components/RoleBindings/DeleteRoleBindingModal'
+import { DataTable, Column } from '@/components/shared/DataTable'
 import CreateRoleBindingModal from '@/components/RoleBindings/CreateRoleBindingModal'
+import EditRoleBindingYAMLModal from '@/components/RoleBindings/EditRoleBindingYAMLModal'
+import ConfirmationModal from '@/components/shared/ConfirmationModal'
+import { useNotificationStore } from '@/stores/notificationStore'
+import api from '@/services/api'
 import { formatAge } from '@/utils/format'
-import { useTableSort } from '@/hooks/useTableSort'
-import { useResizableColumns } from '@/hooks/useResizableColumns'
-import { usePagination } from '@/hooks/usePagination'
-import Pagination from '@/components/shared/Pagination'
-import { useClusterStore } from '@/stores/clusterStore'
-import { useNamespaceStore } from '@/stores/namespaceStore'
+
+
+interface RoleBindingData {
+  metadata: {
+    name: string
+    namespace: string
+    creationTimestamp: string
+    labels?: Record<string, string>
+    annotations?: Record<string, string>
+  }
+  roleRef: {
+    kind: string
+    name: string
+    apiGroup?: string
+  }
+  subjects?: Array<{
+    kind: string
+    name: string
+    namespace?: string
+  }>
+  ClusterName: string
+}
 
 export default function RoleBindings() {
-  const { cluster: clusterParam, namespace: namespaceParam } = useParams<{ cluster?: string; namespace?: string }>()
+  const { cluster, namespace } = useParams<{ cluster?: string; namespace?: string }>()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [filterText, setFilterText] = useState('')
-  
-  // Modal states
-  const [selectedBinding, setSelectedBinding] = useState<any>(null)
-  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false)
+  const { addNotification } = useNotificationStore()
+  const [selectedRoleBinding, setSelectedRoleBinding] = useState<RoleBindingData | null>(null)
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
-
-  // Global stores
-  const { selectedCluster } = useClusterStore()
-  const { selectedNamespace } = useNamespaceStore()
-
-  // Reset modal states when cluster or namespace changes
-  useEffect(() => {
-    setIsDetailsModalOpen(false)
-    setIsEditModalOpen(false)
-    setIsDeleteModalOpen(false)
-    setIsCreateModalOpen(false)
-    setSelectedBinding(null)
-  }, [clusterParam, namespaceParam, selectedCluster, selectedNamespace])
-
-  // Fetch clusters
-  const { data: clusters = [] } = useQuery({
+  
+  const { data: clusters } = useQuery({
     queryKey: ['clusters'],
     queryFn: getClusters,
   })
 
-  // Determine active cluster and namespace
-  const activeCluster = clusterParam || selectedCluster || clusters[0]?.name || 'default'
-  const activeNamespace = namespaceParam || selectedNamespace || 'all'
-
-  // Fetch role bindings for all clusters
-  const roleBindingQueries = clusters.map((cluster: any) => ({
-    queryKey: ['rolebindings', cluster.name, activeNamespace],
-    queryFn: () => getRoleBindings(cluster.name, activeNamespace),
-    enabled: clusters.length > 0,
-    refetchInterval: 5000,
-  }))
-
-  const roleBindingResults = useQueries({ queries: roleBindingQueries })
-
-  // Flatten and combine all role bindings
-  const allRoleBindings = useMemo(() => {
-    return roleBindingResults.flatMap(result => result.data || [])
-  }, [roleBindingResults])
-
-  // Filter role bindings by active cluster, namespace, and filter text
-  const filteredRoleBindings = useMemo(() => {
-    return allRoleBindings.filter((rb: any) => {
-      const cluster = rb.ClusterName || rb.metadata?.clusterName || ''
-      const namespace = rb.metadata?.namespace || ''
-      const name = rb.metadata?.name || ''
+  // Fetch role bindings from all clusters or specific cluster/namespace
+  const { data: allRoleBindings, isLoading } = useQuery({
+    queryKey: namespace 
+      ? ['rolebindings', cluster, namespace]
+      : cluster 
+        ? ['rolebindings', cluster] 
+        : ['all-rolebindings', clusters?.map(c => c.name).sort().join(',')],
+    queryFn: async () => {
+      // If specific cluster and namespace requested
+      if (cluster && namespace) {
+        const roleBindings = await getRoleBindings(cluster, namespace)
+        return roleBindings.map((rb: any) => ({ ...rb, ClusterName: cluster }))
+      }
       
-      // Apply cluster filter
-      if (!clusterParam && cluster !== activeCluster) return false
-      if (clusterParam && cluster !== clusterParam) return false
+      // If specific cluster requested (all namespaces)
+      if (cluster) {
+        const roleBindings = await getRoleBindings(cluster, 'all')
+        return roleBindings.map((rb: any) => ({ ...rb, ClusterName: cluster }))
+      }
       
-      // Apply namespace filter
-      if (activeNamespace !== 'all' && namespace !== activeNamespace) return false
+      // Otherwise fetch from all clusters
+      if (!clusters || clusters.length === 0) return []
       
-      // Apply search filter
-      if (!filterText) return true
-      
-      const searchText = filterText.toLowerCase()
-      const subjectsCount = (rb.subjects || []).length.toString()
-      
-      // Search in labels
-      const labelsMatch = rb.metadata?.labels 
-        ? Object.entries(rb.metadata.labels).some(([key, value]) => 
-            key.toLowerCase().includes(searchText) || 
-            String(value).toLowerCase().includes(searchText)
-          )
-        : false
-      
-      // Search in annotations
-      const annotationsMatch = rb.metadata?.annotations
-        ? Object.entries(rb.metadata.annotations).some(([key, value]) =>
-            key.toLowerCase().includes(searchText) || 
-            String(value).toLowerCase().includes(searchText)
-          )
-        : false
-      
-      return (
-        name.toLowerCase().includes(searchText) ||
-        namespace.toLowerCase().includes(searchText) ||
-        cluster.toLowerCase().includes(searchText) ||
-        subjectsCount.includes(searchText) ||
-        labelsMatch ||
-        annotationsMatch
+      const allRoleBindings = await Promise.all(
+        clusters.map(async (cluster) => {
+          try {
+            const roleBindings = await getRoleBindings(cluster.name, 'all')
+            return roleBindings.map((rb: any) => ({ ...rb, ClusterName: cluster.name }))
+          } catch (error) {
+            console.error(`Error fetching role bindings from ${cluster.name}:`, error)
+            return []
+          }
+        })
       )
-    })
-  }, [allRoleBindings, activeCluster, activeNamespace, filterText, clusterParam])
-
-  const isLoading = roleBindingResults.some(result => result.isLoading)
-
-  // Sorting
-  const { sortedData, sortConfig, requestSort } = useTableSort(filteredRoleBindings, {
-    key: 'metadata.name',
-    direction: 'asc'
+      
+      return allRoleBindings.flat()
+    },
+    enabled: (cluster && namespace) ? true : cluster ? true : (!!clusters && clusters.length > 0),
+    refetchInterval: 5000,
   })
 
-  // Pagination
-  const { currentPage, pageSize, paginatedData, totalPages, goToPage, changePageSize, goToNextPage, goToPreviousPage, hasNextPage, hasPreviousPage, totalItems } = usePagination(
-    sortedData,
-    10,
-    'rolebindings'
-  )
-
-  // Resizable columns
-  const { columnWidths, handleMouseDown } = useResizableColumns({
-    name: 20,
-    namespace: 15,
-    cluster: 15,
-    role: 20,
-    subjects: 15,
-    labels: 10,
-    age: 10,
-    actions: 10,
-  }, 'rolebindings-column-widths')
-
-  const handleRowClick = (roleBinding: any) => {
-    setSelectedBinding(roleBinding)
-    setIsDetailsModalOpen(true)
+  // Helper functions
+  const getSubjectsCount = (rb: RoleBindingData): number => {
+    return (rb.subjects || []).length
   }
 
-  const handleEdit = (e: React.MouseEvent, roleBinding: any) => {
+  // Action handlers
+  const handleEditClick = (rb: RoleBindingData, e: React.MouseEvent) => {
     e.stopPropagation()
-    setSelectedBinding(roleBinding)
+    setSelectedRoleBinding(rb)
     setIsEditModalOpen(true)
   }
 
-  const handleDelete = (e: React.MouseEvent, roleBinding: any) => {
+  const handleDeleteClick = (rb: RoleBindingData, e: React.MouseEvent) => {
     e.stopPropagation()
-    setSelectedBinding(roleBinding)
+    setSelectedRoleBinding(rb)
     setIsDeleteModalOpen(true)
   }
 
-  const handleCreate = () => {
-    setIsCreateModalOpen(true)
+  const handleDeleteConfirm = async () => {
+    if (!selectedRoleBinding) return
+    try {
+      await api.delete(`/clusters/${selectedRoleBinding.ClusterName}/namespaces/${selectedRoleBinding.metadata.namespace}/rolebindings/${selectedRoleBinding.metadata.name}`)
+      addNotification({
+        type: 'success',
+        title: 'Success',
+        message: 'Role binding deleted successfully',
+      })
+      setIsDeleteModalOpen(false)
+      setSelectedRoleBinding(null)
+      // Invalidate queries to refetch
+      await queryClient.invalidateQueries({ queryKey: ['rolebindings'] })
+      await queryClient.invalidateQueries({ queryKey: ['all-rolebindings'] })
+      await queryClient.refetchQueries({ queryKey: ['rolebindings'] })
+      await queryClient.refetchQueries({ queryKey: ['all-rolebindings'] })
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: `Failed to delete role binding: ${error.message || 'Unknown error'}`,
+      })
+    }
   }
 
-  const handleRefresh = () => {
-    queryClient.invalidateQueries({ queryKey: ['rolebindings'] })
-  }
-
-  const createNamespace = namespaceParam || selectedNamespace || 'default'
+  // Define columns
+  const columns = useMemo<Column<RoleBindingData>[]>(() => [
+    {
+      key: 'name',
+      header: 'Name',
+      accessor: (rb) => (
+        <div className="flex items-center gap-2">
+          <LinkIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+          <div className="min-w-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                navigate(`/clusters/${rb.ClusterName}/namespaces/${rb.metadata.namespace}/rolebindings/${rb.metadata.name}`)
+              }}
+              className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate text-left"
+            >
+              {rb.metadata.name}
+            </button>
+            {!cluster && (
+              <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                {rb.ClusterName}
+              </div>
+            )}
+          </div>
+        </div>
+      ),
+      sortable: true,
+      sortValue: (rb) => rb.metadata.name,
+      searchValue: (rb) => `${rb.metadata.name} ${rb.ClusterName}`,
+    },
+    {
+      key: 'namespace',
+      header: 'Namespace',
+      accessor: (rb) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {rb.metadata.namespace}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (rb) => rb.metadata.namespace,
+      searchValue: (rb) => rb.metadata.namespace,
+    },
+    {
+      key: 'role',
+      header: 'Role',
+      accessor: (rb) => (
+        <div className="flex flex-col gap-0.5">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              // Navigate to role or cluster role based on kind
+              if (rb.roleRef.kind === 'ClusterRole') {
+                navigate(`/clusters/${rb.ClusterName}/clusterroles/${rb.roleRef.name}`)
+              } else {
+                navigate(`/clusters/${rb.ClusterName}/namespaces/${rb.metadata.namespace}/roles/${rb.roleRef.name}`)
+              }
+            }}
+            className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-left"
+          >
+            {rb.roleRef.name}
+          </button>
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            {rb.roleRef.kind}
+          </span>
+        </div>
+      ),
+      sortable: true,
+      sortValue: (rb) => rb.roleRef.name,
+      searchValue: (rb) => `${rb.roleRef.name} ${rb.roleRef.kind}`,
+    },
+    {
+      key: 'subjects',
+      header: 'Subjects',
+      accessor: (rb) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {getSubjectsCount(rb)}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (rb) => getSubjectsCount(rb),
+      searchValue: (rb) => String(getSubjectsCount(rb)),
+    },
+    {
+      key: 'age',
+      header: 'Age',
+      accessor: (rb) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {formatAge(rb.metadata.creationTimestamp)}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (rb) => new Date(rb.metadata.creationTimestamp).getTime(),
+      searchValue: (rb) => formatAge(rb.metadata.creationTimestamp),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      accessor: (rb) => (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              navigate(`/clusters/${rb.ClusterName}/namespaces/${rb.metadata.namespace}/rolebindings/${rb.metadata.name}`)
+            }}
+            className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+            title="View Details"
+          >
+            <EyeIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleEditClick(rb, e)}
+            className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+            title="Edit YAML"
+          >
+            <PencilSquareIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleDeleteClick(rb, e)}
+            className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+            title="Delete"
+          >
+            <TrashIcon className="w-4 h-4" />
+          </button>
+        </div>
+      ),
+      sortable: false,
+    },
+  ], [cluster, navigate])
 
   return (
-    <div className="space-y-6">
-      {/* Breadcrumb */}
+    <div className="space-y-4 md:space-y-6">
       <Breadcrumb
-        items={clusterParam ? [
-          { name: clusterParam, href: `/clusters/${clusterParam}` },
-          ...(namespaceParam ? [{ name: namespaceParam, href: `/clusters/${clusterParam}/namespaces/${namespaceParam}` }] : []),
-          { name: 'Role Bindings' }
-        ] : [
+        items={[
+          ...(cluster ? [{ name: cluster, href: `/clusters/${cluster}` }] : []),
           { name: 'Role Bindings' }
         ]}
       />
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Role Bindings</h1>
-          <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-            Manage role bindings to grant permissions within your Kubernetes namespaces
+          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
+            Role Bindings
+          </h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            {namespace 
+              ? `Role bindings in ${cluster} / ${namespace}`
+              : cluster 
+                ? `All role bindings in ${cluster}`
+                : `All role bindings across ${clusters?.length || 0} cluster(s)`
+            }
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="relative w-full sm:w-80">
-            <MagnifyingGlassIcon className="absolute left-3.5 top-1/2 h-4 w-4 sm:h-5 sm:w-5 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Filter by name, namespace, labels, annotations..."
-              value={filterText}
-              onChange={(e) => setFilterText(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 pl-11 pr-4 py-2 text-sm focus:border-primary-500 focus:ring-primary-500 dark:text-white"
-            />
-          </div>
+        {cluster && (
           <button
-            onClick={handleCreate}
-            className="flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 transition-colors whitespace-nowrap"
+            onClick={() => setIsCreateModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
           >
-            <PlusIcon className="h-5 w-5" />
-            <span className="hidden sm:inline">Create</span>
+            <PlusIcon className="w-4 h-4" />
+            <span className="hidden sm:inline">Create Role Binding</span>
+            <span className="sm:hidden">Create</span>
           </button>
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                <ResizableTableHeader
-                  label="Name"
-                  sortKey="metadata.name"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.name}
-                  columnKey="name"
-                  onResizeStart={handleMouseDown}
-                />
-                <ResizableTableHeader
-                  label="Namespace"
-                  sortKey="metadata.namespace"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.namespace}
-                  columnKey="namespace"
-                  onResizeStart={handleMouseDown}
-                />
-                <ResizableTableHeader
-                  label="Cluster"
-                  sortKey="ClusterName"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.cluster}
-                  columnKey="cluster"
-                  onResizeStart={handleMouseDown}
-                />
-                <ResizableTableHeader
-                  label="Role"
-                  sortKey="roleRef.name"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.role}
-                  columnKey="role"
-                  onResizeStart={handleMouseDown}
-                />
-                <ResizableTableHeader
-                  label="Bindings"
-                  sortKey="subjects.length"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.subjects}
-                  columnKey="subjects"
-                  onResizeStart={handleMouseDown}
-                />
-                <ResizableTableHeader
-                  label="Labels"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.labels}
-                  columnKey="labels"
-                  onResizeStart={handleMouseDown}
-                />
-                <ResizableTableHeader
-                  label="Age"
-                  sortKey="metadata.creationTimestamp"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.age}
-                  columnKey="age"
-                  onResizeStart={handleMouseDown}
-                />
-                <th
-                  className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
-                  style={{ width: `${columnWidths.actions}%` }}
-                >
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center">
-                    <div className="flex items-center justify-center">
-                      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-primary-600"></div>
-                      <span className="ml-3 text-gray-500 dark:text-gray-400">Loading role bindings...</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : paginatedData.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
-                    No role bindings found
-                  </td>
-                </tr>
-              ) : (
-                paginatedData.map((rb: any) => (
-                  <tr
-                    key={`${rb.ClusterName}-${rb.metadata?.namespace}-${rb.metadata?.name}`}
-                    onClick={() => handleRowClick(rb)}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer"
-                  >
-                    <td
-                      className="px-6 py-4 text-sm font-medium text-gray-900 dark:text-white whitespace-nowrap overflow-hidden text-ellipsis"
-                      style={{ maxWidth: `${columnWidths.name}%` }}
-                    >
-                      {rb.metadata?.name}
-                    </td>
-                    <td
-                      className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap overflow-hidden text-ellipsis"
-                      style={{ maxWidth: `${columnWidths.namespace}%` }}
-                    >
-                      {rb.metadata?.namespace}
-                    </td>
-                    <td
-                      className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap overflow-hidden text-ellipsis"
-                      style={{ maxWidth: `${columnWidths.cluster}%` }}
-                    >
-                      {rb.ClusterName}
-                    </td>
-                    <td
-                      className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap overflow-hidden text-ellipsis"
-                      style={{ maxWidth: `${columnWidths.role}%` }}
-                    >
-                      {rb.roleRef?.name || '-'}
-                    </td>
-                    <td
-                      className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400"
-                      style={{ maxWidth: `${columnWidths.subjects}%` }}
-                    >
-                      <div className="flex flex-wrap gap-1">
-                        {rb.subjects && rb.subjects.length > 0 ? (
-                          <>
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                              {rb.subjects[0].name}
-                            </span>
-                            {rb.subjects.length > 1 && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400">
-                                +{rb.subjects.length - 1}
-                              </span>
-                            )}
-                          </>
-                        ) : (
-                          <span className="text-gray-400 dark:text-gray-600">-</span>
-                        )}
-                      </div>
-                    </td>
-                    <td
-                      className="px-6 py-4 text-sm"
-                      style={{ maxWidth: `${columnWidths.labels}%` }}
-                    >
-                      <div className="flex flex-wrap gap-1">
-                        {rb.metadata?.labels && Object.keys(rb.metadata.labels).length > 0 ? (
-                          <>
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">
-                              {Object.keys(rb.metadata.labels)[0]}: {String(Object.values(rb.metadata.labels)[0])}
-                            </span>
-                            {Object.keys(rb.metadata.labels).length > 1 && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400">
-                                +{Object.keys(rb.metadata.labels).length - 1}
-                              </span>
-                            )}
-                          </>
-                        ) : (
-                          <span className="text-gray-400 dark:text-gray-600">-</span>
-                        )}
-                      </div>
-                    </td>
-                    <td
-                      className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap"
-                      style={{ maxWidth: `${columnWidths.age}%` }}
-                    >
-                      {formatAge(rb.metadata?.creationTimestamp)}
-                    </td>
-                    <td className="px-6 py-4 text-right text-sm font-medium whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={(e) => handleEdit(e, rb)}
-                          className="p-2 text-yellow-600 hover:text-yellow-700 dark:text-yellow-400 dark:hover:text-yellow-300 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded-lg transition-all"
-                          title="Edit YAML"
-                        >
-                          <PencilSquareIcon className="h-5 w-5" />
-                        </button>
-                        <button
-                          onClick={(e) => handleDelete(e, rb)}
-                          className="p-2 text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
-                          title="Delete"
-                        >
-                          <TrashIcon className="h-5 w-5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination */}
-        {!isLoading && paginatedData.length > 0 && (
-          <Pagination currentPage={currentPage} totalPages={totalPages} pageSize={pageSize} totalItems={totalItems} onPageChange={goToPage} onPageSizeChange={changePageSize} onNextPage={goToNextPage} onPreviousPage={goToPreviousPage} hasNextPage={hasNextPage} hasPreviousPage={hasPreviousPage} />
         )}
       </div>
+      
+      <DataTable
+        data={allRoleBindings || []}
+        columns={columns}
+        keyExtractor={(rb) => `${rb.ClusterName}-${rb.metadata.namespace}-${rb.metadata.name}`}
+        searchPlaceholder="Search role bindings by name, cluster, namespace, role..."
+        isLoading={isLoading}
+        emptyMessage="No role bindings found"
+        emptyIcon={
+          <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
+            <LinkIcon className="w-6 h-6 text-gray-400 dark:text-gray-500" />
+          </div>
+        }
+        mobileCardRenderer={(rb) => (
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <LinkIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+                <div className="min-w-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      navigate(`/clusters/${rb.ClusterName}/namespaces/${rb.metadata.namespace}/rolebindings/${rb.metadata.name}`)
+                    }}
+                    className="font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate text-left"
+                  >
+                    {rb.metadata.name}
+                  </button>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                    {rb.metadata.namespace}
+                  </div>
+                  {!cluster && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      {rb.ClusterName}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 gap-2 text-sm">
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Role:</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    // Navigate to role or cluster role based on kind
+                    if (rb.roleRef.kind === 'ClusterRole') {
+                      navigate(`/clusters/${rb.ClusterName}/clusterroles/${rb.roleRef.name}`)
+                    } else {
+                      navigate(`/clusters/${rb.ClusterName}/namespaces/${rb.metadata.namespace}/roles/${rb.roleRef.name}`)
+                    }
+                  }}
+                  className="ml-1 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium"
+                >
+                  {rb.roleRef.name}
+                </button>
+                <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">({rb.roleRef.kind})</span>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Subjects:</span>
+                <span className="ml-1 text-gray-900 dark:text-white">{getSubjectsCount(rb)}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {formatAge(rb.metadata.creationTimestamp)}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    navigate(`/clusters/${rb.ClusterName}/namespaces/${rb.metadata.namespace}/rolebindings/${rb.metadata.name}`)
+                  }}
+                  className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                  title="View Details"
+                >
+                  <EyeIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleEditClick(rb, e)}
+                  className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+                  title="Edit YAML"
+                >
+                  <PencilSquareIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleDeleteClick(rb, e)}
+                  className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                  title="Delete"
+                >
+                  <TrashIcon className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      />
 
       {/* Modals */}
-      {selectedBinding && (
-        <>
-          <RoleBindingDetailsModal
-            roleBinding={selectedBinding}
-            isOpen={isDetailsModalOpen}
-            onClose={() => setIsDetailsModalOpen(false)}
-          />
-          <EditRoleBindingYAMLModal
-            roleBinding={selectedBinding}
-            isOpen={isEditModalOpen}
-            onClose={() => setIsEditModalOpen(false)}
-            onSuccess={handleRefresh}
-          />
-          <DeleteRoleBindingModal
-            roleBinding={selectedBinding}
-            isOpen={isDeleteModalOpen}
-            onClose={() => setIsDeleteModalOpen(false)}
-            onSuccess={handleRefresh}
-          />
-        </>
-      )}
       <CreateRoleBindingModal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
-        onSuccess={handleRefresh}
-        cluster={activeCluster}
-        namespace={createNamespace}
+        onSuccess={async () => {
+          await queryClient.invalidateQueries({ queryKey: ['rolebindings'] })
+          await queryClient.invalidateQueries({ queryKey: ['all-rolebindings'] })
+          await queryClient.refetchQueries({ queryKey: ['rolebindings'] })
+          await queryClient.refetchQueries({ queryKey: ['all-rolebindings'] })
+          setIsCreateModalOpen(false)
+        }}
+        cluster={cluster || ''}
+        namespace={namespace || 'default'}
       />
+      
+      {selectedRoleBinding && (
+        <>
+          <EditRoleBindingYAMLModal
+            roleBinding={selectedRoleBinding}
+            isOpen={isEditModalOpen}
+            onClose={() => {
+              setIsEditModalOpen(false)
+              setSelectedRoleBinding(null)
+            }}
+            onSuccess={async () => {
+              await queryClient.invalidateQueries({ queryKey: ['rolebindings'] })
+              await queryClient.invalidateQueries({ queryKey: ['all-rolebindings'] })
+              await queryClient.refetchQueries({ queryKey: ['rolebindings'] })
+              await queryClient.refetchQueries({ queryKey: ['all-rolebindings'] })
+              setIsEditModalOpen(false)
+              setSelectedRoleBinding(null)
+            }}
+          />
+          <ConfirmationModal
+            isOpen={isDeleteModalOpen}
+            onClose={() => {
+              setIsDeleteModalOpen(false)
+              setSelectedRoleBinding(null)
+            }}
+            onConfirm={handleDeleteConfirm}
+            title="Delete Role Binding"
+            message={`Are you sure you want to delete role binding "${selectedRoleBinding.metadata.name}"? This action cannot be undone.`}
+            confirmText="Delete"
+            type="danger"
+          />
+        </>
+      )}
     </div>
   )
 }
-

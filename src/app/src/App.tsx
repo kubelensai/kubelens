@@ -421,6 +421,16 @@ function AppContent() {
               : "/rolebindings",
           icon: LinkIcon,
         },
+        {
+          name: "Cluster Roles",
+          href: selectedCluster ? `/clusters/${selectedCluster}/clusterroles` : "/clusterroles",
+          icon: ShieldCheckIcon,
+        },
+        {
+          name: "Cluster Role Bindings",
+          href: selectedCluster ? `/clusters/${selectedCluster}/clusterrolebindings` : "/clusterrolebindings",
+          icon: LinkIcon,
+        },
       ],
     },
     {
@@ -500,16 +510,6 @@ function AppContent() {
           name: "Runtime Classes",
           href: selectedCluster ? `/clusters/${selectedCluster}/runtimeclasses` : "/runtimeclasses",
           icon: CommandLineIcon,
-        },
-        {
-          name: "Cluster Roles",
-          href: selectedCluster ? `/clusters/${selectedCluster}/clusterroles` : "/clusterroles",
-          icon: ShieldCheckIcon,
-        },
-        {
-          name: "Cluster Role Bindings",
-          href: selectedCluster ? `/clusters/${selectedCluster}/clusterrolebindings` : "/clusterrolebindings",
-          icon: LinkIcon,
         },
         {
           name: "Leases",

@@ -1,10 +1,11 @@
-import { Fragment, useState } from 'react'
-import { Dialog, Transition } from '@headlessui/react'
-import { XMarkIcon, PlusIcon, TrashIcon } from '@heroicons/react/24/outline'
-import { useMutation } from '@tanstack/react-query'
-import { createRoleBinding } from '@/services/api'
+import { Fragment, useState, useEffect } from 'react'
+import { Dialog, Transition, Listbox } from '@headlessui/react'
+import { XMarkIcon, PlusIcon, TrashIcon, ChevronUpDownIcon, CheckIcon } from '@heroicons/react/24/outline'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { createRoleBinding, getRoles, getClusterRoles, getServiceAccounts } from '@/services/api'
 import yaml from 'js-yaml'
 import { useNotificationStore } from '@/stores/notificationStore'
+import clsx from 'clsx'
 
 interface CreateRoleBindingModalProps {
   isOpen: boolean
@@ -36,6 +37,31 @@ export default function CreateRoleBindingModal({
   const [labels, setLabels] = useState<Array<{ key: string; value: string }>>([])
   const [annotations, setAnnotations] = useState<Array<{ key: string; value: string }>>([])
   const { addNotification } = useNotificationStore()
+
+  // Fetch available roles based on selected kind
+  const { data: roles = [] } = useQuery({
+    queryKey: ['roles', cluster, namespace],
+    queryFn: () => getRoles(cluster, namespace),
+    enabled: isOpen && roleRefKind === 'Role' && !!cluster && !!namespace,
+  })
+
+  const { data: clusterRoles = [] } = useQuery({
+    queryKey: ['clusterroles', cluster],
+    queryFn: () => getClusterRoles(cluster),
+    enabled: isOpen && roleRefKind === 'ClusterRole' && !!cluster,
+  })
+
+  // Fetch service accounts for subject dropdown
+  const { data: serviceAccounts = [] } = useQuery({
+    queryKey: ['serviceaccounts', cluster, namespace],
+    queryFn: () => getServiceAccounts(cluster, namespace),
+    enabled: isOpen && !!cluster && !!namespace,
+  })
+
+  // Reset roleRefName when kind changes
+  useEffect(() => {
+    setRoleRefName('')
+  }, [roleRefKind])
 
   const createMutation = useMutation({
     mutationFn: ({ clusterName, namespace, yaml }: { clusterName: string; namespace: string; yaml: string }) =>
@@ -167,6 +193,14 @@ export default function CreateRoleBindingModal({
     setSubjects(newSubjects)
   }
 
+  // Get available role names based on selected kind
+  const availableRoleNames = roleRefKind === 'Role' 
+    ? roles.map((r: any) => r.metadata?.name).filter(Boolean)
+    : clusterRoles.map((r: any) => r.metadata?.name).filter(Boolean)
+
+  // Get available service account names
+  const availableServiceAccounts = serviceAccounts.map((sa: any) => sa.metadata?.name).filter(Boolean)
+
   return (
     <Transition appear show={isOpen} as={Fragment}>
       <Dialog as="div" className="relative z-50" onClose={handleClose}>
@@ -262,13 +296,61 @@ export default function CreateRoleBindingModal({
                           <label className="block text-xs font-medium text-indigo-700 dark:text-indigo-400 mb-2">
                             Name
                           </label>
-                          <input
-                            type="text"
-                            value={roleRefName}
-                            onChange={(e) => setRoleRefName(e.target.value)}
-                            placeholder="e.g., pod-reader"
-                            className="w-full px-3 py-2 rounded-lg border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-indigo-950/30 text-indigo-900 dark:text-indigo-300 focus:ring-2 focus:ring-indigo-500"
-                          />
+                          <Listbox value={roleRefName} onChange={setRoleRefName}>
+                            <div className="relative">
+                              <Listbox.Button className="relative w-full cursor-pointer rounded-lg bg-white dark:bg-indigo-950/30 py-2 pl-3 pr-10 text-left border border-indigo-300 dark:border-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                <span className={clsx(
+                                  "block truncate text-sm",
+                                  roleRefName ? "text-indigo-900 dark:text-indigo-300" : "text-gray-400 dark:text-gray-500"
+                                )}>
+                                  {roleRefName || `Select ${roleRefKind}...`}
+                                </span>
+                                <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
+                                  <ChevronUpDownIcon className="h-5 w-5 text-indigo-400" aria-hidden="true" />
+                                </span>
+                              </Listbox.Button>
+                              <Transition
+                                as={Fragment}
+                                leave="transition ease-in duration-100"
+                                leaveFrom="opacity-100"
+                                leaveTo="opacity-0"
+                              >
+                                <Listbox.Options className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md bg-white dark:bg-gray-800 py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm">
+                                  {availableRoleNames.length === 0 ? (
+                                    <div className="relative cursor-default select-none py-2 px-4 text-gray-500 dark:text-gray-400">
+                                      No {roleRefKind}s found
+                                    </div>
+                                  ) : (
+                                    availableRoleNames.map((roleName: string) => (
+                                      <Listbox.Option
+                                        key={roleName}
+                                        className={({ active }) =>
+                                          clsx(
+                                            'relative cursor-pointer select-none py-2 pl-10 pr-4',
+                                            active ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-900 dark:text-indigo-300' : 'text-gray-900 dark:text-gray-300'
+                                          )
+                                        }
+                                        value={roleName}
+                                      >
+                                        {({ selected }) => (
+                                          <>
+                                            <span className={clsx('block truncate', selected ? 'font-medium' : 'font-normal')}>
+                                              {roleName}
+                                            </span>
+                                            {selected && (
+                                              <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-indigo-600 dark:text-indigo-400">
+                                                <CheckIcon className="h-5 w-5" aria-hidden="true" />
+                                              </span>
+                                            )}
+                                          </>
+                                        )}
+                                      </Listbox.Option>
+                                    ))
+                                  )}
+                                </Listbox.Options>
+                              </Transition>
+                            </div>
+                          </Listbox>
                         </div>
                       </div>
                     </div>
@@ -309,7 +391,10 @@ export default function CreateRoleBindingModal({
                                 </label>
                                 <select
                                   value={subject.kind}
-                                  onChange={(e) => updateSubject(index, 'kind', e.target.value)}
+                                  onChange={(e) => {
+                                    updateSubject(index, 'kind', e.target.value)
+                                    updateSubject(index, 'name', '') // Reset name when kind changes
+                                  }}
                                   className="w-full px-3 py-2 text-sm rounded-lg border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-300 focus:ring-2 focus:ring-emerald-500"
                                 >
                                   <option value="User">User</option>
@@ -321,13 +406,71 @@ export default function CreateRoleBindingModal({
                                 <label className="block text-xs font-medium text-emerald-700 dark:text-emerald-400 mb-1">
                                   Name
                                 </label>
-                                <input
-                                  type="text"
-                                  value={subject.name}
-                                  onChange={(e) => updateSubject(index, 'name', e.target.value)}
-                                  placeholder="Enter name"
-                                  className="w-full px-3 py-2 text-sm rounded-lg border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-300 focus:ring-2 focus:ring-emerald-500"
-                                />
+                                {subject.kind === 'ServiceAccount' ? (
+                                  <Listbox value={subject.name} onChange={(value) => updateSubject(index, 'name', value)}>
+                                    <div className="relative">
+                                      <Listbox.Button className="relative w-full cursor-pointer rounded-lg bg-white dark:bg-emerald-950/50 py-2 pl-3 pr-10 text-left border border-emerald-300 dark:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                        <span className={clsx(
+                                          "block truncate text-sm",
+                                          subject.name ? "text-emerald-900 dark:text-emerald-300" : "text-gray-400 dark:text-gray-500"
+                                        )}>
+                                          {subject.name || "Select..."}
+                                        </span>
+                                        <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
+                                          <ChevronUpDownIcon className="h-5 w-5 text-emerald-400" aria-hidden="true" />
+                                        </span>
+                                      </Listbox.Button>
+                                      <Transition
+                                        as={Fragment}
+                                        leave="transition ease-in duration-100"
+                                        leaveFrom="opacity-100"
+                                        leaveTo="opacity-0"
+                                      >
+                                        <Listbox.Options className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md bg-white dark:bg-gray-800 py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm">
+                                          {availableServiceAccounts.length === 0 ? (
+                                            <div className="relative cursor-default select-none py-2 px-4 text-gray-500 dark:text-gray-400">
+                                              No ServiceAccounts found
+                                            </div>
+                                          ) : (
+                                            availableServiceAccounts.map((saName: string) => (
+                                              <Listbox.Option
+                                                key={saName}
+                                                className={({ active }) =>
+                                                  clsx(
+                                                    'relative cursor-pointer select-none py-2 pl-10 pr-4',
+                                                    active ? 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-900 dark:text-emerald-300' : 'text-gray-900 dark:text-gray-300'
+                                                  )
+                                                }
+                                                value={saName}
+                                              >
+                                                {({ selected }) => (
+                                                  <>
+                                                    <span className={clsx('block truncate', selected ? 'font-medium' : 'font-normal')}>
+                                                      {saName}
+                                                    </span>
+                                                    {selected && (
+                                                      <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-emerald-600 dark:text-emerald-400">
+                                                        <CheckIcon className="h-5 w-5" aria-hidden="true" />
+                                                      </span>
+                                                    )}
+                                                  </>
+                                                )}
+                                              </Listbox.Option>
+                                            ))
+                                          )}
+                                        </Listbox.Options>
+                                      </Transition>
+                                    </div>
+                                  </Listbox>
+                                ) : (
+                                  <input
+                                    type="text"
+                                    value={subject.name}
+                                    onChange={(e) => updateSubject(index, 'name', e.target.value)}
+                                    placeholder="Enter name"
+                                    className="w-full px-3 py-2 text-sm rounded-lg border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-300 focus:ring-2 focus:ring-emerald-500"
+                                  />
+                                )}
                               </div>
                               {subject.kind === 'ServiceAccount' && (
                                 <div>
@@ -336,7 +479,7 @@ export default function CreateRoleBindingModal({
                                   </label>
                                   <input
                                     type="text"
-                                    value={subject.namespace || ''}
+                                    value={subject.namespace || namespace}
                                     onChange={(e) => updateSubject(index, 'namespace', e.target.value)}
                                     placeholder="Namespace"
                                     className="w-full px-3 py-2 text-sm rounded-lg border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-300 focus:ring-2 focus:ring-emerald-500"
