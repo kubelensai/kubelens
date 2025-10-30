@@ -1,29 +1,29 @@
-import { useState, useMemo, useEffect } from 'react'
-import { useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useParams, useNavigate } from 'react-router-dom'
 import { getClusters, getStorageClasses } from '@/services/api'
-import api from '@/services/api'
-import { MagnifyingGlassIcon, PencilSquareIcon, TrashIcon, PlusIcon } from '@heroicons/react/24/outline'
+import { useState, useMemo } from 'react'
+import clsx from 'clsx'
+import { 
+  PencilSquareIcon, 
+  TrashIcon, 
+  EyeIcon,
+  CircleStackIcon,
+  StarIcon,
+} from '@heroicons/react/24/outline'
+import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid'
 import Breadcrumb from '@/components/shared/Breadcrumb'
-import ResizableTableHeader from '@/components/shared/ResizableTableHeader'
-import { formatAge } from '@/utils/format'
-import { useTableSort } from '@/hooks/useTableSort'
-import { useResizableColumns } from '@/hooks/useResizableColumns'
-import { usePagination } from '@/hooks/usePagination'
-import Pagination from '@/components/shared/Pagination'
-import { useClusterStore } from '@/stores/clusterStore'
-import { useNotificationStore } from '@/stores/notificationStore'
-import StorageClassDetailsModal from '@/components/StorageClasses/StorageClassDetailsModal'
+import { DataTable, Column } from '@/components/shared/DataTable'
 import EditStorageClassYAMLModal from '@/components/StorageClasses/EditStorageClassYAMLModal'
-import DeleteStorageClassModal from '@/components/StorageClasses/DeleteStorageClassModal'
-import CreateStorageClassModal from '@/components/StorageClasses/CreateStorageClassModal'
+import ConfirmationModal from '@/components/shared/ConfirmationModal'
+import { useNotificationStore } from '@/stores/notificationStore'
+import api from '@/services/api'
+import { formatAge } from '@/utils/format'
 
-interface StorageClass {
-  clusterName: string
+interface StorageClassData {
   metadata: {
     name: string
-    annotations?: Record<string, string>
     creationTimestamp: string
+    annotations?: Record<string, string>
     labels?: Record<string, string>
   }
   provisioner: string
@@ -32,501 +32,459 @@ interface StorageClass {
   volumeBindingMode?: string
   allowVolumeExpansion?: boolean
   mountOptions?: string[]
+  clusterName: string
 }
 
 export default function StorageClasses() {
   const { cluster } = useParams<{ cluster?: string }>()
-  const { selectedCluster } = useClusterStore()
-  const { addNotification } = useNotificationStore()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
-
-  const [filterText, setFilterText] = useState('')
-  const [selectedSC, setSelectedSC] = useState<StorageClass | null>(null)
-  const [isDetailsOpen, setIsDetailsOpen] = useState(false)
-  const [isEditOpen, setIsEditOpen] = useState(false)
-  const [isDeleteOpen, setIsDeleteOpen] = useState(false)
-  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const { addNotification } = useNotificationStore()
+  const [selectedStorageClass, setSelectedStorageClass] = useState<StorageClassData | null>(null)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   
-  // Fetch clusters first
   const { data: clusters } = useQuery({
     queryKey: ['clusters'],
     queryFn: getClusters,
   })
 
-  // Determine current cluster: URL param > store > first enabled cluster
-  const currentCluster = cluster || selectedCluster || (clusters && clusters.length > 0 ? clusters[0].name : null)
-
-  // Reset modal states when cluster changes
-  useEffect(() => {
-    setSelectedSC(null)
-    setIsDetailsOpen(false)
-    setIsEditOpen(false)
-    setIsDeleteOpen(false)
-    setIsCreateOpen(false)
-  }, [currentCluster])
-
-  const { columnWidths, handleMouseDown: handleResizeStart } = useResizableColumns({
-    name: 200,
-    provisioner: 250,
-    reclaimPolicy: 140,
-    volumeBindingMode: 160,
-    allowVolumeExpansion: 180,
-    default: 120,
-    age: 120,
-    actions: 120,
-  }, 'storageclasses-column-widths')
-
-  // Fetch Storage Classes for the selected cluster
-  const { data: storageClasses = [], isLoading } = useQuery({
-    queryKey: ['storageclasses', currentCluster],
-    queryFn: () => getStorageClasses(currentCluster || 'default'),
+  // Fetch storage classes from all clusters or specific cluster
+  const { data: allStorageClasses, isLoading } = useQuery({
+    queryKey: cluster 
+      ? ['storageclasses', cluster] 
+      : ['all-storageclasses', clusters?.map(c => c.name).sort().join(',')],
+    queryFn: async () => {
+      // If specific cluster requested
+      if (cluster) {
+        const storageClasses = await getStorageClasses(cluster)
+        return storageClasses.map((sc: any) => ({ ...sc, clusterName: cluster }))
+      }
+      
+      // Otherwise fetch from all clusters
+      if (!clusters || clusters.length === 0) return []
+      
+      const allSCs = await Promise.all(
+        clusters.map(async (cluster) => {
+          try {
+            const storageClasses = await getStorageClasses(cluster.name)
+            return storageClasses.map((sc: any) => ({ ...sc, clusterName: cluster.name }))
+          } catch (error) {
+            console.error(`Error fetching storage classes from ${cluster.name}:`, error)
+            return []
+          }
+        })
+      )
+      
+      return allSCs.flat()
+    },
+    enabled: cluster ? true : (!!clusters && clusters.length > 0),
     refetchInterval: 5000,
-    enabled: !!currentCluster,
   })
 
-  // Filter Storage Classes based on search term
-  const filteredSCs = useMemo(() => {
-    if (!storageClasses) return []
-    
-    return storageClasses.filter((sc: StorageClass) => {
-      const searchLower = filterText.toLowerCase()
-      const name = sc.metadata.name.toLowerCase()
-      const provisioner = (sc.provisioner || '').toLowerCase()
-      const reclaimPolicy = (sc.reclaimPolicy || '').toLowerCase()
-      const volumeBindingMode = (sc.volumeBindingMode || '').toLowerCase()
-
-      return (
-        name.includes(searchLower) ||
-        provisioner.includes(searchLower) ||
-        reclaimPolicy.includes(searchLower) ||
-        volumeBindingMode.includes(searchLower)
-      )
-    })
-  }, [storageClasses, filterText])
-
-  // Sort
-  const { sortedData: sortedSCs, sortConfig, requestSort } = useTableSort<StorageClass>(
-    filteredSCs,
-    { key: 'metadata.creationTimestamp', direction: 'desc' }
-  )
-
-  // Apply pagination
-  const {
-    paginatedData: resources,
-    currentPage,
-    totalPages,
-    pageSize,
-    totalItems,
-    goToPage,
-    goToNextPage,
-    goToPreviousPage,
-    changePageSize,
-    hasNextPage,
-    hasPreviousPage,
-  } = usePagination(sortedSCs, 10, 'storageclasses')
-
-  // Handlers
-  const handleRowClick = (sc: StorageClass) => {
-    setSelectedSC(sc)
-    setIsDetailsOpen(true)
+  // Helper functions
+  const isDefaultStorageClass = (sc: StorageClassData) => {
+    return sc.metadata.annotations?.['storageclass.kubernetes.io/is-default-class'] === 'true' ||
+           sc.metadata.annotations?.['storageclass.beta.kubernetes.io/is-default-class'] === 'true'
   }
 
-  const handleEditYAML = (e: React.MouseEvent, sc: StorageClass) => {
+  // Action handlers
+  const handleToggleDefault = async (sc: StorageClassData, e: React.MouseEvent) => {
     e.stopPropagation()
-    setSelectedSC(sc)
-    setIsEditOpen(true)
-  }
-
-  const handleDelete = (e: React.MouseEvent, sc: StorageClass) => {
-    e.stopPropagation()
-    setSelectedSC(sc)
-    setIsDeleteOpen(true)
-  }
-
-  const handleToggleDefault = async (e: React.MouseEvent, sc: StorageClass) => {
-    e.stopPropagation()
-    
-    const isCurrentlyDefault = sc.metadata.annotations?.['storageclass.kubernetes.io/is-default-class'] === 'true'
-    
     try {
-      if (!isCurrentlyDefault) {
-        // Setting as default: First, unset all other StorageClasses as default (Kubernetes best practice)
-        const otherDefaults = storageClasses.filter(
-          (s: StorageClass) => 
-            s.metadata.name !== sc.metadata.name &&
-            s.metadata.annotations?.['storageclass.kubernetes.io/is-default-class'] === 'true'
-        )
-
-        // Unset all other defaults
-        for (const other of otherDefaults) {
-          const unsetSC = {
-            ...other,
-            metadata: {
-              ...other.metadata,
-              annotations: {
-                ...other.metadata.annotations,
-                'storageclass.kubernetes.io/is-default-class': 'false',
-              },
-            },
-          }
-          await api.put(`/clusters/${currentCluster}/storageclasses/${other.metadata.name}`, unsetSC)
-        }
-      }
-
-      // Now set/unset the clicked StorageClass
+      const isDefault = isDefaultStorageClass(sc)
       const updatedSC = {
         ...sc,
         metadata: {
           ...sc.metadata,
           annotations: {
             ...sc.metadata.annotations,
-            'storageclass.kubernetes.io/is-default-class': isCurrentlyDefault ? 'false' : 'true',
-          },
-        },
-      }
-
-      await api.put(`/clusters/${currentCluster}/storageclasses/${sc.metadata.name}`, updatedSC)
-      
-      // Add notification
-      if (isCurrentlyDefault) {
-        addNotification({
-          type: 'info',
-          title: 'Default StorageClass Unset',
-          message: `"${sc.metadata.name}" is no longer the default StorageClass.`,
-        })
-      } else {
-        addNotification({
-          type: 'success',
-          title: 'Default StorageClass Set',
-          message: `"${sc.metadata.name}" is now the default StorageClass.`,
-        })
+            'storageclass.kubernetes.io/is-default-class': isDefault ? 'false' : 'true',
+          }
+        }
       }
       
-      // Refresh the data
-      queryClient.invalidateQueries({ queryKey: ['storageclasses', currentCluster] })
-      queryClient.refetchQueries({ queryKey: ['storageclasses', currentCluster] })
-    } catch (error) {
-      console.error('Failed to toggle default storage class:', error)
+      await api.put(`/clusters/${sc.clusterName}/storageclasses/${sc.metadata.name}`, updatedSC)
+      addNotification({
+        type: 'success',
+        title: 'Success',
+        message: `Storage class ${isDefault ? 'unset' : 'set'} as default successfully`,
+      })
+      
+      await queryClient.invalidateQueries({ queryKey: ['storageclasses'] })
+      await queryClient.invalidateQueries({ queryKey: ['all-storageclasses'] })
+      await queryClient.refetchQueries({ queryKey: ['storageclasses'] })
+      await queryClient.refetchQueries({ queryKey: ['all-storageclasses'] })
+    } catch (error: any) {
       addNotification({
         type: 'error',
-        title: 'Failed to Toggle Default',
-        message: `Could not update "${sc.metadata.name}". ${(error as any)?.response?.data?.error || (error as Error).message}`,
+        title: 'Error',
+        message: `Failed to toggle default storage class: ${error.message || 'Unknown error'}`,
       })
     }
   }
 
-  const handleModalSuccess = () => {
-    queryClient.invalidateQueries({ queryKey: ['storageclasses', currentCluster] })
-    queryClient.refetchQueries({ queryKey: ['storageclasses', currentCluster] })
-    setIsDetailsOpen(false)
-    setIsEditOpen(false)
-    setIsDeleteOpen(false)
-    setSelectedSC(null)
+  const handleEditClick = (sc: StorageClassData, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setSelectedStorageClass(sc)
+    setIsEditModalOpen(true)
   }
 
-  return (
-    <div className="space-y-4 sm:space-y-6">
-      {/* Breadcrumb */}
-      <div>
-        <Breadcrumb 
-          items={
-            currentCluster
-              ? [
-                  { name: currentCluster, href: "/dashboard" },
-                  { name: 'Storage Classes' }
-                ]
-              : [{ name: 'Storage Classes' }]
-          }
-        />
-      </div>
-      
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">Storage Classes</h1>
-          <p className="mt-1 sm:mt-2 text-sm text-gray-600 dark:text-gray-400">
-            All storage classes across {clusters?.length || 0} cluster(s)
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="relative w-full sm:w-80">
-            <MagnifyingGlassIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Filter by name, provisioner..."
-              value={filterText}
-              onChange={(e) => setFilterText(e.target.value)}
-              className="w-full pl-11 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            />
+  const handleDeleteClick = (sc: StorageClassData, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setSelectedStorageClass(sc)
+    setIsDeleteModalOpen(true)
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!selectedStorageClass) return
+    try {
+      await api.delete(`/clusters/${selectedStorageClass.clusterName}/storageclasses/${selectedStorageClass.metadata.name}`)
+      addNotification({
+        type: 'success',
+        title: 'Success',
+        message: 'Storage class deleted successfully',
+      })
+      setIsDeleteModalOpen(false)
+      setSelectedStorageClass(null)
+      // Invalidate queries to refetch
+      await queryClient.invalidateQueries({ queryKey: ['storageclasses'] })
+      await queryClient.invalidateQueries({ queryKey: ['all-storageclasses'] })
+      await queryClient.refetchQueries({ queryKey: ['storageclasses'] })
+      await queryClient.refetchQueries({ queryKey: ['all-storageclasses'] })
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: `Failed to delete storage class: ${error.message || 'Unknown error'}`,
+      })
+    }
+  }
+
+  // Define columns
+  const columns = useMemo<Column<StorageClassData>[]>(() => [
+    {
+      key: 'name',
+      header: 'Name',
+      accessor: (sc) => (
+        <div className="flex items-center gap-2">
+          <CircleStackIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+          <div className="min-w-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                navigate(`/clusters/${sc.clusterName}/storageclasses/${sc.metadata.name}`)
+              }}
+              className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate text-left"
+            >
+              {sc.metadata.name}
+            </button>
+            {!cluster && (
+              <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                {sc.clusterName}
+              </div>
+            )}
           </div>
+        </div>
+      ),
+      sortable: true,
+      sortValue: (sc) => sc.metadata.name,
+      searchValue: (sc) => `${sc.metadata.name} ${sc.clusterName}`,
+    },
+    {
+      key: 'default',
+      header: 'Default',
+      accessor: (sc) => {
+        const isDefault = isDefaultStorageClass(sc)
+        return (
           <button
-            onClick={() => setIsCreateOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 whitespace-nowrap"
+            onClick={(e) => handleToggleDefault(sc, e)}
+            className={clsx(
+              'p-1.5 rounded transition-colors',
+              isDefault
+                ? 'text-yellow-600 dark:text-yellow-400 hover:text-yellow-700 dark:hover:text-yellow-300 hover:bg-yellow-50 dark:hover:bg-yellow-900/20'
+                : 'text-gray-400 dark:text-gray-500 hover:text-yellow-600 dark:hover:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-900/20'
+            )}
+            title={isDefault ? 'Unset as default' : 'Set as default'}
           >
-            <PlusIcon className="h-5 w-5" />
-            <span>Create</span>
+            {isDefault ? (
+              <StarIconSolid className="w-5 h-5" />
+            ) : (
+              <StarIcon className="w-5 h-5" />
+            )}
+          </button>
+        )
+      },
+      sortable: true,
+      sortValue: (sc) => isDefaultStorageClass(sc) ? 1 : 0,
+      searchValue: (sc) => isDefaultStorageClass(sc) ? 'default' : '',
+      filterable: true,
+      filterOptions: () => ['Default', 'Non-Default'],
+      filterValue: (sc) => isDefaultStorageClass(sc) ? 'Default' : 'Non-Default',
+    },
+    {
+      key: 'provisioner',
+      header: 'Provisioner',
+      accessor: (sc) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300 font-mono text-xs">
+          {sc.provisioner}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (sc) => sc.provisioner,
+      searchValue: (sc) => sc.provisioner,
+    },
+    {
+      key: 'reclaimPolicy',
+      header: 'Reclaim Policy',
+      accessor: (sc) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {sc.reclaimPolicy || 'Delete'}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (sc) => sc.reclaimPolicy || 'Delete',
+      searchValue: (sc) => sc.reclaimPolicy || 'Delete',
+      filterable: true,
+      filterOptions: (data) => {
+        const policies = new Set(data.map(s => s.reclaimPolicy || 'Delete'))
+        return Array.from(policies).sort()
+      },
+      filterValue: (sc) => sc.reclaimPolicy || 'Delete',
+    },
+    {
+      key: 'volumeBindingMode',
+      header: 'Volume Binding Mode',
+      accessor: (sc) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {sc.volumeBindingMode || 'Immediate'}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (sc) => sc.volumeBindingMode || 'Immediate',
+      searchValue: (sc) => sc.volumeBindingMode || 'Immediate',
+      filterable: true,
+      filterOptions: (data) => {
+        const modes = new Set(data.map(s => s.volumeBindingMode || 'Immediate'))
+        return Array.from(modes).sort()
+      },
+      filterValue: (sc) => sc.volumeBindingMode || 'Immediate',
+    },
+    {
+      key: 'allowVolumeExpansion',
+      header: 'Allow Expansion',
+      accessor: (sc) => (
+        <span className={clsx(
+          'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full',
+          sc.allowVolumeExpansion
+            ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+            : 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400'
+        )}>
+          {sc.allowVolumeExpansion ? 'Yes' : 'No'}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (sc) => sc.allowVolumeExpansion ? 1 : 0,
+      searchValue: (sc) => sc.allowVolumeExpansion ? 'Yes' : 'No',
+      filterable: true,
+      filterOptions: () => ['Yes', 'No'],
+      filterValue: (sc) => sc.allowVolumeExpansion ? 'Yes' : 'No',
+    },
+    {
+      key: 'age',
+      header: 'Age',
+      accessor: (sc) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {formatAge(sc.metadata.creationTimestamp)}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (sc) => new Date(sc.metadata.creationTimestamp).getTime(),
+      searchValue: (sc) => formatAge(sc.metadata.creationTimestamp),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      accessor: (sc) => (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              navigate(`/clusters/${sc.clusterName}/storageclasses/${sc.metadata.name}`)
+            }}
+            className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+            title="View Details"
+          >
+            <EyeIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleEditClick(sc, e)}
+            className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+            title="Edit YAML"
+          >
+            <PencilSquareIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleDeleteClick(sc, e)}
+            className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+            title="Delete"
+          >
+            <TrashIcon className="w-4 h-4" />
           </button>
         </div>
-      </div>
+      ),
+      sortable: false,
+    },
+  ], [cluster, navigate])
 
-      {/* Table */}
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                <ResizableTableHeader
-                  label="Name"
-                  columnKey="name"
-                  sortKey="metadata.name"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.name}
-                />
-                <ResizableTableHeader
-                  label="Provisioner"
-                  columnKey="provisioner"
-                  sortKey="provisioner"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.provisioner}
-                />
-                <ResizableTableHeader
-                  label="Reclaim Policy"
-                  columnKey="reclaimPolicy"
-                  sortKey="reclaimPolicy"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.reclaimPolicy}
-                />
-                <ResizableTableHeader
-                  label="Volume Binding Mode"
-                  columnKey="volumeBindingMode"
-                  sortKey="volumeBindingMode"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.volumeBindingMode}
-                />
-                <ResizableTableHeader
-                  label="Allow Volume Expansion"
-                  columnKey="allowVolumeExpansion"
-                  sortKey="allowVolumeExpansion"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.allowVolumeExpansion}
-                />
-                <ResizableTableHeader
-                  label="Default"
-                  columnKey="default"
-                  sortKey="metadata.annotations.storageclass.kubernetes.io/is-default-class"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.default}
-                />
-                <ResizableTableHeader
-                  label="Age"
-                  columnKey="age"
-                  sortKey="metadata.creationTimestamp"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.age}
-                />
-                <ResizableTableHeader
-                  label="Actions"
-                  columnKey="actions"
-                  sortKey=""
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleResizeStart}
-                  width={columnWidths.actions}
-                />
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-              
-              {isLoading ? (
-                <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center">
-                    <div className="flex items-center justify-center">
-                      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-primary-600"></div>
-                      <span className="ml-3 text-gray-500 dark:text-gray-400">Loading storage classes...</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : resources.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center">
-                    <p className="text-gray-500 dark:text-gray-400">
-                      {filterText ? 'No storage classes found matching your filter.' : 'No storage classes found.'}
-                    </p>
-                  </td>
-                </tr>
-              ) : (
-                resources.map((sc: StorageClass) => (
-                  <tr
-                    key={`${sc.clusterName}-${sc.metadata.name}`}
-                    onClick={() => handleRowClick(sc)}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer transition-colors"
-                  >
-                    <td
-                      className="px-6 py-4 text-sm font-medium text-gray-900 dark:text-white truncate"
-                      style={{ width: columnWidths.name }}
-                    >
-                      {sc.metadata.name}
-                    </td>
-                    <td
-                      className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 truncate"
-                      style={{ width: columnWidths.provisioner }}
-                    >
-                      {sc.provisioner}
-                    </td>
-                    <td
-                      className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 truncate"
-                      style={{ width: columnWidths.reclaimPolicy }}
-                    >
-                      {sc.reclaimPolicy || 'Delete'}
-                    </td>
-                    <td
-                      className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 truncate"
-                      style={{ width: columnWidths.volumeBindingMode }}
-                    >
-                      {sc.volumeBindingMode || 'Immediate'}
-                    </td>
-                    <td
-                      className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 truncate"
-                      style={{ width: columnWidths.allowVolumeExpansion }}
-                    >
-                      {sc.allowVolumeExpansion ? (
-                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
-                          Yes
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-400">
-                          No
-                        </span>
-                      )}
-                    </td>
-                    <td
-                      className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400"
-                      style={{ width: columnWidths.default }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {/* Toggle Switch for Default */}
-                      <button
-                        onClick={(e) => handleToggleDefault(e, sc)}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                          sc.metadata.annotations?.['storageclass.kubernetes.io/is-default-class'] === 'true'
-                            ? 'bg-blue-600'
-                            : 'bg-gray-300 dark:bg-gray-600'
-                        }`}
-                        title={
-                          sc.metadata.annotations?.['storageclass.kubernetes.io/is-default-class'] === 'true'
-                            ? 'Unset as default'
-                            : 'Set as default'
-                        }
-                      >
-                        <span
-                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                            sc.metadata.annotations?.['storageclass.kubernetes.io/is-default-class'] === 'true'
-                              ? 'translate-x-6'
-                              : 'translate-x-1'
-                          }`}
-                        />
-                      </button>
-                    </td>
-                    <td
-                      className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 truncate"
-                      style={{ width: columnWidths.age }}
-                    >
-                      {formatAge(sc.metadata.creationTimestamp)}
-                    </td>
-                    <td
-                      className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400"
-                      style={{ width: columnWidths.actions }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={(e) => handleEditYAML(e, sc)}
-                          className="p-1 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 rounded transition-colors"
-                          title="Edit YAML"
-                        >
-                          <PencilSquareIcon className="h-5 w-5 text-yellow-600 dark:text-yellow-500" />
-                        </button>
-                        <button
-                          onClick={(e) => handleDelete(e, sc)}
-                          className="p-1 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition-colors"
-                          title="Delete"
-                        >
-                          <TrashIcon className="h-5 w-5 text-red-600 dark:text-red-500" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          pageSize={pageSize}
-          totalItems={totalItems}
-          onPageChange={goToPage}
-          onPageSizeChange={changePageSize}
-          onNextPage={goToNextPage}
-          onPreviousPage={goToPreviousPage}
-          hasNextPage={hasNextPage}
-          hasPreviousPage={hasPreviousPage}
-        />
+  return (
+    <div className="space-y-4 md:space-y-6">
+      <Breadcrumb
+        items={[
+          ...(cluster ? [{ name: cluster, href: `/clusters/${cluster}` }] : []),
+          { name: 'Storage Classes' }
+        ]}
+      />
+
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
+          Storage Classes
+        </h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          {cluster 
+            ? `Storage classes in ${cluster}`
+            : `All storage classes across ${clusters?.length || 0} cluster(s)`
+          }
+        </p>
       </div>
+      
+      <DataTable
+        data={allStorageClasses || []}
+        columns={columns}
+        keyExtractor={(sc) => `${sc.clusterName}-${sc.metadata.name}`}
+        searchPlaceholder="Search storage classes by name, cluster, provisioner..."
+        isLoading={isLoading}
+        emptyMessage="No storage classes found"
+        emptyIcon={
+          <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
+            <CircleStackIcon className="w-6 h-6 text-gray-400 dark:text-gray-500" />
+          </div>
+        }
+        mobileCardRenderer={(sc) => (
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <CircleStackIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+                <div className="min-w-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      navigate(`/clusters/${sc.clusterName}/storageclasses/${sc.metadata.name}`)
+                    }}
+                    className="font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate text-left"
+                  >
+                    {sc.metadata.name}
+                  </button>
+                  {!cluster && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      {sc.clusterName}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <span className={clsx(
+                'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full shrink-0',
+                sc.allowVolumeExpansion
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+                  : 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400'
+              )}>
+                {sc.allowVolumeExpansion ? 'Expandable' : 'Fixed'}
+              </span>
+            </div>
+            
+            <div className="grid grid-cols-1 gap-2 text-sm">
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Provisioner:</span>
+                <span className="ml-1 text-gray-900 dark:text-white font-mono text-xs">{sc.provisioner}</span>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Reclaim Policy:</span>
+                <span className="ml-1 text-gray-900 dark:text-white">{sc.reclaimPolicy || 'Delete'}</span>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Binding Mode:</span>
+                <span className="ml-1 text-gray-900 dark:text-white">{sc.volumeBindingMode || 'Immediate'}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {formatAge(sc.metadata.creationTimestamp)}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    navigate(`/clusters/${sc.clusterName}/storageclasses/${sc.metadata.name}`)
+                  }}
+                  className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                  title="View Details"
+                >
+                  <EyeIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleEditClick(sc, e)}
+                  className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+                  title="Edit YAML"
+                >
+                  <PencilSquareIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleDeleteClick(sc, e)}
+                  className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                  title="Delete"
+                >
+                  <TrashIcon className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      />
 
       {/* Modals */}
-      {selectedSC && (
+      {selectedStorageClass && (
         <>
-          <StorageClassDetailsModal
-            storageClass={selectedSC}
-            isOpen={isDetailsOpen}
-            onClose={() => setIsDetailsOpen(false)}
-          />
           <EditStorageClassYAMLModal
-            storageClass={selectedSC}
-            isOpen={isEditOpen}
-            onClose={() => setIsEditOpen(false)}
-            onSuccess={handleModalSuccess}
+            storageClass={selectedStorageClass}
+            isOpen={isEditModalOpen}
+            onClose={() => {
+              setIsEditModalOpen(false)
+              setSelectedStorageClass(null)
+            }}
+            onSuccess={async () => {
+              await queryClient.invalidateQueries({ queryKey: ['storageclasses'] })
+              await queryClient.invalidateQueries({ queryKey: ['all-storageclasses'] })
+              await queryClient.refetchQueries({ queryKey: ['storageclasses'] })
+              await queryClient.refetchQueries({ queryKey: ['all-storageclasses'] })
+              setIsEditModalOpen(false)
+              setSelectedStorageClass(null)
+            }}
           />
-          <DeleteStorageClassModal
-            storageClass={selectedSC}
-            isOpen={isDeleteOpen}
-            onClose={() => setIsDeleteOpen(false)}
-            onSuccess={handleModalSuccess}
+          <ConfirmationModal
+            isOpen={isDeleteModalOpen}
+            onClose={() => {
+              setIsDeleteModalOpen(false)
+              setSelectedStorageClass(null)
+            }}
+            onConfirm={handleDeleteConfirm}
+            title="Delete Storage Class"
+            message={`Are you sure you want to delete storage class "${selectedStorageClass.metadata.name}"? This action cannot be undone. Any persistent volumes using this storage class may be affected.`}
+            confirmText="Delete"
+            type="danger"
           />
         </>
       )}
-
-      {/* Create Modal */}
-      <CreateStorageClassModal
-        isOpen={isCreateOpen}
-        onClose={() => setIsCreateOpen(false)}
-        clusterName={currentCluster || 'default'}
-        onSuccess={handleModalSuccess}
-      />
     </div>
   )
 }
-

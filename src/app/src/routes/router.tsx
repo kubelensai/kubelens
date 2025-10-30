@@ -56,6 +56,9 @@ import Signup from "../pages/Signup";
 import StatefulSets from "../pages/StatefulSets";
 import StatefulSetDetails from "../pages/StatefulSetDetails";
 import StorageClasses from "../pages/StorageClasses";
+import StorageClassDetails from "../pages/StorageClassDetails";
+import PersistentVolumeDetails from "../pages/PersistentVolumeDetails";
+import PersistentVolumeClaimDetails from "../pages/PersistentVolumeClaimDetails";
 import Users from "../pages/Users";
 import Groups from "../pages/Groups";
 import ValidatingWebhookConfigurations from "../pages/ValidatingWebhookConfigurations";
@@ -259,6 +262,21 @@ const routes = [
       {
         path: "clusters/:cluster/namespaces/:namespace/secrets/:secretName",
         element: withClusterCheck(<SecretDetails />),
+      },
+      // Storage Class Details routes
+      {
+        path: "clusters/:cluster/storageclasses/:storageClassName",
+        element: withClusterCheck(<StorageClassDetails />),
+      },
+      // Persistent Volume Details routes
+      {
+        path: "clusters/:cluster/persistentvolumes/:pvName",
+        element: withClusterCheck(<PersistentVolumeDetails />),
+      },
+      // Persistent Volume Claim Details routes
+      {
+        path: "clusters/:cluster/namespaces/:namespace/persistentvolumeclaims/:pvcName",
+        element: withClusterCheck(<PersistentVolumeClaimDetails />),
       },
       // Custom Resources routes
       {

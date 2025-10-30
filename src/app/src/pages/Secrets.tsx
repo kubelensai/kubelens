@@ -7,8 +7,10 @@ import {
   TrashIcon, 
   EyeIcon,
   KeyIcon,
+  PlusIcon,
 } from '@heroicons/react/24/outline'
 import Breadcrumb from '@/components/shared/Breadcrumb'
+import CreateSecretModal from '@/components/Secrets/CreateSecretModal'
 import { DataTable, Column } from '@/components/shared/DataTable'
 import EditSecretYAMLModal from '@/components/Secrets/EditSecretYAMLModal'
 import ConfirmationModal from '@/components/shared/ConfirmationModal'
@@ -34,6 +36,7 @@ export default function Secrets() {
   const { addNotification } = useNotificationStore()
   const [selectedSecret, setSelectedSecret] = useState<SecretData | null>(null)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   
   const { data: clusters } = useQuery({
@@ -253,18 +256,30 @@ export default function Secrets() {
         ]}
       />
 
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
-          Secrets
-        </h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          {namespace 
-            ? `Secrets in ${cluster} / ${namespace}`
-            : cluster 
-              ? `All secrets in ${cluster}`
-              : `All secrets across ${clusters?.length || 0} cluster(s)`
-          }
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
+            Secrets
+          </h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            {namespace 
+              ? `Secrets in ${cluster} / ${namespace}`
+              : cluster 
+                ? `All secrets in ${cluster}`
+                : `All secrets across ${clusters?.length || 0} cluster(s)`
+            }
+          </p>
+        </div>
+        {cluster && (
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            <PlusIcon className="w-4 h-4" />
+            <span className="hidden sm:inline">Create Secret</span>
+            <span className="sm:hidden">Create</span>
+          </button>
+        )}
       </div>
       
       <DataTable
@@ -353,6 +368,20 @@ export default function Secrets() {
       />
 
       {/* Modals */}
+      <CreateSecretModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onSuccess={async () => {
+          await queryClient.invalidateQueries({ queryKey: ['secrets'] })
+          await queryClient.invalidateQueries({ queryKey: ['all-secrets'] })
+          await queryClient.refetchQueries({ queryKey: ['secrets'] })
+          await queryClient.refetchQueries({ queryKey: ['all-secrets'] })
+          setIsCreateModalOpen(false)
+        }}
+        clusterName={cluster || ''}
+        namespace={namespace || ''}
+      />
+      
       {selectedSecret && (
         <>
           <EditSecretYAMLModal

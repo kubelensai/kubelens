@@ -7,9 +7,11 @@ import {
   TrashIcon, 
   EyeIcon,
   DocumentTextIcon,
+  PlusIcon,
 } from '@heroicons/react/24/outline'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import { DataTable, Column } from '@/components/shared/DataTable'
+import CreateConfigMapModal from '@/components/ConfigMaps/CreateConfigMapModal'
 import EditConfigMapYAMLModal from '@/components/ConfigMaps/EditConfigMapYAMLModal'
 import ConfirmationModal from '@/components/shared/ConfirmationModal'
 import { useNotificationStore } from '@/stores/notificationStore'
@@ -33,6 +35,7 @@ export default function ConfigMaps() {
   const queryClient = useQueryClient()
   const { addNotification } = useNotificationStore()
   const [selectedConfigMap, setSelectedConfigMap] = useState<ConfigMapData | null>(null)
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   
@@ -237,18 +240,30 @@ export default function ConfigMaps() {
         ]}
       />
 
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
-          ConfigMaps
-        </h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          {namespace 
-            ? `ConfigMaps in ${cluster} / ${namespace}`
-            : cluster 
-              ? `All configmaps in ${cluster}`
-              : `All configmaps across ${clusters?.length || 0} cluster(s)`
-          }
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
+            ConfigMaps
+          </h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            {namespace 
+              ? `ConfigMaps in ${cluster} / ${namespace}`
+              : cluster 
+                ? `All configmaps in ${cluster}`
+                : `All configmaps across ${clusters?.length || 0} cluster(s)`
+            }
+          </p>
+        </div>
+        {cluster && (
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            <PlusIcon className="w-4 h-4" />
+            <span className="hidden sm:inline">Create ConfigMap</span>
+            <span className="sm:hidden">Create</span>
+          </button>
+        )}
       </div>
       
       <DataTable
@@ -333,6 +348,20 @@ export default function ConfigMaps() {
       />
 
       {/* Modals */}
+      <CreateConfigMapModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onSuccess={async () => {
+          await queryClient.invalidateQueries({ queryKey: ['configmaps'] })
+          await queryClient.invalidateQueries({ queryKey: ['all-configmaps'] })
+          await queryClient.refetchQueries({ queryKey: ['configmaps'] })
+          await queryClient.refetchQueries({ queryKey: ['all-configmaps'] })
+          setIsCreateModalOpen(false)
+        }}
+        clusterName={cluster || ''}
+        namespace={namespace || ''}
+      />
+      
       {selectedConfigMap && (
         <>
           <EditConfigMapYAMLModal
