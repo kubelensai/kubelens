@@ -65,8 +65,9 @@ export const Sidebar = ({
     >
       {/* Logo */}
       <div
-        className={clsx('py-8 flex justify-start', {
-          'lg:justify-center': !isExpanded && !isHovered && !isMobileOpen,
+        className={clsx('py-8 flex', {
+          'justify-start': isExpanded || isHovered || isMobileOpen,
+          'justify-center': !isExpanded && !isHovered && !isMobileOpen,
         })}
       >
         <Link to="/" className="flex items-center gap-3 transition-transform hover:scale-105 group">

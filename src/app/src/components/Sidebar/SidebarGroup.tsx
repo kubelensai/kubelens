@@ -1,5 +1,6 @@
 import { ChevronDownIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 import clsx from 'clsx';
+import { useSidebar } from '@/context/SidebarContext';
 import { SidebarItem } from './SidebarItem';
 import type { NavigationItem } from '@/types/navigation';
 
@@ -20,13 +21,19 @@ export const SidebarGroup = ({
   expandedGroups = new Set(),
   toggleGroup 
 }: SidebarGroupProps) => {
+  const { isExpanded: sidebarExpanded, isMobileOpen, isHovered } = useSidebar();
+  const isCollapsed = !sidebarExpanded && !isHovered && !isMobileOpen;
+
   return (
     <div>
       <button
         onClick={onToggle}
         className={clsx(
           'menu-item group cursor-pointer',
-          isExpanded ? 'menu-item-active' : 'menu-item-inactive'
+          isExpanded ? 'menu-item-active' : 'menu-item-inactive',
+          {
+            'justify-center': isCollapsed,
+          }
         )}
         aria-expanded={isExpanded}
         aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${item.name} menu`}
@@ -40,9 +47,9 @@ export const SidebarGroup = ({
           <item.icon aria-hidden="true" />
         </span>
 
-        <span className="menu-item-text flex-1 text-left">{item.name}</span>
+        {!isCollapsed && <span className="menu-item-text flex-1 text-left">{item.name}</span>}
 
-        <div className="flex items-center gap-1 flex-shrink-0">
+        {!isCollapsed && <div className="flex items-center gap-1 flex-shrink-0">
           {/* Refresh button for CRD groups */}
           {item.hasRefresh && isExpanded && (
             <button
@@ -73,38 +80,40 @@ export const SidebarGroup = ({
             )}
             aria-hidden="true"
           />
-        </div>
+        </div>}
       </button>
 
-      {/* Dropdown content with smooth animation */}
-      <div
-        className={clsx(
-          'overflow-hidden transition-all duration-300 ease-in-out',
-          isExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'
-        )}
-        aria-hidden={!isExpanded}
-      >
-        <ul className="mt-2 space-y-1 ml-9" role="menu">
-          {item.children?.map((child) => {
-            if (child.isGroup) {
-              // Support nested groups (e.g., CRD groups inside Custom Resources)
-              const childExpanded = expandedGroups.has(child.name.toLowerCase());
-              return (
-                <SidebarGroup
-                  key={child.name}
-                  item={child}
-                  isExpanded={childExpanded}
-                  onToggle={() => toggleGroup?.(child.name.toLowerCase())}
-                  level={level + 1}
-                  expandedGroups={expandedGroups}
-                  toggleGroup={toggleGroup}
-                />
-              );
-            }
-            return <SidebarItem key={child.name} item={child} />;
-          })}
-        </ul>
-      </div>
+      {/* Dropdown content with smooth animation - only show when sidebar is expanded */}
+      {!isCollapsed && (
+        <div
+          className={clsx(
+            'overflow-hidden transition-all duration-300 ease-in-out',
+            isExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'
+          )}
+          aria-hidden={!isExpanded}
+        >
+          <ul className="mt-2 space-y-1 ml-9" role="menu">
+            {item.children?.map((child) => {
+              if (child.isGroup) {
+                // Support nested groups (e.g., CRD groups inside Custom Resources)
+                const childExpanded = expandedGroups.has(child.name.toLowerCase());
+                return (
+                  <SidebarGroup
+                    key={child.name}
+                    item={child}
+                    isExpanded={childExpanded}
+                    onToggle={() => toggleGroup?.(child.name.toLowerCase())}
+                    level={level + 1}
+                    expandedGroups={expandedGroups}
+                    toggleGroup={toggleGroup}
+                  />
+                );
+              }
+              return <SidebarItem key={child.name} item={child} />;
+            })}
+          </ul>
+        </div>
+      )}
     </div>
   );
 };

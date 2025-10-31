@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import clsx from 'clsx';
 import { lightTap } from '@/utils/haptics';
+import { useSidebar } from '@/context/SidebarContext';
 import type { NavigationItem } from '@/types/navigation';
 
 interface SidebarItemProps {
@@ -9,6 +10,7 @@ interface SidebarItemProps {
 
 export const SidebarItem = ({ item }: SidebarItemProps) => {
   const location = useLocation();
+  const { isExpanded, isMobileOpen, isHovered } = useSidebar();
   
   // Precise matching logic for sidebar items
   const isActive = (() => {
@@ -56,6 +58,8 @@ export const SidebarItem = ({ item }: SidebarItemProps) => {
     return null;
   }
 
+  const isCollapsed = !isExpanded && !isHovered && !isMobileOpen;
+
   return (
     <li>
       <Link
@@ -63,7 +67,10 @@ export const SidebarItem = ({ item }: SidebarItemProps) => {
         onClick={() => lightTap()}
         className={clsx(
           'menu-item group',
-          isActive ? 'menu-item-active' : 'menu-item-inactive'
+          isActive ? 'menu-item-active' : 'menu-item-inactive',
+          {
+            'justify-center': isCollapsed,
+          }
         )}
         aria-current={isActive ? 'page' : undefined}
       >
@@ -84,7 +91,7 @@ export const SidebarItem = ({ item }: SidebarItemProps) => {
           <item.icon aria-hidden="true" />
         </span>
 
-        <span className="menu-item-text">{item.name}</span>
+        {!isCollapsed && <span className="menu-item-text">{item.name}</span>}
       </Link>
     </li>
   );

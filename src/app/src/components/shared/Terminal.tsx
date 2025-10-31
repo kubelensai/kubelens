@@ -104,14 +104,6 @@ export default function Terminal({ wsUrl, onClose, title = 'Terminal', subtitle 
     // Detect if mobile device
     const isMobile = window.innerWidth < 640
     
-    console.log('🖥️ Terminal initialization:', {
-      isMobile,
-      screenWidth: window.innerWidth,
-      screenHeight: window.innerHeight,
-      containerWidth: terminalRef.current.clientWidth,
-      containerHeight: terminalRef.current.clientHeight
-    })
-    
     // Initialize terminal with enhanced settings for Powerlevel10k/Zsh
     const term = new XTerm({
       cursorBlink: true,
@@ -275,11 +267,6 @@ export default function Terminal({ wsUrl, onClose, title = 'Terminal', subtitle 
   }, [isDark])
 
   const connectWebSocket = (term: XTerm) => {
-    console.log('🔌 Starting WebSocket connection...', {
-      wsUrl,
-      token: token ? 'present' : 'missing'
-    })
-    
     // Show loading animation
     term.writeln(`\x1b[1;34m🔌 Connecting to shell...\x1b[0m`)
     if (subtitle) {
@@ -305,7 +292,7 @@ export default function Terminal({ wsUrl, onClose, title = 'Terminal', subtitle 
     let hasReceivedMessage = false
 
     ws.onopen = () => {
-      console.log('✅ WebSocket opened successfully')
+      // WebSocket connection established
     }
 
     ws.onmessage = (event) => {
@@ -337,34 +324,20 @@ export default function Terminal({ wsUrl, onClose, title = 'Terminal', subtitle 
       }
     }
 
-    ws.onerror = (error) => {
-      console.error('❌ WebSocket error:', error, {
-        readyState: ws.readyState,
-        url: authenticatedWsUrl.replace(/token=[^&]+/, 'token=***')
-      })
+    ws.onerror = () => {
       clearInterval(spinnerInterval)
       term.write('\r\x1b[K')
       term.writeln('\x1b[1;31m✗ Connection error\x1b[0m')
       term.writeln('\x1b[90mFailed to connect to shell\x1b[0m')
-      term.writeln(`\x1b[90mURL: ${wsUrl}\x1b[0m`)
       setIsConnected(false)
     }
 
-    ws.onclose = (event) => {
-      console.log('🔌 WebSocket closed', {
-        code: event.code,
-        reason: event.reason,
-        wasClean: event.wasClean
-      })
+    ws.onclose = () => {
       clearInterval(spinnerInterval)
       if (hasReceivedMessage) {
         term.write('\r\x1b[K')
         term.writeln('')
         term.writeln('\x1b[1;33m⚠ Connection closed\x1b[0m')
-      } else {
-        term.write('\r\x1b[K')
-        term.writeln('\x1b[1;33m⚠ Connection closed before data received\x1b[0m')
-        term.writeln(`\x1b[90mCode: ${event.code}, Reason: ${event.reason || 'No reason provided'}\x1b[0m`)
       }
       setIsConnected(false)
     }
