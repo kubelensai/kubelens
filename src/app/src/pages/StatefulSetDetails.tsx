@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import {
-  CircleStackIcon,
+  QueueListIcon,
   ArrowsUpDownIcon,
   ArrowPathIcon,
   TrashIcon,
@@ -985,7 +985,7 @@ export default function StatefulSetDetails({}: StatefulSetDetailsProps) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center">
-            <CircleStackIcon className="w-6 h-6 text-white" />
+            <QueueListIcon className="w-6 h-6 text-white" />
           </div>
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold gradient-text">

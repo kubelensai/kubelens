@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ChevronDownIcon, ServerIcon, CheckIcon, GlobeAltIcon } from '@heroicons/react/24/outline'
+import { ChevronDownIcon, ServerIcon, CheckIcon, GlobeAltIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import { useClusters } from '@/hooks/useClusters'
 import { useClusterStore } from '@/stores/clusterStore'
 import clsx from 'clsx'
 
 export default function ClusterSelector() {
   const [isOpen, setIsOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
   const { cluster: clusterParam } = useParams()
   
@@ -34,6 +36,15 @@ export default function ClusterSelector() {
     }
   }, [clusterParam, selectedCluster, setSelectedCluster])
 
+  // Focus search input when dropdown opens
+  useEffect(() => {
+    if (isOpen && searchInputRef.current) {
+      setTimeout(() => searchInputRef.current?.focus(), 100)
+    } else {
+      setSearchQuery('')
+    }
+  }, [isOpen])
+
   // Click outside to close
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -47,6 +58,15 @@ export default function ClusterSelector() {
       return () => document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [isOpen])
+
+  // Filter clusters based on search query
+  const filteredClusters = clusters?.filter((cluster: any) => {
+    const name = cluster.name || ''
+    const version = cluster.version || ''
+    const query = searchQuery.toLowerCase()
+    
+    return name.toLowerCase().includes(query) || version.toLowerCase().includes(query)
+  })
 
   const handleSelectCluster = (clusterName: string | null) => {
     setSelectedCluster(clusterName)
@@ -162,10 +182,32 @@ export default function ClusterSelector() {
           "bg-white dark:bg-[#1a1f2e]",
           "border border-gray-200 dark:border-gray-700",
           "rounded-lg shadow-xl",
-          "max-h-96 overflow-y-auto",
           "animate-in fade-in-0 zoom-in-95"
         )}>
-          <div className="py-2">
+          {/* Search Input */}
+          <div className="p-2 border-b border-gray-200 dark:border-gray-700">
+            <div className="relative">
+              <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search clusters..."
+                className={clsx(
+                  "w-full pl-9 pr-3 py-2 text-sm",
+                  "bg-gray-50 dark:bg-gray-800/50",
+                  "border border-gray-200 dark:border-gray-700",
+                  "rounded-lg",
+                  "text-gray-900 dark:text-gray-100",
+                  "placeholder-gray-500 dark:placeholder-gray-400",
+                  "focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                )}
+              />
+            </div>
+          </div>
+
+          <div className="py-2 max-h-80 overflow-y-auto">
             {/* All Clusters Option */}
             <button
               onClick={() => handleSelectCluster(null)}
@@ -194,8 +236,8 @@ export default function ClusterSelector() {
             )}
 
             {/* Cluster Options */}
-            {clusters && clusters.length > 0 ? (
-              clusters.map((cluster: any) => {
+            {filteredClusters && filteredClusters.length > 0 ? (
+              filteredClusters.map((cluster: any) => {
                 const isSelected = selectedCluster === cluster.name
                 const statusColor = cluster.status === 'healthy' || cluster.status === 'connected'
                   ? 'text-green-500'
@@ -230,6 +272,10 @@ export default function ClusterSelector() {
                   </button>
                 )
               })
+            ) : searchQuery ? (
+              <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                No clusters found matching "{searchQuery}"
+              </div>
             ) : (
               <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
                 No clusters available

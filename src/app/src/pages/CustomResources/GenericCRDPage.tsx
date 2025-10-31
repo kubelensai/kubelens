@@ -1,20 +1,17 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { getCustomResources, getClusters } from '@/services/api'
-import { useMemo, useState, useEffect } from 'react'
-import { MagnifyingGlassIcon, PencilSquareIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { useMemo, useState } from 'react'
+import { CubeIcon, PencilSquareIcon, TrashIcon } from '@heroicons/react/24/outline'
 import Breadcrumb from '@/components/shared/Breadcrumb'
-import ResizableTableHeader from '@/components/shared/ResizableTableHeader'
+import { DataTable, Column } from '@/components/shared/DataTable'
 import { formatAge } from '@/utils/format'
-import { useTableSort } from '@/hooks/useTableSort'
-import { useResizableColumns } from '@/hooks/useResizableColumns'
-import { usePagination } from '@/hooks/usePagination'
-import Pagination from '@/components/shared/Pagination'
 import { useClusterStore } from '@/stores/clusterStore'
 import { useNamespaceStore } from '@/stores/namespaceStore'
-import CustomResourceDetailsModal from '@/components/CustomResources/CustomResourceDetailsModal'
 import EditCustomResourceModal from '@/components/CustomResources/EditCustomResourceModal'
-import DeleteCustomResourceModal from '@/components/CustomResources/DeleteCustomResourceModal'
+import ConfirmationModal from '@/components/shared/ConfirmationModal'
+import { useNotificationStore } from '@/stores/notificationStore'
+import api from '@/services/api'
 
 export default function GenericCRDPage() {
   const { cluster: clusterParam, namespace: namespaceParam, group, version, resource } = useParams<{
@@ -26,11 +23,11 @@ export default function GenericCRDPage() {
   }>()
 
   const queryClient = useQueryClient()
-  const [filterText, setFilterText] = useState('')
+  const navigate = useNavigate()
+  const { addNotification } = useNotificationStore()
   
   // Modal states
   const [selectedResource, setSelectedResource] = useState<any>(null)
-  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
 
@@ -43,14 +40,6 @@ export default function GenericCRDPage() {
     queryKey: ['clusters'],
     queryFn: getClusters,
   })
-
-  // Reset modal states when cluster/namespace changes
-  useEffect(() => {
-    setIsDetailsModalOpen(false)
-    setIsEditModalOpen(false)
-    setIsDeleteModalOpen(false)
-    setSelectedResource(null)
-  }, [clusterParam, namespaceParam, selectedCluster, selectedNamespace])
 
   // Determine active cluster: URL param > store > first enabled cluster
   const activeCluster = clusterParam || selectedCluster || (clusters && clusters.length > 0 ? clusters[0].name : null)
@@ -66,78 +55,253 @@ export default function GenericCRDPage() {
     refetchInterval: 5000,
   })
 
-  // Filter resources
-  const filteredResources = useMemo(() => {
-    if (!filterText) return resources
-
-    const searchText = filterText.toLowerCase()
-    return resources.filter((r: any) => {
-      const name = r.metadata?.name || ''
-      const namespace = r.metadata?.namespace || ''
-      const labelsMatch = r.metadata?.labels
-        ? Object.entries(r.metadata.labels).some(([key, value]) =>
-            key.toLowerCase().includes(searchText) ||
-            String(value).toLowerCase().includes(searchText)
-          )
-        : false
-
-      return (
-        name.toLowerCase().includes(searchText) ||
-        namespace.toLowerCase().includes(searchText) ||
-        labelsMatch
-      )
-    })
-  }, [resources, filterText])
-
-  // Sorting
-  const { sortedData, sortConfig, requestSort } = useTableSort(filteredResources, {
-    key: 'metadata.name',
-    direction: 'asc',
-  })
-
-  // Pagination
-  const { currentPage, pageSize, paginatedData, totalPages, goToPage, changePageSize, goToNextPage, goToPreviousPage, hasNextPage, hasPreviousPage, totalItems } = usePagination(
-    sortedData,
-    10,
-    `customresource-${group}-${resource}`
-  )
-
-  // Resizable columns
-  const { columnWidths, handleMouseDown } = useResizableColumns({
-    name: 30,
-    namespace: 20,
-    age: 15,
-    status: 20,
-    actions: 15,
-  }, `cr-${resource}-column-widths`)
-
-  const handleRowClick = (resource: any) => {
-    setSelectedResource(resource)
-    setIsDetailsModalOpen(true)
-  }
-
-  const handleEdit = (e: React.MouseEvent, resource: any) => {
-    e.stopPropagation()
-    setSelectedResource(resource)
-    setIsEditModalOpen(true)
-  }
-
-  const handleDelete = (e: React.MouseEvent, resource: any) => {
-    e.stopPropagation()
-    setSelectedResource(resource)
-    setIsDeleteModalOpen(true)
-  }
-
-  const handleRefresh = () => {
-    queryClient.invalidateQueries({ queryKey: ['customresources'] })
+  const handleDeleteResource = async () => {
+    if (!selectedResource) return
+    
+    try {
+      const namespace = selectedResource.metadata?.namespace
+      const name = selectedResource.metadata?.name
+      
+      if (namespace) {
+        await api.delete(
+          `/clusters/${activeCluster}/namespaces/${namespace}/customresources/${name}?group=${group}&version=${version}&resource=${resource}`
+        )
+      } else {
+        await api.delete(
+          `/clusters/${activeCluster}/customresources/${name}?group=${group}&version=${version}&resource=${resource}`
+        )
+      }
+      
+      addNotification({
+        type: 'success',
+        title: 'Success',
+        message: 'Custom resource deleted successfully',
+      })
+      queryClient.invalidateQueries({ queryKey: ['customresources'] })
+      setIsDeleteModalOpen(false)
+      setSelectedResource(null)
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: `Failed to delete custom resource: ${error.message || 'Unknown error'}`,
+      })
+    }
   }
 
   // Get resource kind for display (capitalize first letter of singular form)
   const resourceKind = resource ? resource.charAt(0).toUpperCase() + resource.slice(1, -1) : 'Resource'
 
+  const columns = useMemo<Column<any>[]>(() => {
+    const cols: Column<any>[] = [
+      {
+        key: 'name',
+        header: 'Name',
+        accessor: (r) => {
+          const name = r.metadata?.name || '-'
+          const ns = r.metadata?.namespace
+          
+          return (
+            <button
+              onClick={() => {
+                if (ns) {
+                  navigate(`/clusters/${activeCluster}/namespaces/${ns}/customresources/${group}/${version}/${resource}/${name}`)
+                } else {
+                  navigate(`/clusters/${activeCluster}/customresources/${group}/${version}/${resource}/${name}`)
+                }
+              }}
+              className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium text-left"
+            >
+              {name}
+            </button>
+          )
+        },
+        sortable: true,
+        sortValue: (r) => r.metadata?.name || '',
+        searchValue: (r) => r.metadata?.name || '',
+      },
+    ]
+
+    // Only show namespace column if we're viewing all namespaces
+    if (activeNamespace === undefined) {
+      cols.push({
+        key: 'namespace',
+        header: 'Namespace',
+        accessor: (r) => {
+          const ns = r.metadata?.namespace
+          if (!ns) return <span className="text-sm text-gray-500 dark:text-gray-400">-</span>
+          
+          return (
+            <button
+              onClick={() => navigate(`/clusters/${activeCluster}/namespaces/${ns}/customresources/${group}/${version}/${resource}`)}
+              className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-sm text-left"
+            >
+              {ns}
+            </button>
+          )
+        },
+        sortable: true,
+        sortValue: (r) => r.metadata?.namespace || '',
+        searchValue: (r) => r.metadata?.namespace || '',
+      })
+    }
+
+    cols.push(
+      {
+        key: 'kind',
+        header: 'Kind',
+        accessor: (r) => (
+          <span className="text-sm text-gray-700 dark:text-gray-300">
+            {r.kind || '-'}
+          </span>
+        ),
+        sortable: true,
+        sortValue: (r) => r.kind || '',
+        searchValue: (r) => r.kind || '',
+      },
+      {
+        key: 'apiVersion',
+        header: 'API Version',
+        accessor: (r) => (
+          <span className="text-sm text-gray-700 dark:text-gray-300">
+            {r.apiVersion || `${group}/${version}`}
+          </span>
+        ),
+        sortable: true,
+        sortValue: (r) => r.apiVersion || `${group}/${version}`,
+        searchValue: (r) => r.apiVersion || `${group}/${version}`,
+      },
+      {
+        key: 'age',
+        header: 'Age',
+        accessor: (r) => (
+          <span className="text-sm text-gray-700 dark:text-gray-300">
+            {formatAge(r.metadata?.creationTimestamp)}
+          </span>
+        ),
+        sortable: true,
+        sortValue: (r) => new Date(r.metadata?.creationTimestamp || 0).getTime(),
+        searchValue: (r) => formatAge(r.metadata?.creationTimestamp),
+      },
+      {
+        key: 'actions',
+        header: 'Actions',
+        accessor: (r) => (
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setSelectedResource(r)
+                setIsEditModalOpen(true)
+              }}
+              className="p-1.5 text-yellow-600 hover:text-yellow-900 dark:text-yellow-400 dark:hover:text-yellow-300 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded transition-colors"
+              title="Edit YAML"
+            >
+              <PencilSquareIcon className="h-4 w-4" />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setSelectedResource(r)
+                setIsDeleteModalOpen(true)
+              }}
+              className="p-1.5 text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+              title="Delete"
+            >
+              <TrashIcon className="h-4 w-4" />
+            </button>
+          </div>
+        ),
+        sortable: false,
+      }
+    )
+
+    return cols
+  }, [activeNamespace, activeCluster, group, version, resource, navigate])
+
+  const mobileCardRenderer = (r: any) => (
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+            <CubeIcon className="w-5 h-5 text-white" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <button
+              onClick={() => {
+                const name = r.metadata?.name
+                const ns = r.metadata?.namespace
+                if (ns) {
+                  navigate(`/clusters/${activeCluster}/namespaces/${ns}/customresources/${group}/${version}/${resource}/${name}`)
+                } else {
+                  navigate(`/clusters/${activeCluster}/customresources/${group}/${version}/${resource}/${name}`)
+                }
+              }}
+              className="text-sm font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-left truncate block w-full"
+            >
+              {r.metadata?.name || '-'}
+            </button>
+            {activeNamespace === undefined && r.metadata?.namespace && (
+              <button
+                onClick={() => navigate(`/clusters/${activeCluster}/namespaces/${r.metadata.namespace}/customresources/${group}/${version}/${resource}`)}
+                className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
+              >
+                {r.metadata.namespace}
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setSelectedResource(r)
+              setIsEditModalOpen(true)
+            }}
+            className="p-1.5 text-yellow-600 hover:text-yellow-900 dark:text-yellow-400 dark:hover:text-yellow-300 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded transition-colors"
+            title="Edit YAML"
+          >
+            <PencilSquareIcon className="h-4 w-4" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setSelectedResource(r)
+              setIsDeleteModalOpen(true)
+            }}
+            className="p-1.5 text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+            title="Delete"
+          >
+            <TrashIcon className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+      
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <span className="text-gray-500 dark:text-gray-400">Kind:</span>
+          <p className="text-gray-900 dark:text-white">
+            {r.kind || '-'}
+          </p>
+        </div>
+        <div>
+          <span className="text-gray-500 dark:text-gray-400">API Version:</span>
+          <p className="text-gray-900 dark:text-white truncate">
+            {r.apiVersion || `${group}/${version}`}
+          </p>
+        </div>
+        <div>
+          <span className="text-gray-500 dark:text-gray-400">Age:</span>
+          <p className="text-gray-900 dark:text-white">
+            {formatAge(r.metadata?.creationTimestamp)}
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+
   return (
-    <div className="space-y-6">
-      {/* Breadcrumb */}
+    <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={
           clusterParam
@@ -152,201 +316,71 @@ export default function GenericCRDPage() {
         }
       />
 
-      {/* Header */}
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-          <div className="flex-1">
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{resourceKind}s</h1>
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+            <CubeIcon className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
+              {resourceKind}s
+            </h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
               Custom resources from {group}/{version}
             </p>
           </div>
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
-            <div className="relative w-full sm:w-80">
-              <MagnifyingGlassIcon className="absolute left-3.5 top-1/2 h-4 w-4 sm:h-5 sm:w-5 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Filter by name, namespace..."
-                value={filterText}
-                onChange={(e) => setFilterText(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 pl-11 pr-4 py-2 text-sm focus:border-primary-500 focus:ring-primary-500 dark:text-white"
-              />
-            </div>
-            <div className="text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap self-end sm:self-center">
-              {filteredResources.length} {filteredResources.length === 1 ? 'resource' : 'resources'}
-            </div>
-          </div>
         </div>
       </div>
 
-      {/* Table */}
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                <ResizableTableHeader
-                  label="Name"
-                  sortKey="metadata.name"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.name}
-                  columnKey="name"
-                  onResizeStart={handleMouseDown}
-                />
-                {activeNamespace === undefined && (
-                  <ResizableTableHeader
-                    label="Namespace"
-                    sortKey="metadata.namespace"
-                    currentSortKey={sortConfig?.key as string}
-                    currentSortDirection={sortConfig?.direction || null}
-                    onSort={requestSort}
-                    width={columnWidths.namespace}
-                    columnKey="namespace"
-                    onResizeStart={handleMouseDown}
-                  />
-                )}
-                <ResizableTableHeader
-                  label="Age"
-                  sortKey="metadata.creationTimestamp"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.age}
-                  columnKey="age"
-                  onResizeStart={handleMouseDown}
-                />
-                <ResizableTableHeader
-                  label="Status"
-                  sortKey="status.phase"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.status}
-                  columnKey="status"
-                  onResizeStart={handleMouseDown}
-                />
-                <th
-                  className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
-                  style={{ width: `${columnWidths.actions}%` }}
-                >
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={activeNamespace === undefined ? 5 : 4} className="px-6 py-12 text-center">
-                    <div className="flex items-center justify-center">
-                      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-primary-600"></div>
-                      <span className="ml-3 text-gray-500 dark:text-gray-400">Loading resources...</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : paginatedData.length === 0 ? (
-                <tr>
-                  <td colSpan={activeNamespace === undefined ? 5 : 4} className="px-6 py-12 text-center">
-                    <p className="text-gray-500 dark:text-gray-400">No resources found</p>
-                  </td>
-                </tr>
-              ) : (
-                paginatedData.map((r: any) => (
-                  <tr
-                    key={`${r.metadata?.namespace || 'cluster'}-${r.metadata?.name}`}
-                    onClick={() => handleRowClick(r)}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer"
-                  >
-                    <td
-                      className="px-6 py-4 text-sm font-medium text-gray-900 dark:text-white whitespace-nowrap overflow-hidden text-ellipsis"
-                      style={{ maxWidth: `${columnWidths.name}%` }}
-                    >
-                      {r.metadata?.name || '-'}
-                    </td>
-                    {activeNamespace === undefined && (
-                      <td
-                        className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap overflow-hidden text-ellipsis"
-                        style={{ maxWidth: `${columnWidths.namespace}%` }}
-                      >
-                        {r.metadata?.namespace || '-'}
-                      </td>
-                    )}
-                    <td
-                      className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap"
-                      style={{ maxWidth: `${columnWidths.age}%` }}
-                    >
-                      {formatAge(r.metadata?.creationTimestamp)}
-                    </td>
-                    <td
-                      className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap overflow-hidden text-ellipsis"
-                      style={{ maxWidth: `${columnWidths.status}%` }}
-                    >
-                      {r.status?.phase || r.status?.state || r.status?.conditions?.[0]?.type || 'Unknown'}
-                    </td>
-                    <td className="px-6 py-4 text-right text-sm font-medium whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={(e) => handleEdit(e, r)}
-                          className="p-2 text-yellow-600 hover:text-yellow-700 dark:text-yellow-400 dark:hover:text-yellow-300 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded-lg transition-all"
-                          title="Edit YAML"
-                        >
-                          <PencilSquareIcon className="h-5 w-5" />
-                        </button>
-                        <button
-                          onClick={(e) => handleDelete(e, r)}
-                          className="p-2 text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
-                          title="Delete"
-                        >
-                          <TrashIcon className="h-5 w-5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+      <DataTable
+        data={resources}
+        columns={columns}
+        keyExtractor={(r) => `${r.metadata?.namespace || 'cluster'}-${r.metadata?.name}`}
+        searchPlaceholder="Search custom resources..."
+        isLoading={isLoading}
+        emptyMessage="No custom resources found"
+        emptyIcon={<CubeIcon className="w-12 h-12 text-gray-400" />}
+        mobileCardRenderer={mobileCardRenderer}
+      />
 
-        {/* Pagination */}
-        {!isLoading && paginatedData.length > 0 && (
-          <Pagination currentPage={currentPage} totalPages={totalPages} pageSize={pageSize} totalItems={totalItems} onPageChange={goToPage} onPageSizeChange={changePageSize} onNextPage={goToNextPage} onPreviousPage={goToPreviousPage} hasNextPage={hasNextPage} hasPreviousPage={hasPreviousPage} />
-        )}
-      </div>
-
-      {/* Modals */}
       {selectedResource && (
         <>
-          <CustomResourceDetailsModal
-            resource={selectedResource}
-            group={group!}
-            version={version!}
-            resourceType={resource!}
-            isOpen={isDetailsModalOpen}
-            onClose={() => setIsDetailsModalOpen(false)}
-          />
           <EditCustomResourceModal
             resource={selectedResource}
             group={group!}
             version={version!}
             resourceType={resource!}
             isOpen={isEditModalOpen}
-            onClose={() => setIsEditModalOpen(false)}
-            onSuccess={handleRefresh}
+            onClose={() => {
+              setIsEditModalOpen(false)
+              setSelectedResource(null)
+            }}
+            onSuccess={() => {
+              queryClient.invalidateQueries({ queryKey: ['customresources'] })
+              addNotification({
+                type: 'success',
+                title: 'Success',
+                message: 'Custom resource updated successfully',
+              })
+              setIsEditModalOpen(false)
+              setSelectedResource(null)
+            }}
           />
-          <DeleteCustomResourceModal
-            resource={selectedResource}
-            group={group!}
-            version={version!}
-            resourceType={resource!}
+
+          <ConfirmationModal
             isOpen={isDeleteModalOpen}
-            onClose={() => setIsDeleteModalOpen(false)}
-            onSuccess={handleRefresh}
+            onClose={() => {
+              setIsDeleteModalOpen(false)
+              setSelectedResource(null)
+            }}
+            onConfirm={handleDeleteResource}
+            title="Delete Custom Resource"
+            message={`Are you sure you want to delete custom resource "${selectedResource.metadata?.name}"? This action cannot be undone.`}
+            confirmText="Delete"
+            type="danger"
           />
         </>
       )}
     </div>
   )
 }
-

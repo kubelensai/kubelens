@@ -101,10 +101,21 @@ export default function Terminal({ wsUrl, onClose, title = 'Terminal', subtitle 
   useEffect(() => {
     if (!terminalRef.current) return
 
+    // Detect if mobile device
+    const isMobile = window.innerWidth < 640
+    
+    console.log('🖥️ Terminal initialization:', {
+      isMobile,
+      screenWidth: window.innerWidth,
+      screenHeight: window.innerHeight,
+      containerWidth: terminalRef.current.clientWidth,
+      containerHeight: terminalRef.current.clientHeight
+    })
+    
     // Initialize terminal with enhanced settings for Powerlevel10k/Zsh
     const term = new XTerm({
       cursorBlink: true,
-      fontSize: 14,
+      fontSize: isMobile ? 12 : 14,
       // Use fonts that support Powerline glyphs and ligatures
       fontFamily: '"MesloLGS NF", "Cascadia Code PL", "Fira Code", "JetBrains Mono", "Courier New", monospace',
       fontWeight: 'normal',
@@ -129,6 +140,11 @@ export default function Terminal({ wsUrl, onClose, title = 'Terminal', subtitle 
       macOptionIsMeta: true,
       // Enable proper alt key handling for Zsh
       altClickMovesCursor: true,
+      // Responsive settings for mobile
+      rows: isMobile ? 20 : undefined,
+      cols: isMobile ? 80 : undefined,
+      // CRITICAL: Enable screen keyboard for mobile devices
+      screenReaderMode: false, // Keep false for better performance
     })
 
     const fitAddon = new FitAddon()
@@ -146,17 +162,25 @@ export default function Terminal({ wsUrl, onClose, title = 'Terminal', subtitle 
     term.unicode.activeVersion = '11'
 
     // Try to load WebGL addon for better performance (fallback to canvas if fails)
-    try {
-      const webglAddon = new WebglAddon()
-      webglAddon.onContextLoss(() => {
-        webglAddon.dispose()
-      })
-      term.loadAddon(webglAddon)
-    } catch (e) {
-      console.warn('WebGL addon failed to load, using canvas renderer:', e)
+    // Skip WebGL on mobile devices as it can cause issues
+    if (!isMobile) {
+      try {
+        const webglAddon = new WebglAddon()
+        webglAddon.onContextLoss(() => {
+          webglAddon.dispose()
+        })
+        term.loadAddon(webglAddon)
+      } catch (e) {
+        console.warn('WebGL addon failed to load, using canvas renderer:', e)
+      }
     }
 
-    fitAddon.fit()
+    // Fit terminal to container
+    try {
+      fitAddon.fit()
+    } catch (e) {
+      console.warn('FitAddon failed, using default size:', e)
+    }
 
     termRef.current = term
     fitAddonRef.current = fitAddon
@@ -176,12 +200,66 @@ export default function Terminal({ wsUrl, onClose, title = 'Terminal', subtitle 
 
     // Focus terminal
     term.focus()
+    
+    // For mobile: ensure the internal textarea is accessible
+    if (isMobile && terminalRef.current) {
+      // xterm.js creates an internal textarea for input
+      // We need to make sure it's properly configured for mobile
+      const xtermTextarea = terminalRef.current.querySelector('textarea')
+      if (xtermTextarea) {
+        // Ensure it's not readonly and can receive input
+        xtermTextarea.removeAttribute('readonly')
+        xtermTextarea.setAttribute('autocomplete', 'off')
+        xtermTextarea.setAttribute('autocorrect', 'off')
+        xtermTextarea.setAttribute('autocapitalize', 'off')
+        xtermTextarea.setAttribute('spellcheck', 'false')
+        // Make sure it's not hidden
+        xtermTextarea.style.opacity = '0'
+        xtermTextarea.style.position = 'absolute'
+        xtermTextarea.style.left = '0'
+        xtermTextarea.style.top = '0'
+        xtermTextarea.style.width = '0'
+        xtermTextarea.style.height = '0'
+        xtermTextarea.style.zIndex = '-10'
+      }
+    }
 
     // Connect WebSocket
     connectWebSocket(term)
 
+    // Add click handler to ensure terminal gets focus (especially important on mobile)
+    const handleTerminalClick = (e: MouseEvent | TouchEvent) => {
+      e.preventDefault()
+      
+      if (termRef.current) {
+        termRef.current.focus()
+        
+        // On mobile, also focus the internal textarea directly
+        if (isMobile && terminalRef.current) {
+          const xtermTextarea = terminalRef.current.querySelector('textarea') as HTMLTextAreaElement
+          if (xtermTextarea) {
+            // Small delay to ensure the terminal is ready
+            setTimeout(() => {
+              xtermTextarea.focus()
+              // Trigger click on textarea to ensure keyboard appears
+              xtermTextarea.click()
+            }, 50)
+          }
+        }
+      }
+    }
+
+    if (terminalRef.current) {
+      terminalRef.current.addEventListener('click', handleTerminalClick)
+      terminalRef.current.addEventListener('touchstart', handleTerminalClick)
+    }
+
     return () => {
       window.removeEventListener('resize', handleResize)
+      if (terminalRef.current) {
+        terminalRef.current.removeEventListener('click', handleTerminalClick as any)
+        terminalRef.current.removeEventListener('touchstart', handleTerminalClick as any)
+      }
       if (wsRef.current) {
         wsRef.current.close()
       }
@@ -197,6 +275,11 @@ export default function Terminal({ wsUrl, onClose, title = 'Terminal', subtitle 
   }, [isDark])
 
   const connectWebSocket = (term: XTerm) => {
+    console.log('🔌 Starting WebSocket connection...', {
+      wsUrl,
+      token: token ? 'present' : 'missing'
+    })
+    
     // Show loading animation
     term.writeln(`\x1b[1;34m🔌 Connecting to shell...\x1b[0m`)
     if (subtitle) {
@@ -222,7 +305,7 @@ export default function Terminal({ wsUrl, onClose, title = 'Terminal', subtitle 
     let hasReceivedMessage = false
 
     ws.onopen = () => {
-      console.log('✅ WebSocket opened')
+      console.log('✅ WebSocket opened successfully')
     }
 
     ws.onmessage = (event) => {
@@ -235,6 +318,11 @@ export default function Terminal({ wsUrl, onClose, title = 'Terminal', subtitle 
         term.writeln('\x1b[1;32m✓ Connected successfully\x1b[0m')
         term.writeln('')
         setIsConnected(true)
+        
+        // Ensure terminal is focused and ready for input
+        setTimeout(() => {
+          term.focus()
+        }, 100)
       }
 
       if (typeof data === 'string') {
@@ -250,52 +338,71 @@ export default function Terminal({ wsUrl, onClose, title = 'Terminal', subtitle 
     }
 
     ws.onerror = (error) => {
-      console.error('❌ WebSocket error:', error)
+      console.error('❌ WebSocket error:', error, {
+        readyState: ws.readyState,
+        url: authenticatedWsUrl.replace(/token=[^&]+/, 'token=***')
+      })
       clearInterval(spinnerInterval)
       term.write('\r\x1b[K')
       term.writeln('\x1b[1;31m✗ Connection error\x1b[0m')
       term.writeln('\x1b[90mFailed to connect to shell\x1b[0m')
+      term.writeln(`\x1b[90mURL: ${wsUrl}\x1b[0m`)
       setIsConnected(false)
     }
 
-    ws.onclose = () => {
-      console.log('🔌 WebSocket closed')
+    ws.onclose = (event) => {
+      console.log('🔌 WebSocket closed', {
+        code: event.code,
+        reason: event.reason,
+        wasClean: event.wasClean
+      })
       clearInterval(spinnerInterval)
       if (hasReceivedMessage) {
         term.write('\r\x1b[K')
         term.writeln('')
         term.writeln('\x1b[1;33m⚠ Connection closed\x1b[0m')
+      } else {
+        term.write('\r\x1b[K')
+        term.writeln('\x1b[1;33m⚠ Connection closed before data received\x1b[0m')
+        term.writeln(`\x1b[90mCode: ${event.code}, Reason: ${event.reason || 'No reason provided'}\x1b[0m`)
       }
       setIsConnected(false)
     }
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full w-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-gray-400'}`} />
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{title}</h3>
+      <div className="flex items-center justify-between px-3 sm:px-4 py-2 sm:py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex-shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+            <div className={`w-2 h-2 sm:w-3 sm:h-3 rounded-full flex-shrink-0 ${isConnected ? 'bg-green-500' : 'bg-gray-400'}`} />
+            <h3 className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-white truncate">{title}</h3>
           </div>
           {subtitle && (
-            <span className="text-xs text-gray-500 dark:text-gray-400">{subtitle}</span>
+            <span className="hidden sm:inline text-xs text-gray-500 dark:text-gray-400 truncate">{subtitle}</span>
           )}
         </div>
         {onClose && (
           <button
             onClick={onClose}
-            className="p-1 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            className="p-1 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors flex-shrink-0"
+            aria-label="Close terminal"
           >
-            <XMarkIcon className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            <XMarkIcon className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500 dark:text-gray-400" />
           </button>
         )}
       </div>
 
       {/* Terminal */}
-      <div className="flex-1 p-4 bg-gray-900 dark:bg-gray-950">
-        <div ref={terminalRef} className="h-full" />
+      <div className="flex-1 p-2 sm:p-4 bg-gray-900 dark:bg-gray-950 overflow-hidden">
+        <div 
+          ref={terminalRef} 
+          className="h-full w-full cursor-text" 
+          role="textbox"
+          aria-label="Terminal"
+          tabIndex={0}
+        />
       </div>
     </div>
   )

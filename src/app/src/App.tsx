@@ -357,6 +357,26 @@ function AppContent() {
               : "/secrets",
           icon: KeyIcon,
         },
+        {
+          name: "HPAs",
+          href:
+            selectedCluster && selectedNamespace
+              ? `/clusters/${selectedCluster}/namespaces/${selectedNamespace}/hpas`
+              : selectedCluster
+              ? `/clusters/${selectedCluster}/hpas`
+              : "/hpas",
+          icon: AdjustmentsHorizontalIcon,
+        },
+        {
+          name: "Pod Disruption Budgets",
+          href:
+            selectedCluster && selectedNamespace
+              ? `/clusters/${selectedCluster}/namespaces/${selectedNamespace}/pdbs`
+              : selectedCluster
+              ? `/clusters/${selectedCluster}/pdbs`
+              : "/pdbs",
+          icon: ShieldCheckIcon,
+        },
       ],
     },
     {
@@ -481,26 +501,6 @@ function AppContent() {
       icon: Cog6ToothIcon,
       isGroup: true,
       children: [
-        {
-          name: "HPAs",
-          href:
-            selectedCluster && selectedNamespace
-              ? `/clusters/${selectedCluster}/namespaces/${selectedNamespace}/hpas`
-              : selectedCluster
-              ? `/clusters/${selectedCluster}/hpas`
-              : "/hpas",
-          icon: AdjustmentsHorizontalIcon,
-        },
-        {
-          name: "Pod Disruption Budgets",
-          href:
-            selectedCluster && selectedNamespace
-              ? `/clusters/${selectedCluster}/namespaces/${selectedNamespace}/pdbs`
-              : selectedCluster
-              ? `/clusters/${selectedCluster}/pdbs`
-              : "/pdbs",
-          icon: ShieldCheckIcon,
-        },
         {
           name: "Priority Classes",
           href: selectedCluster ? `/clusters/${selectedCluster}/priorityclasses` : "/priorityclasses",

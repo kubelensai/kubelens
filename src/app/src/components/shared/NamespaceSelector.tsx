@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ChevronDownIcon, CheckIcon, Square3Stack3DIcon, GlobeAltIcon } from '@heroicons/react/24/outline'
+import { ChevronDownIcon, CheckIcon, Square3Stack3DIcon, GlobeAltIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import { useQuery } from '@tanstack/react-query'
 import { getNamespaces } from '@/services/api'
 import { useClusterStore } from '@/stores/clusterStore'
@@ -10,7 +10,9 @@ import clsx from 'clsx'
 
 export default function NamespaceSelector() {
   const [isOpen, setIsOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
   const { cluster: clusterParam, namespace: namespaceParam } = useParams()
   
@@ -80,6 +82,15 @@ export default function NamespaceSelector() {
     }
   }, [effectiveCluster, setSelectedNamespace])
 
+  // Focus search input when dropdown opens
+  useEffect(() => {
+    if (isOpen && searchInputRef.current) {
+      setTimeout(() => searchInputRef.current?.focus(), 100)
+    } else {
+      setSearchQuery('')
+    }
+  }, [isOpen])
+
   // Click outside to close
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -93,6 +104,14 @@ export default function NamespaceSelector() {
       return () => document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [isOpen])
+
+  // Filter namespaces based on search query
+  const filteredNamespaces = namespaces?.filter((ns: any) => {
+    const name = ns.metadata?.name || ns.name || ''
+    const query = searchQuery.toLowerCase()
+    
+    return name.toLowerCase().includes(query)
+  })
 
   const handleSelectNamespace = (namespaceName: string | null) => {
     setSelectedNamespace(namespaceName)
@@ -215,10 +234,32 @@ export default function NamespaceSelector() {
           "bg-white dark:bg-[#1a1f2e]",
           "border border-gray-200 dark:border-gray-700",
           "rounded-lg shadow-xl",
-          "max-h-96 overflow-y-auto",
           "animate-in fade-in-0 zoom-in-95"
         )}>
-          <div className="py-2">
+          {/* Search Input */}
+          <div className="p-2 border-b border-gray-200 dark:border-gray-700">
+            <div className="relative">
+              <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search namespaces..."
+                className={clsx(
+                  "w-full pl-9 pr-3 py-2 text-sm",
+                  "bg-gray-50 dark:bg-gray-800/50",
+                  "border border-gray-200 dark:border-gray-700",
+                  "rounded-lg",
+                  "text-gray-900 dark:text-gray-100",
+                  "placeholder-gray-500 dark:placeholder-gray-400",
+                  "focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                )}
+              />
+            </div>
+          </div>
+
+          <div className="py-2 max-h-80 overflow-y-auto">
             {/* All Namespaces Option */}
             <button
               onClick={() => handleSelectNamespace(null)}
@@ -247,8 +288,8 @@ export default function NamespaceSelector() {
             )}
 
             {/* Namespace Options */}
-            {namespaces && namespaces.length > 0 ? (
-              namespaces.map((namespace: any) => {
+            {filteredNamespaces && filteredNamespaces.length > 0 ? (
+              filteredNamespaces.map((namespace: any) => {
                 const nsName = namespace.metadata?.name || namespace.name
                 const isSelected = selectedNamespace === nsName
 
@@ -276,6 +317,10 @@ export default function NamespaceSelector() {
                   </button>
                 )
               })
+            ) : searchQuery ? (
+              <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                No namespaces found matching "{searchQuery}"
+              </div>
             ) : (
               <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
                 No namespaces available

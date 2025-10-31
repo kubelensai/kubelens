@@ -12,7 +12,9 @@ import ConfigMapDetails from "../pages/ConfigMapDetails";
 import CronJobs from "../pages/CronJobs";
 import CronJobDetails from "../pages/CronJobDetails";
 import CustomResourceDefinitions from "../pages/CustomResourceDefinitions/CustomResourceDefinitions";
+import CRDDetails from "../pages/CustomResourceDefinitions/CRDDetails";
 import GenericCRDPage from "../pages/CustomResources/GenericCRDPage";
+import GenericCRDDetails from "../pages/CustomResources/GenericCRDDetails";
 import DaemonSets from "../pages/DaemonSets";
 import DaemonSetDetails from "../pages/DaemonSetDetails";
 import Dashboard from "../pages/Dashboard";
@@ -275,6 +277,11 @@ const routes = [
         path: "clusters/:cluster/validatingwebhookconfigurations/:webhookName",
         element: withClusterCheck(<ValidatingWebhookConfigurationDetails />),
       },
+      // CRD Details routes
+      {
+        path: "clusters/:cluster/customresourcedefinitions/:crdName",
+        element: withClusterCheck(<CRDDetails />),
+      },
       // Service Details routes
       {
         path: "clusters/:cluster/namespaces/:namespace/services/:serviceName",
@@ -356,8 +363,16 @@ const routes = [
         element: withClusterCheck(<GenericCRDPage />),
       },
       {
+        path: "clusters/:cluster/customresources/:group/:version/:resource/:resourceName",
+        element: withClusterCheck(<GenericCRDDetails />),
+      },
+      {
         path: "clusters/:cluster/customresources/:group/:version/:resource",
         element: withClusterCheck(<GenericCRDPage />),
+      },
+      {
+        path: "clusters/:cluster/namespaces/:namespace/customresources/:group/:version/:resource/:resourceName",
+        element: withClusterCheck(<GenericCRDDetails />),
       },
       {
         path: "clusters/:cluster/namespaces/:namespace/customresources/:group/:version/:resource",

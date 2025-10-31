@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams } from 'react-router-dom'
 import {
-  ServerIcon,
+  LinkIcon,
   ChevronDownIcon,
   ChevronUpIcon,
 } from '@heroicons/react/24/outline'
@@ -243,7 +243,7 @@ export default function EndpointDetails({}: EndpointDetailsProps) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-            <ServerIcon className="w-6 h-6 text-white" />
+            <LinkIcon className="w-6 h-6 text-white" />
           </div>
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold gradient-text">

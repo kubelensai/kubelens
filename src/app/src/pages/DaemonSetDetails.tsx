@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import {
-  ServerStackIcon,
   ArrowPathIcon,
   TrashIcon,
   CheckCircleIcon,
@@ -982,7 +981,7 @@ export default function DaemonSetDetails({}: DaemonSetDetailsProps) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center">
-            <ServerStackIcon className="w-6 h-6 text-white" />
+            <CommandLineIcon className="w-6 h-6 text-white" />
           </div>
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold gradient-text">

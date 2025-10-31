@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  ShieldExclamationIcon,
+  ShieldCheckIcon,
   TrashIcon,
   ChevronDownIcon,
   ChevronUpIcon,
@@ -231,7 +231,7 @@ export default function ValidatingWebhookConfigurationDetails() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center">
-            <ShieldExclamationIcon className="w-6 h-6 text-white" />
+            <ShieldCheckIcon className="w-6 h-6 text-white" />
           </div>
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
