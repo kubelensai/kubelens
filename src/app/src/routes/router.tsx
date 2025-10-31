@@ -65,7 +65,8 @@ import ServiceAccounts from "../pages/ServiceAccounts";
 import ServiceAccountDetails from "../pages/ServiceAccountDetails";
 import Services from "../pages/Services";
 import ServiceDetails from "../pages/ServiceDetails";
-import Signup from "../pages/Signup";
+// Signup disabled
+// import Signup from "../pages/Signup";
 import StatefulSets from "../pages/StatefulSets";
 import StatefulSetDetails from "../pages/StatefulSetDetails";
 import StorageClasses from "../pages/StorageClasses";
@@ -163,10 +164,11 @@ const routes = [
     path: "/login",
     element: <Login />,
   },
-  {
-    path: "/signup",
-    element: <Signup />,
-  },
+  // Signup disabled
+  // {
+  //   path: "/signup",
+  //   element: <Signup />,
+  // },
   // Main app routes (with layout)
   {
     path: "/",

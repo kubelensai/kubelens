@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
@@ -10,7 +10,6 @@ import {
   EyeIcon, 
   EyeSlashIcon,
   ArrowRightIcon,
-  SparklesIcon,
   SunIcon,
   MoonIcon
 } from '@heroicons/react/24/outline'
@@ -333,8 +332,8 @@ export default function Login() {
             )}
           </div>
 
-          {/* Sign Up Link */}
-          <p className="mt-6 text-center text-sm text-gray-600 dark:text-gray-400">
+          {/* Sign Up Link - Disabled */}
+          {/* <p className="mt-6 text-center text-sm text-gray-600 dark:text-gray-400">
             Don't have an account?{' '}
             <Link
               to="/signup"
@@ -343,7 +342,7 @@ export default function Login() {
               <span>Create account</span>
               <SparklesIcon className="h-4 w-4" />
             </Link>
-          </p>
+          </p> */}
 
           {/* Footer */}
           <p className="mt-8 text-center text-xs text-gray-500 dark:text-gray-500">

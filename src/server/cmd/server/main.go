@@ -145,7 +145,8 @@ func main() {
 		// Authentication routes (public)
 		authRoutes := v1.Group("/auth")
 		{
-			authRoutes.POST("/signup", authHandler.Signup)
+			// Signup disabled
+			// authRoutes.POST("/signup", authHandler.Signup)
 			authRoutes.POST("/signin", authHandler.Signin)
 			authRoutes.GET("/me", auth.AuthMiddleware(jwtSecret), authHandler.GetCurrentUser)
 			authRoutes.PATCH("/profile", auth.AuthMiddleware(jwtSecret), authHandler.UpdateProfile)
