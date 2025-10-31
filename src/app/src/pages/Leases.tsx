@@ -1,78 +1,53 @@
 import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { getClusters, getLeases } from '@/services/api'
-import { useMemo, useState, useEffect } from 'react'
-import { MagnifyingGlassIcon, PencilSquareIcon, TrashIcon, PlusIcon } from '@heroicons/react/24/outline'
+import { useMemo, useState } from 'react'
+import { ClockIcon, PencilSquareIcon, TrashIcon, PlusIcon } from '@heroicons/react/24/outline'
 import Breadcrumb from '@/components/shared/Breadcrumb'
-import ResizableTableHeader from '@/components/shared/ResizableTableHeader'
-import LeaseDetailsModal from '@/components/Leases/LeaseDetailsModal'
-import EditLeaseYAMLModal from '@/components/Leases/EditLeaseYAMLModal'
-import DeleteLeaseModal from '@/components/Leases/DeleteLeaseModal'
+import { DataTable, Column } from '@/components/shared/DataTable'
 import CreateLeaseModal from '@/components/Leases/CreateLeaseModal'
+import EditLeaseYAMLModal from '@/components/Leases/EditLeaseYAMLModal'
+import ConfirmationModal from '@/components/shared/ConfirmationModal'
+import { useNotificationStore } from '@/stores/notificationStore'
 import { formatAge } from '@/utils/format'
-import { useTableSort } from '@/hooks/useTableSort'
-import { useResizableColumns } from '@/hooks/useResizableColumns'
-import { usePagination } from '@/hooks/usePagination'
-import Pagination from '@/components/shared/Pagination'
 import { format } from 'date-fns'
+import api from '@/services/api'
 
 export default function Leases() {
-  const { cluster, namespace } = useParams<{ cluster?: string; namespace?: string }>()
+  const { cluster } = useParams<{ cluster?: string }>()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [filterText, setFilterText] = useState('')
-  const [selectedLease, setSelectedLease] = useState<any>(null)
-  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false)
-  const [isEditYAMLModalOpen, setIsEditYAMLModalOpen] = useState(false)
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+  const { addNotification } = useNotificationStore()
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
-  const [createNamespace, setCreateNamespace] = useState(namespace || 'default')
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+  const [selectedLease, setSelectedLease] = useState<any>(null)
 
-  // Resizable columns
-  const { columnWidths, handleMouseDown: handleResizeStart } = useResizableColumns({
-    name: 200,
-    namespace: 150,
-    holder: 200,
-    duration: 120,
-    renewTime: 180,
-    age: 120,
-    actions: 150,
-  }, 'leases-column-widths')
-
-  // Reset state when cluster or namespace changes
-  useEffect(() => {
-    setSelectedLease(null)
-    setIsDetailsModalOpen(false)
-    setIsEditYAMLModalOpen(false)
-    setIsDeleteModalOpen(false)
-    setIsCreateModalOpen(false)
-    setCreateNamespace(namespace || 'default')
-  }, [cluster, namespace])
-  
   const { data: clusters } = useQuery({
     queryKey: ['clusters'],
     queryFn: getClusters,
   })
 
-  // Fetch leases from all clusters or specific cluster/namespace
+  // Fetch leases from all clusters or specific cluster
   const leaseQueries = useMemo(() => {
     if (!clusters) return []
 
     if (cluster) {
       return [
         {
-          queryKey: ['leases', cluster, namespace || 'all'],
-          queryFn: () => getLeases(cluster, namespace || 'all'),
+          queryKey: ['leases', cluster, 'all'],
+          queryFn: () => getLeases(cluster, 'all'),
           refetchInterval: 5000,
         },
       ]
     }
 
     return clusters.map((c: any) => ({
-      queryKey: ['leases', c.name, namespace || 'all'],
-      queryFn: () => getLeases(c.name, namespace || 'all'),
+      queryKey: ['leases', c.name, 'all'],
+      queryFn: () => getLeases(c.name, 'all'),
       refetchInterval: 5000,
     }))
-  }, [clusters, cluster, namespace])
+  }, [clusters, cluster])
 
   const leaseResults = useQueries({ queries: leaseQueries })
   const isLoading = leaseResults.some((result) => result.isLoading)
@@ -81,40 +56,6 @@ export default function Leases() {
     return leaseResults.flatMap((result) => result.data || [])
   }, [leaseResults])
 
-  // Filter leases
-  const filteredLeases = useMemo(() => {
-    return allLeases.filter((lease: any) => {
-      const searchText = filterText.toLowerCase()
-      const name = lease.metadata?.name?.toLowerCase() || ''
-      const ns = lease.metadata?.namespace?.toLowerCase() || ''
-      const holder = lease.spec?.holderIdentity?.toLowerCase() || ''
-
-      return name.includes(searchText) || ns.includes(searchText) || holder.includes(searchText)
-    })
-  }, [allLeases, filterText])
-
-  // Apply sorting
-  const { sortedData: sortedLeases, sortConfig, requestSort } = useTableSort(filteredLeases, {
-    key: 'metadata.name',
-    direction: 'asc'
-  })
-
-  // Apply pagination
-  const {
-    paginatedData: leases,
-    currentPage,
-    totalPages,
-    pageSize,
-    totalItems,
-    goToPage,
-    goToNextPage,
-    goToPreviousPage,
-    changePageSize,
-    hasNextPage,
-    hasPreviousPage,
-  } = usePagination(sortedLeases, 10, 'leases')
-
-  // Helper functions
   const formatRenewTime = (renewTime: string | null | undefined) => {
     if (!renewTime) return 'Never'
     try {
@@ -125,299 +66,286 @@ export default function Leases() {
     }
   }
 
-  // Action handlers
-  const handleRowClick = (lease: any) => {
-    setSelectedLease(lease)
-    setIsDetailsModalOpen(true)
+  const handleDeleteLease = async () => {
+    if (!selectedLease) return
+    
+    try {
+      await api.delete(
+        `/clusters/${selectedLease.clusterName}/namespaces/${selectedLease.metadata.namespace}/leases/${selectedLease.metadata.name}`
+      )
+      addNotification({
+        type: 'success',
+        title: 'Success',
+        message: 'Lease deleted successfully',
+      })
+      queryClient.invalidateQueries({ queryKey: ['leases'] })
+      setIsDeleteModalOpen(false)
+      setSelectedLease(null)
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: `Failed to delete lease: ${error.message || 'Unknown error'}`,
+      })
+    }
   }
 
-  const handleEditYAMLClick = (lease: any, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setSelectedLease(lease)
-    setIsEditYAMLModalOpen(true)
-  }
+  const columns = useMemo<Column<any>[]>(() => [
+    {
+      key: 'name',
+      header: 'Name',
+      accessor: (lease) => (
+        <button
+          onClick={() => navigate(`/clusters/${lease.clusterName}/namespaces/${lease.metadata.namespace}/leases/${lease.metadata.name}`)}
+          className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium text-left"
+        >
+          {lease.metadata.name}
+        </button>
+      ),
+      sortable: true,
+      sortValue: (lease) => lease.metadata.name,
+      searchValue: (lease) => lease.metadata.name,
+    },
+    {
+      key: 'cluster',
+      header: 'Cluster',
+      accessor: (lease) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {lease.clusterName}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (lease) => lease.clusterName,
+      searchValue: (lease) => lease.clusterName,
+    },
+    {
+      key: 'namespace',
+      header: 'Namespace',
+      accessor: (lease) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {lease.metadata.namespace}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (lease) => lease.metadata.namespace,
+      searchValue: (lease) => lease.metadata.namespace,
+    },
+    {
+      key: 'holder',
+      header: 'Holder Identity',
+      accessor: (lease) => (
+        <span className="text-sm font-mono text-gray-700 dark:text-gray-300 truncate" title={lease.spec?.holderIdentity}>
+          {lease.spec?.holderIdentity || '-'}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (lease) => lease.spec?.holderIdentity || '',
+      searchValue: (lease) => lease.spec?.holderIdentity || '',
+    },
+    {
+      key: 'duration',
+      header: 'Duration (s)',
+      accessor: (lease) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {lease.spec?.leaseDurationSeconds || '-'}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (lease) => lease.spec?.leaseDurationSeconds || 0,
+      searchValue: (lease) => String(lease.spec?.leaseDurationSeconds || ''),
+    },
+    {
+      key: 'renewTime',
+      header: 'Renew Time',
+      accessor: (lease) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {formatRenewTime(lease.spec?.renewTime)}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (lease) => {
+        if (!lease.spec?.renewTime) return 0
+        try {
+          return new Date(lease.spec.renewTime).getTime()
+        } catch {
+          return 0
+        }
+      },
+      searchValue: (lease) => formatRenewTime(lease.spec?.renewTime),
+    },
+    {
+      key: 'age',
+      header: 'Age',
+      accessor: (lease) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {formatAge(lease.metadata.creationTimestamp)}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (lease) => new Date(lease.metadata.creationTimestamp).getTime(),
+      searchValue: (lease) => formatAge(lease.metadata.creationTimestamp),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      accessor: (lease) => (
+        <div className="flex items-center justify-end gap-2">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setSelectedLease(lease)
+              setIsEditModalOpen(true)
+            }}
+            className="p-1.5 text-yellow-600 hover:text-yellow-900 dark:text-yellow-400 dark:hover:text-yellow-300 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded transition-colors"
+            title="Edit YAML"
+          >
+            <PencilSquareIcon className="h-4 w-4" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setSelectedLease(lease)
+              setIsDeleteModalOpen(true)
+            }}
+            className="p-1.5 text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+            title="Delete"
+          >
+            <TrashIcon className="h-4 w-4" />
+          </button>
+        </div>
+      ),
+      sortable: false,
+    },
+  ], [navigate])
 
-  const handleDeleteClick = (lease: any, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setSelectedLease(lease)
-    setIsDeleteModalOpen(true)
-  }
-
-  return (
-    <div className="space-y-4 sm:space-y-6">
-      {/* Breadcrumb */}
-      <div>
-        <Breadcrumb 
-          items={
-            cluster && namespace
-              ? [
-                  { name: cluster, href: "/dashboard" },
-                  { name: namespace, href: `/clusters/${cluster}/namespaces/${namespace}/pods` },
-                  { name: 'Leases' }
-                ]
-              : cluster
-              ? [
-                  { name: cluster, href: "/dashboard" },
-                  { name: 'Leases' }
-                ]
-              : [{ name: 'Leases' }]
-          }
-        />
+  const mobileCardRenderer = (lease: any) => (
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center flex-shrink-0">
+            <ClockIcon className="w-5 h-5 text-white" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <button
+              onClick={() => navigate(`/clusters/${lease.clusterName}/namespaces/${lease.metadata.namespace}/leases/${lease.metadata.name}`)}
+              className="text-sm font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-left truncate block w-full"
+            >
+              {lease.metadata.name}
+            </button>
+            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+              {lease.clusterName} / {lease.metadata.namespace}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setSelectedLease(lease)
+              setIsEditModalOpen(true)
+            }}
+            className="p-1.5 text-yellow-600 hover:text-yellow-900 dark:text-yellow-400 dark:hover:text-yellow-300 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded transition-colors"
+            title="Edit YAML"
+          >
+            <PencilSquareIcon className="h-4 w-4" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setSelectedLease(lease)
+              setIsDeleteModalOpen(true)
+            }}
+            className="p-1.5 text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+            title="Delete"
+          >
+            <TrashIcon className="h-4 w-4" />
+          </button>
+        </div>
       </div>
       
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="grid grid-cols-2 gap-3 text-sm">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">Leases</h1>
-          <p className="mt-1 sm:mt-2 text-sm text-gray-600 dark:text-gray-400">
-            Distributed coordination locks across {clusters?.length || 0} cluster(s)
+          <span className="text-gray-500 dark:text-gray-400">Holder:</span>
+          <p className="font-mono text-gray-900 dark:text-white truncate" title={lease.spec?.holderIdentity}>
+            {lease.spec?.holderIdentity || '-'}
           </p>
         </div>
+        <div>
+          <span className="text-gray-500 dark:text-gray-400">Duration:</span>
+          <p className="text-gray-900 dark:text-white">
+            {lease.spec?.leaseDurationSeconds || '-'}s
+          </p>
+        </div>
+        <div>
+          <span className="text-gray-500 dark:text-gray-400">Renew Time:</span>
+          <p className="text-gray-900 dark:text-white">
+            {formatRenewTime(lease.spec?.renewTime)}
+          </p>
+        </div>
+        <div>
+          <span className="text-gray-500 dark:text-gray-400">Age:</span>
+          <p className="text-gray-900 dark:text-white">
+            {formatAge(lease.metadata.creationTimestamp)}
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="space-y-4 md:space-y-6">
+      <Breadcrumb
+        items={
+          cluster
+            ? [
+                { name: cluster, href: `/clusters/${cluster}` },
+                { name: 'Leases' }
+              ]
+            : [{ name: 'Leases' }]
+        }
+      />
+
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="relative w-full sm:w-80">
-            <MagnifyingGlassIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Filter by name, namespace, or holder..."
-              value={filterText}
-              onChange={(e) => setFilterText(e.target.value)}
-              className="w-full pl-11 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            />
+          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center">
+            <ClockIcon className="w-6 h-6 text-white" />
           </div>
-          {cluster && (
-            <button
-              onClick={() => setIsCreateModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors whitespace-nowrap"
-            >
-              <PlusIcon className="h-5 w-5" />
-              Create
-            </button>
-          )}
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
+              Leases
+            </h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Distributed coordination locks across {clusters?.length || 0} cluster(s)
+            </p>
+          </div>
         </div>
+
+        {cluster && (
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap"
+          >
+            <PlusIcon className="h-5 w-5" />
+            <span>Create Lease</span>
+          </button>
+        )}
       </div>
 
-      {/* Table */}
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                <ResizableTableHeader
-                  label="Name"
-                  columnKey="name"
-                  sortKey="metadata.name"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.name}
-                  onResizeStart={handleResizeStart}
-                />
-                <ResizableTableHeader
-                  label="Namespace"
-                  columnKey="namespace"
-                  sortKey="metadata.namespace"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.namespace}
-                  onResizeStart={handleResizeStart}
-                />
-                <ResizableTableHeader
-                  label="Holder Identity"
-                  columnKey="holder"
-                  sortKey="spec.holderIdentity"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.holder}
-                  onResizeStart={handleResizeStart}
-                />
-                <ResizableTableHeader
-                  label="Duration (s)"
-                  columnKey="duration"
-                  sortKey="spec.leaseDurationSeconds"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.duration}
-                  onResizeStart={handleResizeStart}
-                />
-                <ResizableTableHeader
-                  label="Renew Time"
-                  columnKey="renewTime"
-                  sortKey="spec.renewTime"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.renewTime}
-                  onResizeStart={handleResizeStart}
-                />
-                <ResizableTableHeader
-                  label="Age"
-                  columnKey="age"
-                  sortKey="metadata.creationTimestamp"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.age}
-                  onResizeStart={handleResizeStart}
-                />
-                <ResizableTableHeader
-                  label="Actions"
-                  columnKey="actions"
-                  sortKey=""
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.actions}
-                  onResizeStart={handleResizeStart}
-                  align="right"
-                />
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-              
-              {isLoading ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center">
-                    <div className="flex items-center justify-center">
-                      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-primary-600"></div>
-                      <span className="ml-3 text-gray-500 dark:text-gray-400">Loading leases...</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : leases.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
-                    {filterText ? 'No leases found matching your filter' : 'No leases found'}
-                  </td>
-                </tr>
-              ) : (
-                leases.map((lease: any) => (
-                  <tr
-                    key={`${lease.clusterName}-${lease.metadata?.namespace}-${lease.metadata?.name}`}
-                    onClick={() => handleRowClick(lease)}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer"
-                  >
-                    <td
-                      className="px-2 sm:px-4 py-3 text-sm font-medium text-gray-900 dark:text-white truncate"
-                      style={{ width: columnWidths.name, maxWidth: columnWidths.name }}
-                    >
-                      {lease.metadata?.name}
-                    </td>
-                    <td
-                      className="px-2 sm:px-4 py-3 text-sm text-gray-500 dark:text-gray-400 truncate"
-                      style={{ width: columnWidths.namespace, maxWidth: columnWidths.namespace }}
-                    >
-                      {lease.metadata?.namespace}
-                    </td>
-                    <td
-                      className="px-2 sm:px-4 py-3 text-sm text-gray-500 dark:text-gray-400 font-mono truncate"
-                      style={{ width: columnWidths.holder, maxWidth: columnWidths.holder }}
-                      title={lease.spec?.holderIdentity}
-                    >
-                      {lease.spec?.holderIdentity || '-'}
-                    </td>
-                    <td
-                      className="px-2 sm:px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-                      style={{ width: columnWidths.duration, maxWidth: columnWidths.duration }}
-                    >
-                      {lease.spec?.leaseDurationSeconds || '-'}
-                    </td>
-                    <td
-                      className="px-2 sm:px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-                      style={{ width: columnWidths.renewTime, maxWidth: columnWidths.renewTime }}
-                    >
-                      {formatRenewTime(lease.spec?.renewTime)}
-                    </td>
-                    <td
-                      className="px-2 sm:px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-                      style={{ width: columnWidths.age, maxWidth: columnWidths.age }}
-                    >
-                      {formatAge(lease.metadata?.creationTimestamp)}
-                    </td>
-                    <td
-                      className="px-2 sm:px-4 py-3 text-right text-sm font-medium"
-                      style={{ width: columnWidths.actions, maxWidth: columnWidths.actions }}
-                    >
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={(e) => handleEditYAMLClick(lease, e)}
-                          className="p-1.5 text-yellow-600 hover:text-yellow-900 dark:text-yellow-400 dark:hover:text-yellow-300 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded transition-colors"
-                          title="Edit YAML"
-                        >
-                          <PencilSquareIcon className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={(e) => handleDeleteClick(lease, e)}
-                          className="p-1.5 text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
-                          title="Delete"
-                        >
-                          <TrashIcon className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          pageSize={pageSize}
-          totalItems={totalItems}
-          onPageChange={goToPage}
-          onPageSizeChange={changePageSize}
-          onNextPage={goToNextPage}
-          onPreviousPage={goToPreviousPage}
-          hasNextPage={hasNextPage}
-          hasPreviousPage={hasPreviousPage}
-        />
-      </div>
+      <DataTable
+        data={allLeases}
+        columns={columns}
+        keyExtractor={(lease) => `${lease.clusterName}-${lease.metadata.namespace}-${lease.metadata.name}`}
+        searchPlaceholder="Search leases..."
+        isLoading={isLoading}
+        emptyMessage="No leases found"
+        emptyIcon={<ClockIcon className="w-12 h-12 text-gray-400" />}
+        mobileCardRenderer={mobileCardRenderer}
+      />
 
-      {/* Modals */}
-      {selectedLease && (
-        <>
-          <LeaseDetailsModal
-            lease={selectedLease}
-            isOpen={isDetailsModalOpen}
-            onClose={() => {
-              setIsDetailsModalOpen(false)
-              setSelectedLease(null)
-            }}
-          />
-          <EditLeaseYAMLModal
-            lease={selectedLease}
-            isOpen={isEditYAMLModalOpen}
-            onClose={() => {
-              setIsEditYAMLModalOpen(false)
-              setSelectedLease(null)
-            }}
-            onSuccess={() => {
-              queryClient.invalidateQueries({ queryKey: ['leases'] })
-            }}
-          />
-          <DeleteLeaseModal
-            lease={selectedLease}
-            isOpen={isDeleteModalOpen}
-            onClose={() => {
-              setIsDeleteModalOpen(false)
-              setSelectedLease(null)
-            }}
-            onSuccess={() => {
-              queryClient.invalidateQueries({ queryKey: ['leases'] })
-            }}
-          />
-        </>
-      )}
-      
-      {/* Create Modal - outside selectedLease block */}
       {cluster && (
         <CreateLeaseModal
           clusterName={cluster}
-          namespace={createNamespace}
+          namespace="default"
           isOpen={isCreateModalOpen}
           onClose={() => setIsCreateModalOpen(false)}
           onSuccess={() => {
@@ -425,6 +353,42 @@ export default function Leases() {
             setIsCreateModalOpen(false)
           }}
         />
+      )}
+
+      {selectedLease && (
+        <>
+          <EditLeaseYAMLModal
+            lease={selectedLease}
+            isOpen={isEditModalOpen}
+            onClose={() => {
+              setIsEditModalOpen(false)
+              setSelectedLease(null)
+            }}
+            onSuccess={() => {
+              queryClient.invalidateQueries({ queryKey: ['leases'] })
+              addNotification({
+                type: 'success',
+                title: 'Success',
+                message: 'Lease updated successfully',
+              })
+              setIsEditModalOpen(false)
+              setSelectedLease(null)
+            }}
+          />
+
+          <ConfirmationModal
+            isOpen={isDeleteModalOpen}
+            onClose={() => {
+              setIsDeleteModalOpen(false)
+              setSelectedLease(null)
+            }}
+            onConfirm={handleDeleteLease}
+            title="Delete Lease"
+            message={`Are you sure you want to delete lease "${selectedLease.metadata.name}"? This action cannot be undone.`}
+            confirmText="Delete"
+            type="danger"
+          />
+        </>
       )}
     </div>
   )

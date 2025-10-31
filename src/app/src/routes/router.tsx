@@ -31,8 +31,10 @@ import Integrations from "../pages/Integrations";
 import Jobs from "../pages/Jobs";
 import JobDetails from "../pages/JobDetails";
 import Leases from "../pages/Leases";
+import LeaseDetails from "../pages/LeaseDetails";
 import Login from "../pages/Login";
 import MutatingWebhookConfigurations from "../pages/MutatingWebhookConfigurations";
+import MutatingWebhookConfigurationDetails from "../pages/MutatingWebhookConfigurationDetails";
 import Namespaces from "../pages/Namespaces";
 import Profile from "../pages/Profile";
 import NetworkPolicies from "../pages/NetworkPolicies";
@@ -40,11 +42,13 @@ import NetworkPolicyDetails from "../pages/NetworkPolicyDetails";
 import Nodes from "../pages/Nodes";
 import NodeDetails from "../pages/NodeDetails";
 import PDBs from "../pages/PDBs";
+import PDBDetails from "../pages/PDBDetails";
 import PersistentVolumeClaims from "../pages/PersistentVolumeClaims";
 import PersistentVolumes from "../pages/PersistentVolumes";
 import Pods from "../pages/Pods";
 import PodDetails from "../pages/PodDetails";
 import PriorityClasses from "../pages/PriorityClasses";
+import PriorityClassDetails from "../pages/PriorityClassDetails";
 import ReplicaSets from "../pages/ReplicaSets";
 import ReplicaSetDetails from "../pages/ReplicaSetDetails";
 import RoleBindings from "../pages/RoleBindings";
@@ -52,6 +56,7 @@ import RoleBindingDetails from "../pages/RoleBindingDetails";
 import Roles from "../pages/Roles";
 import RoleDetails from "../pages/RoleDetails";
 import RuntimeClasses from "../pages/RuntimeClasses";
+import RuntimeClassDetails from "../pages/RuntimeClassDetails";
 import Secrets from "../pages/Secrets";
 import SecretDetails from "../pages/SecretDetails";
 import ServiceAccounts from "../pages/ServiceAccounts";
@@ -68,6 +73,7 @@ import PersistentVolumeClaimDetails from "../pages/PersistentVolumeClaimDetails"
 import Users from "../pages/Users";
 import Groups from "../pages/Groups";
 import ValidatingWebhookConfigurations from "../pages/ValidatingWebhookConfigurations";
+import ValidatingWebhookConfigurationDetails from "../pages/ValidatingWebhookConfigurationDetails";
 import NotFound from "../pages/NotFound";
 
 // Define common resource paths
@@ -238,6 +244,36 @@ const routes = [
       {
         path: "clusters/:cluster/namespaces/:namespace/hpas/:hpaName",
         element: withClusterCheck(<HPADetails />),
+      },
+      // PDB Details routes
+      {
+        path: "clusters/:cluster/namespaces/:namespace/pdbs/:pdbName",
+        element: withClusterCheck(<PDBDetails />),
+      },
+      // Priority Class Details routes
+      {
+        path: "clusters/:cluster/priorityclasses/:priorityClassName",
+        element: withClusterCheck(<PriorityClassDetails />),
+      },
+      // Runtime Class Details routes
+      {
+        path: "clusters/:cluster/runtimeclasses/:runtimeClassName",
+        element: withClusterCheck(<RuntimeClassDetails />),
+      },
+      // Lease Details routes
+      {
+        path: "clusters/:cluster/namespaces/:namespace/leases/:leaseName",
+        element: withClusterCheck(<LeaseDetails />),
+      },
+      // Mutating Webhook Configuration Details routes
+      {
+        path: "clusters/:cluster/mutatingwebhookconfigurations/:webhookName",
+        element: withClusterCheck(<MutatingWebhookConfigurationDetails />),
+      },
+      // Validating Webhook Configuration Details routes
+      {
+        path: "clusters/:cluster/validatingwebhookconfigurations/:webhookName",
+        element: withClusterCheck(<ValidatingWebhookConfigurationDetails />),
       },
       // Service Details routes
       {

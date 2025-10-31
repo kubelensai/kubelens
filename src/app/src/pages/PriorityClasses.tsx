@@ -1,48 +1,47 @@
-import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query'
-import { useParams } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useParams, useNavigate } from 'react-router-dom'
 import { getClusters, getPriorityClasses } from '@/services/api'
-import { useMemo, useState, useEffect } from 'react'
-import { MagnifyingGlassIcon, PencilSquareIcon, TrashIcon, PlusIcon, ChevronUpIcon } from '@heroicons/react/24/outline'
+import { useMemo, useState } from 'react'
+import { 
+  PencilSquareIcon, 
+  TrashIcon, 
+  EyeIcon,
+  ChevronUpIcon,
+  PlusIcon,
+} from '@heroicons/react/24/outline'
 import Breadcrumb from '@/components/shared/Breadcrumb'
-import ResizableTableHeader from '@/components/shared/ResizableTableHeader'
-import PriorityClassDetailsModal from '@/components/PriorityClasses/PriorityClassDetailsModal'
-import EditPriorityClassYAMLModal from '@/components/PriorityClasses/EditPriorityClassYAMLModal'
-import DeletePriorityClassModal from '@/components/PriorityClasses/DeletePriorityClassModal'
+import { DataTable, Column } from '@/components/shared/DataTable'
 import CreatePriorityClassModal from '@/components/PriorityClasses/CreatePriorityClassModal'
+import EditPriorityClassYAMLModal from '@/components/PriorityClasses/EditPriorityClassYAMLModal'
+import ConfirmationModal from '@/components/shared/ConfirmationModal'
+import { useNotificationStore } from '@/stores/notificationStore'
+import api from '@/services/api'
 import { formatAge } from '@/utils/format'
-import { useTableSort } from '@/hooks/useTableSort'
-import { useResizableColumns } from '@/hooks/useResizableColumns'
-import { usePagination } from '@/hooks/usePagination'
-import Pagination from '@/components/shared/Pagination'
+import clsx from 'clsx'
+
+interface PriorityClassData {
+  metadata: {
+    name: string
+    creationTimestamp: string
+    labels?: Record<string, string>
+    annotations?: Record<string, string>
+  }
+  value: number
+  globalDefault?: boolean
+  preemptionPolicy?: string
+  description?: string
+  clusterName: string
+}
 
 export default function PriorityClasses() {
   const { cluster } = useParams<{ cluster?: string }>()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [filterText, setFilterText] = useState('')
-  const [selectedPriorityClass, setSelectedPriorityClass] = useState<any>(null)
-  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false)
-  const [isEditYAMLModalOpen, setIsEditYAMLModalOpen] = useState(false)
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+  const { addNotification } = useNotificationStore()
+  const [selectedPriorityClass, setSelectedPriorityClass] = useState<PriorityClassData | null>(null)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
-
-  // Resizable columns
-  const { columnWidths, handleMouseDown: handleResizeStart } = useResizableColumns({
-    name: 250,
-    value: 100,
-    globalDefault: 130,
-    preemptionPolicy: 180,
-    age: 120,
-    actions: 150,
-  }, 'priorityclasses-column-widths')
-
-  // Reset state when cluster changes
-  useEffect(() => {
-    setSelectedPriorityClass(null)
-    setIsDetailsModalOpen(false)
-    setIsEditYAMLModalOpen(false)
-    setIsDeleteModalOpen(false)
-    setIsCreateModalOpen(false)
-  }, [cluster])
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   
   const { data: clusters } = useQuery({
     queryKey: ['clusters'],
@@ -50,364 +49,401 @@ export default function PriorityClasses() {
   })
 
   // Fetch priority classes from all clusters or specific cluster
-  const priorityClassQueries = useMemo(() => {
-    if (!clusters) return []
-
-    if (cluster) {
-      return [
-        {
-          queryKey: ['priorityclasses', cluster],
-          queryFn: () => getPriorityClasses(cluster),
-          refetchInterval: 5000,
-        },
-      ]
-    }
-
-    return clusters.map((c: any) => ({
-      queryKey: ['priorityclasses', c.name],
-      queryFn: () => getPriorityClasses(c.name),
-      refetchInterval: 5000,
-    }))
-  }, [clusters, cluster])
-
-  const priorityClassResults = useQueries({ queries: priorityClassQueries })
-  const isLoading = priorityClassResults.some((result) => result.isLoading)
-
-  const allPriorityClasses = useMemo(() => {
-    return priorityClassResults.flatMap((result) => result.data || [])
-  }, [priorityClassResults])
-
-  // Filter priority classes
-  const filteredPriorityClasses = useMemo(() => {
-    return allPriorityClasses.filter((pc: any) => {
-      const searchText = filterText.toLowerCase()
-      const name = pc.metadata?.name?.toLowerCase() || ''
-      const description = pc.description?.toLowerCase() || ''
-
-      return name.includes(searchText) || description.includes(searchText)
-    })
-  }, [allPriorityClasses, filterText])
-
-  // Apply sorting
-  const { sortedData: sortedPriorityClasses, sortConfig, requestSort } = useTableSort(filteredPriorityClasses, {
-    key: 'metadata.name',
-    direction: 'asc'
+  const { data: allPriorityClasses, isLoading } = useQuery({
+    queryKey: cluster 
+      ? ['priorityclasses', cluster]
+      : ['all-priorityclasses', clusters?.map(c => c.name).sort().join(',')],
+    queryFn: async () => {
+      // If specific cluster requested
+      if (cluster) {
+        const pcs = await getPriorityClasses(cluster)
+        return pcs.map((pc: any) => ({ ...pc, clusterName: cluster }))
+      }
+      
+      // Otherwise fetch from all clusters
+      if (!clusters || clusters.length === 0) return []
+      
+      const allPCs = await Promise.all(
+        clusters.map(async (cluster) => {
+          try {
+            const pcs = await getPriorityClasses(cluster.name)
+            return pcs.map((pc: any) => ({ ...pc, clusterName: cluster.name }))
+          } catch (error) {
+            console.error(`Error fetching priority classes from ${cluster.name}:`, error)
+            return []
+          }
+        })
+      )
+      
+      return allPCs.flat()
+    },
+    enabled: cluster ? true : (!!clusters && clusters.length > 0),
+    refetchInterval: 5000,
   })
 
-  // Apply pagination
-  const {
-    paginatedData: priorityClasses,
-    currentPage,
-    totalPages,
-    pageSize,
-    totalItems,
-    goToPage,
-    goToNextPage,
-    goToPreviousPage,
-    changePageSize,
-    hasNextPage,
-    hasPreviousPage,
-  } = usePagination(sortedPriorityClasses, 10, 'priorityclasses')
-
-  // Helper functions
-  const getPreemptionPolicyDisplay = (policy: any) => {
-    if (!policy) return 'PreemptLowerPriority'
-    return policy
-  }
-
-  const getGlobalDefaultDisplay = (globalDefault: boolean) => {
-    return globalDefault ? (
-      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
-        Yes
-      </span>
-    ) : (
-      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">
-        No
-      </span>
-    )
+  // Helper function to get priority level color
+  const getPriorityColor = (value: number): string => {
+    if (value >= 1000000) return 'text-red-600 dark:text-red-400'
+    if (value >= 10000) return 'text-orange-600 dark:text-orange-400'
+    if (value >= 1000) return 'text-yellow-600 dark:text-yellow-400'
+    if (value >= 0) return 'text-green-600 dark:text-green-400'
+    return 'text-gray-600 dark:text-gray-400'
   }
 
   // Action handlers
-  const handleRowClick = (pc: any) => {
-    setSelectedPriorityClass(pc)
-    setIsDetailsModalOpen(true)
-  }
-
-  const handleEditYAMLClick = (pc: any, e: React.MouseEvent) => {
+  const handleEditClick = (pc: PriorityClassData, e: React.MouseEvent) => {
     e.stopPropagation()
     setSelectedPriorityClass(pc)
-    setIsEditYAMLModalOpen(true)
+    setIsEditModalOpen(true)
   }
 
-  const handleDeleteClick = (pc: any, e: React.MouseEvent) => {
+  const handleDeleteClick = (pc: PriorityClassData, e: React.MouseEvent) => {
     e.stopPropagation()
     setSelectedPriorityClass(pc)
     setIsDeleteModalOpen(true)
   }
 
+  const handleDeleteConfirm = async () => {
+    if (!selectedPriorityClass) return
+    try {
+      await api.delete(`/clusters/${selectedPriorityClass.clusterName}/priorityclasses/${selectedPriorityClass.metadata.name}`)
+      addNotification({
+        type: 'success',
+        title: 'Success',
+        message: 'Priority Class deleted successfully',
+      })
+      setIsDeleteModalOpen(false)
+      setSelectedPriorityClass(null)
+      // Invalidate queries to refetch
+      await queryClient.invalidateQueries({ queryKey: ['priorityclasses'] })
+      await queryClient.invalidateQueries({ queryKey: ['all-priorityclasses'] })
+      await queryClient.refetchQueries({ queryKey: ['priorityclasses'] })
+      await queryClient.refetchQueries({ queryKey: ['all-priorityclasses'] })
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: `Failed to delete priority class: ${error.message || 'Unknown error'}`,
+      })
+    }
+  }
+
+  // Define columns
+  const columns = useMemo<Column<PriorityClassData>[]>(() => [
+    {
+      key: 'name',
+      header: 'Name',
+      accessor: (pc) => (
+        <div className="flex items-center gap-2">
+          <ChevronUpIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+          <div className="min-w-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                navigate(`/clusters/${pc.clusterName}/priorityclasses/${pc.metadata.name}`)
+              }}
+              className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate text-left"
+            >
+              {pc.metadata.name}
+            </button>
+            {!cluster && (
+              <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                {pc.clusterName}
+              </div>
+            )}
+          </div>
+        </div>
+      ),
+      sortable: true,
+      sortValue: (pc) => pc.metadata.name,
+      searchValue: (pc) => `${pc.metadata.name} ${pc.clusterName}`,
+    },
+    {
+      key: 'value',
+      header: 'Value',
+      accessor: (pc) => (
+        <span className={clsx('text-sm font-bold', getPriorityColor(pc.value))}>
+          {pc.value.toLocaleString()}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (pc) => pc.value,
+      searchValue: (pc) => String(pc.value),
+    },
+    {
+      key: 'globalDefault',
+      header: 'Global Default',
+      accessor: (pc) => (
+        <span className={clsx(
+          'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full',
+          pc.globalDefault
+            ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400'
+            : 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400'
+        )}>
+          {pc.globalDefault ? 'Yes' : 'No'}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (pc) => pc.globalDefault ? 1 : 0,
+      searchValue: (pc) => pc.globalDefault ? 'Yes' : 'No',
+      filterable: true,
+      filterOptions: () => ['Yes', 'No'],
+      filterValue: (pc) => pc.globalDefault ? 'Yes' : 'No',
+    },
+    {
+      key: 'preemptionPolicy',
+      header: 'Preemption Policy',
+      accessor: (pc) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {pc.preemptionPolicy || 'PreemptLowerPriority'}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (pc) => pc.preemptionPolicy || 'PreemptLowerPriority',
+      searchValue: (pc) => pc.preemptionPolicy || 'PreemptLowerPriority',
+      filterable: true,
+      filterOptions: () => ['PreemptLowerPriority', 'Never'],
+      filterValue: (pc) => pc.preemptionPolicy || 'PreemptLowerPriority',
+    },
+    {
+      key: 'description',
+      header: 'Description',
+      accessor: (pc) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300 truncate block max-w-xs" title={pc.description}>
+          {pc.description || '-'}
+        </span>
+      ),
+      sortable: false,
+      searchValue: (pc) => pc.description || '',
+    },
+    {
+      key: 'age',
+      header: 'Age',
+      accessor: (pc) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {formatAge(pc.metadata.creationTimestamp)}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (pc) => new Date(pc.metadata.creationTimestamp).getTime(),
+      searchValue: (pc) => formatAge(pc.metadata.creationTimestamp),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      accessor: (pc) => (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              navigate(`/clusters/${pc.clusterName}/priorityclasses/${pc.metadata.name}`)
+            }}
+            className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+            title="View Details"
+          >
+            <EyeIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleEditClick(pc, e)}
+            className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+            title="Edit YAML"
+          >
+            <PencilSquareIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleDeleteClick(pc, e)}
+            className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+            title="Delete"
+          >
+            <TrashIcon className="w-4 h-4" />
+          </button>
+        </div>
+      ),
+      sortable: false,
+    },
+  ], [cluster, navigate])
+
   return (
-    <div className="space-y-4 sm:space-y-6">
-      {/* Breadcrumb */}
-      <div>
-        <Breadcrumb 
-          items={
-            cluster
-              ? [
-                  { name: cluster, href: "/dashboard" },
-                  { name: 'Priority Classes' }
-                ]
-              : [{ name: 'Priority Classes' }]
-          }
-        />
-      </div>
-      
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="space-y-4 md:space-y-6">
+      <Breadcrumb
+        items={[
+          ...(cluster ? [{ name: cluster, href: `/clusters/${cluster}` }] : []),
+          { name: 'Priority Classes' }
+        ]}
+      />
+
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">Priority Classes</h1>
-          <p className="mt-1 sm:mt-2 text-sm text-gray-600 dark:text-gray-400">
-            All priority classes across {clusters?.length || 0} cluster(s)
+          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
+            Priority Classes
+          </h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            {cluster 
+              ? `Priority classes in ${cluster}`
+              : `All priority classes across ${clusters?.length || 0} cluster(s)`
+            }
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="relative w-full sm:w-80">
-            <MagnifyingGlassIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Filter by name or description..."
-              value={filterText}
-              onChange={(e) => setFilterText(e.target.value)}
-              className="w-full pl-11 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            />
+        {cluster && (
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            <PlusIcon className="w-4 h-4" />
+            <span className="hidden sm:inline">Create Priority Class</span>
+            <span className="sm:hidden">Create</span>
+          </button>
+        )}
+      </div>
+      
+      <DataTable
+        data={allPriorityClasses || []}
+        columns={columns}
+        keyExtractor={(pc: PriorityClassData) => `${pc.clusterName}-${pc.metadata.name}`}
+        searchPlaceholder="Search priority classes by name, description..."
+        isLoading={isLoading}
+        emptyMessage="No priority classes found"
+        emptyIcon={
+          <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
+            <ChevronUpIcon className="w-6 h-6 text-gray-400 dark:text-gray-500" />
           </div>
-          {cluster && (
-            <button
-              onClick={() => setIsCreateModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors whitespace-nowrap"
-            >
-              <PlusIcon className="h-5 w-5" />
-              Create
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                <ResizableTableHeader
-                  label="Name"
-                  columnKey="name"
-                  sortKey="metadata.name"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.name}
-                  onResizeStart={handleResizeStart}
-                />
-                <ResizableTableHeader
-                  label="Value"
-                  columnKey="value"
-                  sortKey="value"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.value}
-                  onResizeStart={handleResizeStart}
-                />
-                <ResizableTableHeader
-                  label="Global Default"
-                  columnKey="globalDefault"
-                  sortKey="globalDefault"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.globalDefault}
-                  onResizeStart={handleResizeStart}
-                />
-                <ResizableTableHeader
-                  label="Preemption Policy"
-                  columnKey="preemptionPolicy"
-                  sortKey="preemptionPolicy"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.preemptionPolicy}
-                  onResizeStart={handleResizeStart}
-                />
-                <ResizableTableHeader
-                  label="Age"
-                  columnKey="age"
-                  sortKey="metadata.creationTimestamp"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.age}
-                  onResizeStart={handleResizeStart}
-                />
-                <ResizableTableHeader
-                  label="Actions"
-                  columnKey="actions"
-                  sortKey=""
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  width={columnWidths.actions}
-                  onResizeStart={handleResizeStart}
-                  align="right"
-                />
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-              
-              {isLoading ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center">
-                    <div className="flex items-center justify-center">
-                      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-primary-600"></div>
-                      <span className="ml-3 text-gray-500 dark:text-gray-400">Loading priority classes...</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : priorityClasses.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
-                    {filterText ? 'No priority classes found matching your filter' : 'No priority classes found'}
-                  </td>
-                </tr>
-              ) : (
-                priorityClasses.map((pc: any) => (
-                  <tr
-                    key={`${pc.clusterName}-${pc.metadata?.name}`}
-                    onClick={() => handleRowClick(pc)}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer"
+        }
+        mobileCardRenderer={(pc) => (
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <ChevronUpIcon className="w-5 h-5 text-gray-400 dark:text-gray-500 shrink-0" />
+                <div className="min-w-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      navigate(`/clusters/${pc.clusterName}/priorityclasses/${pc.metadata.name}`)
+                    }}
+                    className="font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate text-left"
                   >
-                    <td
-                      className="px-2 sm:px-4 py-3 text-sm font-medium text-gray-900 dark:text-white truncate"
-                      style={{ width: columnWidths.name, maxWidth: columnWidths.name }}
-                    >
-                      {pc.metadata?.name}
-                    </td>
-                    <td
-                      className="px-2 sm:px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-                      style={{ width: columnWidths.value, maxWidth: columnWidths.value }}
-                    >
-                      <div className="flex items-center gap-1">
-                        <ChevronUpIcon className="h-4 w-4 text-primary-500" />
-                        <span className="font-semibold">{pc.value}</span>
-                      </div>
-                    </td>
-                    <td
-                      className="px-2 sm:px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-                      style={{ width: columnWidths.globalDefault, maxWidth: columnWidths.globalDefault }}
-                    >
-                      {getGlobalDefaultDisplay(pc.globalDefault)}
-                    </td>
-                    <td
-                      className="px-2 sm:px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-                      style={{ width: columnWidths.preemptionPolicy, maxWidth: columnWidths.preemptionPolicy }}
-                    >
-                      {getPreemptionPolicyDisplay(pc.preemptionPolicy)}
-                    </td>
-                    <td
-                      className="px-2 sm:px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-                      style={{ width: columnWidths.age, maxWidth: columnWidths.age }}
-                    >
-                      {formatAge(pc.metadata?.creationTimestamp)}
-                    </td>
-                    <td
-                      className="px-2 sm:px-4 py-3 text-right text-sm font-medium"
-                      style={{ width: columnWidths.actions, maxWidth: columnWidths.actions }}
-                    >
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={(e) => handleEditYAMLClick(pc, e)}
-                          className="p-1.5 text-yellow-600 hover:text-yellow-900 dark:text-yellow-400 dark:hover:text-yellow-300 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded transition-colors"
-                          title="Edit YAML"
-                        >
-                          <PencilSquareIcon className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={(e) => handleDeleteClick(pc, e)}
-                          className="p-1.5 text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
-                          title="Delete"
-                        >
-                          <TrashIcon className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          pageSize={pageSize}
-          totalItems={totalItems}
-          onPageChange={goToPage}
-          onPageSizeChange={changePageSize}
-          onNextPage={goToNextPage}
-          onPreviousPage={goToPreviousPage}
-          hasNextPage={hasNextPage}
-          hasPreviousPage={hasPreviousPage}
-        />
-      </div>
+                    {pc.metadata.name}
+                  </button>
+                  {!cluster && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      {pc.clusterName}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <span className={clsx('text-lg font-bold shrink-0', getPriorityColor(pc.value))}>
+                {pc.value.toLocaleString()}
+              </span>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Global Default:</span>
+                <span className={clsx(
+                  'ml-1 inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full',
+                  pc.globalDefault
+                    ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400'
+                    : 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400'
+                )}>
+                  {pc.globalDefault ? 'Yes' : 'No'}
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Preemption:</span>
+                <span className="ml-1 text-gray-900 dark:text-white text-xs">
+                  {pc.preemptionPolicy || 'PreemptLowerPriority'}
+                </span>
+              </div>
+            </div>
+
+            {pc.description && (
+              <div className="text-sm text-gray-700 dark:text-gray-300 truncate">
+                {pc.description}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {formatAge(pc.metadata.creationTimestamp)}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    navigate(`/clusters/${pc.clusterName}/priorityclasses/${pc.metadata.name}`)
+                  }}
+                  className="p-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                  title="View Details"
+                >
+                  <EyeIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleEditClick(pc, e)}
+                  className="p-1.5 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded transition-colors"
+                  title="Edit YAML"
+                >
+                  <PencilSquareIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => handleDeleteClick(pc, e)}
+                  className="p-1.5 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                  title="Delete"
+                >
+                  <TrashIcon className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      />
 
       {/* Modals */}
-      {selectedPriorityClass && (
-        <>
-          <PriorityClassDetailsModal
-            priorityClass={selectedPriorityClass}
-            isOpen={isDetailsModalOpen}
-            onClose={() => {
-              setIsDetailsModalOpen(false)
-              setSelectedPriorityClass(null)
-            }}
-          />
-          <EditPriorityClassYAMLModal
-            priorityClass={selectedPriorityClass}
-            isOpen={isEditYAMLModalOpen}
-            onClose={() => {
-              setIsEditYAMLModalOpen(false)
-              setSelectedPriorityClass(null)
-            }}
-            onSuccess={() => {
-              queryClient.invalidateQueries({ queryKey: ['priorityclasses'] })
-            }}
-          />
-          <DeletePriorityClassModal
-            priorityClass={selectedPriorityClass}
-            isOpen={isDeleteModalOpen}
-            onClose={() => {
-              setIsDeleteModalOpen(false)
-              setSelectedPriorityClass(null)
-            }}
-            onSuccess={() => {
-              queryClient.invalidateQueries({ queryKey: ['priorityclasses'] })
-            }}
-          />
-        </>
-      )}
-      
-      {/* Create Modal - outside selectedPriorityClass block */}
       {cluster && (
         <CreatePriorityClassModal
           clusterName={cluster}
           isOpen={isCreateModalOpen}
           onClose={() => setIsCreateModalOpen(false)}
-          onSuccess={() => {
-            queryClient.invalidateQueries({ queryKey: ['priorityclasses'] })
+          onSuccess={async () => {
+            await queryClient.invalidateQueries({ queryKey: ['priorityclasses'] })
+            await queryClient.invalidateQueries({ queryKey: ['all-priorityclasses'] })
+            await queryClient.refetchQueries({ queryKey: ['priorityclasses'] })
+            await queryClient.refetchQueries({ queryKey: ['all-priorityclasses'] })
             setIsCreateModalOpen(false)
           }}
         />
       )}
+      
+      {selectedPriorityClass && (
+        <>
+          <EditPriorityClassYAMLModal
+            priorityClass={selectedPriorityClass}
+            isOpen={isEditModalOpen}
+            onClose={() => {
+              setIsEditModalOpen(false)
+              setSelectedPriorityClass(null)
+            }}
+            onSuccess={async () => {
+              await queryClient.invalidateQueries({ queryKey: ['priorityclasses'] })
+              await queryClient.invalidateQueries({ queryKey: ['all-priorityclasses'] })
+              await queryClient.refetchQueries({ queryKey: ['priorityclasses'] })
+              await queryClient.refetchQueries({ queryKey: ['all-priorityclasses'] })
+              setIsEditModalOpen(false)
+              setSelectedPriorityClass(null)
+            }}
+          />
+          <ConfirmationModal
+            isOpen={isDeleteModalOpen}
+            onClose={() => {
+              setIsDeleteModalOpen(false)
+              setSelectedPriorityClass(null)
+            }}
+            onConfirm={handleDeleteConfirm}
+            title="Delete Priority Class"
+            message={`Are you sure you want to delete priority class "${selectedPriorityClass.metadata.name}"? This action cannot be undone.`}
+            confirmText="Delete"
+            type="danger"
+          />
+        </>
+      )}
     </div>
   )
 }
-
