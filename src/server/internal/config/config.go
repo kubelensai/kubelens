@@ -10,13 +10,14 @@ import (
 
 // Config holds the application configuration
 type Config struct {
-	Port         int      `mapstructure:"port"`
-	DatabasePath string   `mapstructure:"database_path"`
-	KubeConfig   string   `mapstructure:"kubeconfig"`
-	LogLevel     string   `mapstructure:"log_level"`
-	CORSOrigins  []string `mapstructure:"cors_origins"`
-	ReleaseMode  bool     `mapstructure:"release_mode"`
-	Clusters     []ClusterConfig `mapstructure:"clusters"`
+	Port          int      `mapstructure:"port"`
+	DatabasePath  string   `mapstructure:"database_path"`
+	KubeConfig    string   `mapstructure:"kubeconfig"`
+	LogLevel      string   `mapstructure:"log_level"`
+	CORSOrigins   []string `mapstructure:"cors_origins"`
+	ReleaseMode   bool     `mapstructure:"release_mode"`
+	AdminPassword string   `mapstructure:"admin_password"`
+	Clusters      []ClusterConfig `mapstructure:"clusters"`
 }
 
 // ClusterConfig holds cluster-specific configuration
@@ -37,6 +38,7 @@ func Load() (*Config, error) {
 	v.SetDefault("log_level", "info")
 	v.SetDefault("cors_origins", []string{"http://localhost:5173"})
 	v.SetDefault("release_mode", false)
+	// admin_password is optional - will be auto-generated if not set
 
 	// Get kubeconfig from environment or default location
 	kubeconfig := os.Getenv("KUBECONFIG")
@@ -64,6 +66,9 @@ func Load() (*Config, error) {
 	v.SetEnvPrefix("kubelens")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
+	
+	// Explicitly bind admin_password to environment variable
+	v.BindEnv("admin_password")
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {

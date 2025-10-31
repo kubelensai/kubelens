@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/yaml"
 
+	"github.com/sonnguyen/kubelens/internal/audit"
 	"github.com/sonnguyen/kubelens/internal/cluster"
 	"github.com/sonnguyen/kubelens/internal/db"
 	"github.com/sonnguyen/kubelens/internal/ws"
@@ -231,6 +232,20 @@ func (h *Handler) AddCluster(c *gin.Context) {
 	if err := h.setupKubelensServiceAccount(req.Name); err != nil {
 		log.Warnf("Failed to setup kubelens ServiceAccount for cluster %s: %v", req.Name, err)
 		// Don't fail the cluster import if SA setup fails
+	}
+
+	// Audit log
+	if userID, exists := c.Get("user_id"); exists {
+		username, _ := c.Get("username")
+		email, _ := c.Get("email")
+		
+		audit.Log(c, audit.EventClusterAdded, userID.(int), username.(string), email.(string),
+			fmt.Sprintf("Added cluster: %s", req.Name),
+			map[string]interface{}{
+				"cluster_name": req.Name,
+				"auth_type": req.AuthType,
+				"server": serverURL,
+			})
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -462,6 +477,22 @@ func (h *Handler) UpdateClusterEnabled(c *gin.Context) {
 		log.Infof("Successfully disabled cluster: %s", name)
 	}
 
+	// Audit log
+	if user, exists := c.Get("user"); exists {
+		if u, ok := user.(*db.User); ok {
+			action := "enabled"
+			if !req.Enabled {
+				action = "disabled"
+			}
+			audit.Log(c, audit.EventClusterUpdated, u.ID, u.Username, u.Email,
+				fmt.Sprintf("Cluster %s: %s", action, name),
+				map[string]interface{}{
+					"cluster_name": name,
+					"enabled": req.Enabled,
+				})
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "Cluster status updated successfully"})
 }
 
@@ -484,6 +515,19 @@ func (h *Handler) RemoveCluster(c *gin.Context) {
 	}
 
 	log.Infof("Deleted cluster: %s", name)
+
+	// Audit log
+	if userID, exists := c.Get("user_id"); exists {
+		username, _ := c.Get("username")
+		email, _ := c.Get("email")
+		
+		audit.Log(c, audit.EventClusterRemoved, userID.(int), username.(string), email.(string),
+			fmt.Sprintf("Removed cluster: %s", name),
+			map[string]interface{}{
+				"cluster_name": name,
+			})
+	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "Cluster removed successfully"})
 }
 

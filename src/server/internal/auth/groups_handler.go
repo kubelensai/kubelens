@@ -2,11 +2,13 @@ package auth
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
+	"github.com/sonnguyen/kubelens/internal/audit"
 	"github.com/sonnguyen/kubelens/internal/db"
 )
 
@@ -83,6 +85,18 @@ func (h *Handler) CreateGroup(c *gin.Context) {
 	}
 
 	log.Infof("Group created: %s (ID: %d)", group.Name, group.ID)
+
+	// Audit log
+	if adminUser, exists := c.Get("user"); exists {
+		if admin, ok := adminUser.(*db.User); ok {
+			audit.Log(c, audit.EventGroupCreated, admin.ID, admin.Username, admin.Email,
+				fmt.Sprintf("Created group: %s", group.Name),
+				map[string]interface{}{
+					"group_id": group.ID,
+					"group_name": group.Name,
+				})
+		}
+	}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "group created successfully",
@@ -161,6 +175,18 @@ func (h *Handler) UpdateGroupHandler(c *gin.Context) {
 
 	log.Infof("Group updated: %s (ID: %d)", group.Name, group.ID)
 
+	// Audit log
+	if adminUser, exists := c.Get("user"); exists {
+		if admin, ok := adminUser.(*db.User); ok {
+			audit.Log(c, audit.EventGroupUpdated, admin.ID, admin.Username, admin.Email,
+				fmt.Sprintf("Updated group: %s", group.Name),
+				map[string]interface{}{
+					"group_id": group.ID,
+					"group_name": group.Name,
+				})
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "group updated successfully",
 		"group":   group,
@@ -195,6 +221,18 @@ func (h *Handler) DeleteGroup(c *gin.Context) {
 	}
 
 	log.Infof("Group deleted: %s (ID: %d)", group.Name, id)
+
+	// Audit log
+	if adminUser, exists := c.Get("user"); exists {
+		if admin, ok := adminUser.(*db.User); ok {
+			audit.Log(c, audit.EventGroupDeleted, admin.ID, admin.Username, admin.Email,
+				fmt.Sprintf("Deleted group: %s", group.Name),
+				map[string]interface{}{
+					"group_id": group.ID,
+					"group_name": group.Name,
+				})
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "group deleted successfully"})
 }

@@ -1,24 +1,24 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { getClusters, removeCluster } from '@/services/api'
 import {
-  MagnifyingGlassIcon,
   PencilSquareIcon,
   TrashIcon,
   ArrowDownTrayIcon,
+  ServerIcon,
+  CpuChipIcon,
+  CircleStackIcon,
 } from '@heroicons/react/24/outline'
 import { Switch } from '@headlessui/react'
 import clsx from 'clsx'
 import Breadcrumb from '@/components/shared/Breadcrumb'
-import ResizableTableHeader from '@/components/shared/ResizableTableHeader'
-import { useTableSort } from '@/hooks/useTableSort'
-import { useResizableColumns } from '@/hooks/useResizableColumns'
-import { usePagination } from '@/hooks/usePagination'
-import Pagination from '@/components/shared/Pagination'
+import ConfirmationModal from '@/components/shared/ConfirmationModal'
+import { DataTable, Column } from '@/components/shared/DataTable'
 import api from '@/services/api'
 import ImportClusterModal from '@/components/ClusterManagement/ImportClusterModal'
 import EditClusterModal from '@/components/ClusterManagement/EditClusterModal'
+import { useNotificationStore } from '@/stores/notificationStore'
 
 interface ClusterMetrics {
   [clusterName: string]: {
@@ -33,27 +33,28 @@ interface ClusterMetrics {
   }
 }
 
+interface ClusterData {
+  name: string
+  enabled?: boolean
+  status?: string
+  version: string
+  context?: string
+  is_default?: boolean
+  metadata?: {
+    nodes_count?: number
+    namespaces_count?: number
+    provider?: string
+  }
+}
+
 export default function ClusterManagement() {
   const queryClient = useQueryClient()
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
-  const [filterText, setFilterText] = useState('')
+  const { addNotification } = useNotificationStore()
   const [clusterMetrics, setClusterMetrics] = useState<ClusterMetrics>({})
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
-  const [selectedCluster, setSelectedCluster] = useState<any>(null)
-
-  // Resizable columns
-  const { columnWidths, handleMouseDown } = useResizableColumns({
-    cluster: 200,
-    status: 100,
-    condition: 120,
-    nodes: 100,
-    cpu: 180,
-    memory: 180,
-    version: 120,
-    provider: 140,
-    actions: 120,
-  }, 'cluster-management-column-widths')
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+  const [selectedCluster, setSelectedCluster] = useState<ClusterData | null>(null)
 
   const { data: clusters, isLoading } = useQuery({
     queryKey: ['clusters'],
@@ -64,8 +65,21 @@ export default function ClusterManagement() {
     mutationFn: removeCluster,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['clusters'] })
-      setDeleteConfirm(null)
+      setIsDeleteModalOpen(false)
+      setSelectedCluster(null)
+      addNotification({
+        type: 'success',
+        title: 'Success',
+        message: 'Cluster deleted successfully'
+      })
     },
+    onError: (error: any) => {
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: error?.response?.data?.error || 'Failed to delete cluster'
+      })
+    }
   })
 
   const toggleClusterMutation = useMutation({
@@ -73,10 +87,20 @@ export default function ClusterManagement() {
       await api.patch(`/clusters/${name}/enabled`, { enabled })
     },
     onSuccess: async () => {
-      // Invalidate ALL cluster-related queries (including 'enabled' filter)
-      // Use 'exact: false' to match all queries starting with ['clusters']
       await queryClient.invalidateQueries({ queryKey: ['clusters'], exact: false })
       await queryClient.refetchQueries({ queryKey: ['clusters'], exact: false })
+      addNotification({
+        type: 'success',
+        title: 'Success',
+        message: 'Cluster status updated successfully'
+      })
+    },
+    onError: (error: any) => {
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: error?.response?.data?.error || 'Failed to update cluster status'
+      })
     }
   })
 
@@ -84,63 +108,39 @@ export default function ClusterManagement() {
     toggleClusterMutation.mutate({ name: clusterName, enabled: !currentEnabled })
   }
 
-  const handleEdit = (cluster: any) => {
+  const handleEdit = (cluster: ClusterData) => {
     setSelectedCluster(cluster)
     setIsEditModalOpen(true)
   }
 
-  // Filtering
-  const filteredClusters = useMemo(() => {
-    if (!clusters) return []
-    if (!filterText) return clusters
-    const lowerFilter = filterText.toLowerCase()
-    return clusters.filter(cluster =>
-      cluster.name.toLowerCase().includes(lowerFilter) ||
-      cluster.version?.toLowerCase().includes(lowerFilter) ||
-      (cluster.metadata as any)?.provider?.toLowerCase().includes(lowerFilter)
-    )
-  }, [clusters, filterText])
+  const handleDeleteClick = (cluster: ClusterData) => {
+    setSelectedCluster(cluster)
+    setIsDeleteModalOpen(true)
+  }
 
-  // Sorting
-  const { sortedData, sortConfig, requestSort } = useTableSort(filteredClusters, {
-    key: 'name',
-    direction: 'asc'
-  })
+  const handleDeleteConfirm = () => {
+    if (selectedCluster) {
+      deleteMutation.mutate(selectedCluster.name)
+    }
+  }
 
-  // Pagination
-  const {
-    paginatedData: paginatedClusters,
-    currentPage,
-    totalPages,
-    pageSize,
-    totalItems,
-    goToPage,
-    goToNextPage,
-    goToPreviousPage,
-    changePageSize,
-    hasNextPage,
-    hasPreviousPage,
-  } = usePagination(sortedData, 10, 'cluster-management')
-
-  // Fetch metrics for all clusters from metric-server
+  // Fetch metrics for all clusters
   useEffect(() => {
-    if (paginatedClusters.length > 0) {
+    if (clusters && clusters.length > 0) {
       fetchAllClusterMetrics()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paginatedClusters])
+  }, [clusters])
 
   const fetchAllClusterMetrics = async () => {
+    if (!clusters) return
     const metricsMap: ClusterMetrics = {}
     
     await Promise.all(
-      paginatedClusters.map(async (cluster: any) => {
+      clusters.map(async (cluster: any) => {
         try {
-          // Fetch cluster metrics from backend API
           const response = await api.get(`/clusters/${cluster.name}/metrics`)
           const data = response.data
-          
-          console.log(`Cluster ${cluster.name} metrics:`, data)
           
           if (data) {
             metricsMap[cluster.name] = {
@@ -155,12 +155,11 @@ export default function ClusterManagement() {
             }
           }
         } catch (error) {
-          console.error(`Failed to fetch metrics for cluster ${cluster.name}:`, error)
+          // Silently fail for metrics
         }
       })
     )
     
-    console.log('All cluster metrics:', metricsMap)
     setClusterMetrics(metricsMap)
   }
 
@@ -254,296 +253,339 @@ export default function ClusterManagement() {
     )
   }
 
-  return (
-    <div className="space-y-4 sm:space-y-6">
-      {/* Breadcrumb */}
-      <div>
-        <Breadcrumb items={[{ name: 'Cluster Management', href: '/clusters' }]} />
-      </div>
+  // Define DataTable columns
+  const columns: Column<ClusterData>[] = [
+    {
+      key: 'name',
+      header: 'Cluster',
+      accessor: (cluster) => (
+        <Link
+          to="/dashboard"
+          className="text-sm font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300"
+        >
+          {cluster.name}
+        </Link>
+      ),
+      sortable: true,
+      sortValue: (cluster) => cluster.name,
+      searchValue: (cluster) => cluster.name,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      accessor: (cluster) => (
+        <Switch
+          checked={cluster.enabled ?? false}
+          onChange={() => toggleCluster(cluster.name, cluster.enabled ?? false)}
+          className={clsx(
+            cluster.enabled ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700',
+            'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900'
+          )}
+        >
+          <span
+            className={clsx(
+              cluster.enabled ? 'translate-x-6' : 'translate-x-1',
+              'inline-block h-4 w-4 transform rounded-full bg-white transition-transform'
+            )}
+          />
+        </Switch>
+      ),
+      sortable: true,
+      sortValue: (cluster) => cluster.enabled ? 1 : 0,
+      filterable: true,
+      filterOptions: () => ['Enabled', 'Disabled'],
+      filterValue: (cluster) => cluster.enabled ? 'Enabled' : 'Disabled',
+    },
+    {
+      key: 'condition',
+      header: 'Condition',
+      accessor: (cluster) => {
+        const condition = getClusterCondition(cluster)
+        return (
+          <span className={clsx(
+            'inline-flex px-2.5 py-1 rounded-full text-xs font-semibold',
+            condition.color === 'success' && 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+            condition.color === 'warning' && 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+            condition.color === 'error' && 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+          )}>
+            {condition.status}
+          </span>
+        )
+      },
+      sortable: true,
+      sortValue: (cluster) => getClusterCondition(cluster).status,
+      filterable: true,
+      filterOptions: (data) => {
+        const conditions = new Set(data.map(c => getClusterCondition(c).status))
+        return Array.from(conditions)
+      },
+      filterValue: (cluster) => getClusterCondition(cluster).status,
+    },
+    {
+      key: 'nodes',
+      header: 'Nodes',
+      accessor: (cluster) => (
+        <span className="text-sm text-gray-900 dark:text-white">
+          {cluster.metadata?.nodes_count || 0}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (cluster) => cluster.metadata?.nodes_count || 0,
+    },
+    {
+      key: 'cpu',
+      header: 'CPU',
+      accessor: (cluster) => {
+        const metrics = clusterMetrics[cluster.name]
+        const cpuUsed = metrics?.cpu?.usage || 0
+        const cpuTotal = metrics?.cpu?.capacity || 0
+        return renderResourceBar(cpuUsed, cpuTotal, formatCPU)
+      },
+      sortable: true,
+      sortValue: (cluster) => {
+        const metrics = clusterMetrics[cluster.name]
+        return metrics?.cpu?.usage || 0
+      },
+    },
+    {
+      key: 'memory',
+      header: 'Memory',
+      accessor: (cluster) => {
+        const metrics = clusterMetrics[cluster.name]
+        const memoryUsed = metrics?.memory?.usage || 0
+        const memoryTotal = metrics?.memory?.capacity || 0
+        return renderResourceBar(memoryUsed, memoryTotal, formatBytes)
+      },
+      sortable: true,
+      sortValue: (cluster) => {
+        const metrics = clusterMetrics[cluster.name]
+        return metrics?.memory?.usage || 0
+      },
+    },
+    {
+      key: 'version',
+      header: 'Version',
+      accessor: (cluster) => (
+        <span className="text-sm text-gray-900 dark:text-white font-mono">
+          {cluster.version}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (cluster) => cluster.version,
+      searchValue: (cluster) => cluster.version,
+    },
+    {
+      key: 'provider',
+      header: 'Provider',
+      accessor: (cluster) => (
+        <span className={clsx(
+          'inline-flex px-2.5 py-1 rounded-full text-xs font-semibold',
+          getProviderBadge(cluster.metadata?.provider)
+        )}>
+          {cluster.metadata?.provider || 'Self-hosted'}
+        </span>
+      ),
+      sortable: true,
+      sortValue: (cluster) => cluster.metadata?.provider || 'Self-hosted',
+      searchValue: (cluster) => cluster.metadata?.provider || 'Self-hosted',
+      filterable: true,
+      filterOptions: (data) => {
+        const providers = new Set(data.map(c => c.metadata?.provider || 'Self-hosted'))
+        return Array.from(providers)
+      },
+      filterValue: (cluster) => cluster.metadata?.provider || 'Self-hosted',
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      accessor: (cluster) => (
+        <div className="flex items-center justify-end gap-2">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              handleEdit(cluster)
+            }}
+            className="p-1.5 text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded-lg transition-colors"
+            title="Edit"
+          >
+            <PencilSquareIcon className="h-5 w-5" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              handleDeleteClick(cluster)
+            }}
+            className="p-1.5 text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+            title="Delete"
+          >
+            <TrashIcon className="h-5 w-5" />
+          </button>
+        </div>
+      ),
+      className: 'text-right',
+    },
+  ]
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+  // Mobile card renderer
+  const renderMobileCard = (cluster: ClusterData) => {
+    const metrics = clusterMetrics[cluster.name]
+    const cpuUsed = metrics?.cpu?.usage || 0
+    const cpuTotal = metrics?.cpu?.capacity || 0
+    const memoryUsed = metrics?.memory?.usage || 0
+    const memoryTotal = metrics?.memory?.capacity || 0
+    const condition = getClusterCondition(cluster)
+
+    return (
+      <div className="space-y-3">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-100 dark:bg-primary-900/20">
+              <ServerIcon className="h-5 w-5 text-primary-600 dark:text-primary-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <Link
+                to="/dashboard"
+                className="text-sm font-semibold text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 truncate block"
+              >
+                {cluster.name}
+              </Link>
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+                {cluster.version}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                handleEdit(cluster)
+              }}
+              className="p-1.5 text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded-lg transition-colors"
+            >
+              <PencilSquareIcon className="h-5 w-5" />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                handleDeleteClick(cluster)
+              }}
+              className="p-1.5 text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+            >
+              <TrashIcon className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Status & Condition */}
+        <div className="flex items-center justify-between gap-3 py-2 border-t border-b border-gray-100 dark:border-white/[0.05]">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Status:</span>
+            <Switch
+              checked={cluster.enabled ?? false}
+              onChange={() => toggleCluster(cluster.name, cluster.enabled ?? false)}
+              className={clsx(
+                cluster.enabled ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700',
+                'relative inline-flex h-5 w-9 items-center rounded-full transition-colors'
+              )}
+            >
+              <span
+                className={clsx(
+                  cluster.enabled ? 'translate-x-5' : 'translate-x-1',
+                  'inline-block h-3 w-3 transform rounded-full bg-white transition-transform'
+                )}
+              />
+            </Switch>
+          </div>
+          <span className={clsx(
+            'inline-flex px-2 py-0.5 rounded-full text-xs font-semibold',
+            condition.color === 'success' && 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+            condition.color === 'warning' && 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+            condition.color === 'error' && 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+          )}>
+            {condition.status}
+          </span>
+        </div>
+
+        {/* Provider & Nodes */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">Provider</span>
+            <span className={clsx(
+              'inline-flex px-2 py-0.5 rounded-full text-xs font-semibold',
+              getProviderBadge(cluster.metadata?.provider)
+            )}>
+              {cluster.metadata?.provider || 'Self-hosted'}
+            </span>
+          </div>
+          <div>
+            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">Nodes</span>
+            <span className="text-sm font-semibold text-gray-900 dark:text-white">
+              {cluster.metadata?.nodes_count || 0}
+            </span>
+          </div>
+        </div>
+
+        {/* CPU & Memory */}
+        <div className="space-y-2">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <CpuChipIcon className="h-4 w-4 text-gray-400" />
+              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">CPU</span>
+            </div>
+            {renderResourceBar(cpuUsed, cpuTotal, formatCPU)}
+          </div>
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <CircleStackIcon className="h-4 w-4 text-gray-400" />
+              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Memory</span>
+            </div>
+            {renderResourceBar(memoryUsed, memoryTotal, formatBytes)}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-4 md:p-6 lg:p-8">
+      {/* Breadcrumb */}
+      <Breadcrumb items={[{ name: 'Cluster Management' }]} />
+
+      {/* Page Header */}
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">Cluster Management</h1>
-          <p className="mt-1 sm:mt-2 text-sm text-gray-600 dark:text-gray-400">
+          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
+            Cluster Management
+          </h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Manage and monitor your Kubernetes clusters
           </p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative w-full sm:w-64">
-            <MagnifyingGlassIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Filter by name..."
-              value={filterText}
-              onChange={(e) => setFilterText(e.target.value)}
-              className="w-full pl-11 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            />
+        <button 
+          onClick={() => setIsImportModalOpen(true)}
+          className="btn-primary flex items-center gap-2 justify-center whitespace-nowrap"
+        >
+          <ArrowDownTrayIcon className="h-5 w-5" />
+          <span>Import Cluster</span>
+        </button>
+      </div>
+
+      {/* DataTable */}
+      <DataTable
+        data={clusters || []}
+        columns={columns}
+        searchPlaceholder="Search clusters by name, version, or provider..."
+        isLoading={isLoading}
+        emptyMessage="No clusters configured yet"
+        emptyIcon={
+          <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
+            <ServerIcon className="w-6 h-6 text-gray-400 dark:text-gray-500" />
           </div>
-          <button 
-            onClick={() => setIsImportModalOpen(true)}
-            className="btn-primary flex items-center gap-2 justify-center whitespace-nowrap"
-          >
-            <ArrowDownTrayIcon className="h-5 w-5" />
-            <span>Import Cluster</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                <ResizableTableHeader 
-                  label="Cluster"
-                  columnKey="cluster"
-                  sortKey="name"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleMouseDown}
-                  width={columnWidths.cluster}
-                />
-                <ResizableTableHeader 
-                  label="Status"
-                  columnKey="status"
-                  sortKey="status"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleMouseDown}
-                  width={columnWidths.status}
-                />
-                <ResizableTableHeader 
-                  label="Condition"
-                  columnKey="condition"
-                  width={columnWidths.condition}
-                  onResizeStart={handleMouseDown}
-                />
-                <ResizableTableHeader 
-                  label="Nodes"
-                  columnKey="nodes"
-                  sortKey="metadata.nodes_count"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleMouseDown}
-                  width={columnWidths.nodes}
-                />
-                <ResizableTableHeader 
-                  label="CPU"
-                  columnKey="cpu"
-                  sortKey="metadata.cpu_used"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleMouseDown}
-                  width={columnWidths.cpu}
-                />
-                <ResizableTableHeader 
-                  label="Memory"
-                  columnKey="memory"
-                  sortKey="metadata.memory_used"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleMouseDown}
-                  width={columnWidths.memory}
-                />
-                <ResizableTableHeader 
-                  label="Version"
-                  columnKey="version"
-                  sortKey="version"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleMouseDown}
-                  width={columnWidths.version}
-                />
-                <ResizableTableHeader 
-                  label="Provider"
-                  columnKey="provider"
-                  sortKey="metadata.provider"
-                  currentSortKey={sortConfig?.key as string}
-                  currentSortDirection={sortConfig?.direction || null}
-                  onSort={requestSort}
-                  onResizeStart={handleMouseDown}
-                  width={columnWidths.provider}
-                />
-                <ResizableTableHeader 
-                  label="Actions"
-                  columnKey="actions"
-                  width={columnWidths.actions}
-                  onResizeStart={handleMouseDown}
-                />
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={9} className="px-6 py-12 text-center">
-                    <div className="flex justify-center items-center">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-                    </div>
-                  </td>
-                </tr>
-              ) : paginatedClusters.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-6 py-12 text-center">
-                    <p className="text-gray-500 dark:text-gray-400">
-                      {filterText ? 'No clusters found matching your search.' : 'No clusters configured yet.'}
-                    </p>
-                  </td>
-                </tr>
-              ) : (
-                paginatedClusters.map((cluster: any) => {
-                  // Get metrics from backend API
-                  const metrics = clusterMetrics[cluster.name]
-                  const cpuUsed = metrics?.cpu?.usage || 0
-                  const cpuTotal = metrics?.cpu?.capacity || 0
-                  
-                  const memoryUsed = metrics?.memory?.usage || 0
-                  const memoryTotal = metrics?.memory?.capacity || 0
-
-                  const condition = getClusterCondition(cluster)
-
-                  return (
-                    <tr key={cluster.name} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                      {/* Cluster Name */}
-                      <td className="px-6 py-4 whitespace-nowrap" style={{ width: columnWidths.cluster }}>
-                        <Link
-                          to="/dashboard"
-                          className="text-sm font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300"
-                        >
-                          {cluster.name}
-                        </Link>
-                      </td>
-
-                      {/* Status Switch */}
-                      <td className="px-6 py-4 whitespace-nowrap" style={{ width: columnWidths.status }}>
-                        <Switch
-                          checked={cluster.enabled ?? false}
-                          onChange={() => toggleCluster(cluster.name, cluster.enabled)}
-                          className={clsx(
-                            cluster.enabled ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700',
-                            'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900'
-                          )}
-                        >
-                          <span
-                            className={clsx(
-                              cluster.enabled ? 'translate-x-6' : 'translate-x-1',
-                              'inline-block h-4 w-4 transform rounded-full bg-white transition-transform'
-                            )}
-                          />
-                        </Switch>
-                      </td>
-
-                      {/* Condition */}
-                      <td className="px-6 py-4 whitespace-nowrap" style={{ width: columnWidths.condition }}>
-                        <span className={clsx(
-                          'inline-flex px-2.5 py-1 rounded-full text-xs font-semibold',
-                          condition.color === 'success' && 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-                          condition.color === 'warning' && 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-                          condition.color === 'error' && 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                        )}>
-                          {condition.status}
-                        </span>
-                      </td>
-
-                      {/* Nodes */}
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white" style={{ width: columnWidths.nodes }}>
-                        {cluster.metadata?.nodes_count || 0}
-                      </td>
-
-                      {/* CPU Usage - From Metric Server */}
-                      <td className="px-6 py-4" style={{ width: columnWidths.cpu }}>
-                        {renderResourceBar(cpuUsed, cpuTotal, formatCPU)}
-                      </td>
-
-                      {/* Memory Usage - From Metric Server */}
-                      <td className="px-6 py-4" style={{ width: columnWidths.memory }}>
-                        {renderResourceBar(memoryUsed, memoryTotal, formatBytes)}
-                      </td>
-
-                      {/* Version */}
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white font-mono" style={{ width: columnWidths.version }}>
-                        {cluster.version}
-                      </td>
-
-                      {/* Provider */}
-                      <td className="px-6 py-4 whitespace-nowrap" style={{ width: columnWidths.provider }}>
-                        <span className={clsx(
-                          'inline-flex px-2.5 py-1 rounded-full text-xs font-semibold',
-                          getProviderBadge(cluster.metadata?.provider)
-                        )}>
-                          {cluster.metadata?.provider || 'Self-hosted'}
-                        </span>
-                      </td>
-
-                      {/* Actions */}
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" style={{ width: columnWidths.actions }}>
-                        {deleteConfirm === cluster.name ? (
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => deleteMutation.mutate(cluster.name)}
-                              className="text-green-600 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300"
-                              title="Confirm"
-                            >
-                              ✓
-                            </button>
-                            <button
-                              onClick={() => setDeleteConfirm(null)}
-                              className="text-gray-600 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
-                              title="Cancel"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-end gap-3">
-                            <button
-                              onClick={() => handleEdit(cluster)}
-                              className="text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
-                              title="Edit"
-                            >
-                              <PencilSquareIcon className="h-5 w-5" />
-                            </button>
-                            <button
-                              onClick={() => setDeleteConfirm(cluster.name)}
-                              className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-                              title="Delete"
-                            >
-                              <TrashIcon className="h-5 w-5" />
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination */}
-        {!isLoading && paginatedClusters.length > 0 && (
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            pageSize={pageSize}
-            totalItems={totalItems}
-            onPageChange={goToPage}
-            onNextPage={goToNextPage}
-            onPreviousPage={goToPreviousPage}
-            onPageSizeChange={changePageSize}
-            hasNextPage={hasNextPage}
-            hasPreviousPage={hasPreviousPage}
-          />
-        )}
-      </div>
+        }
+        mobileCardRenderer={renderMobileCard}
+        keyExtractor={(cluster) => cluster.name}
+      />
 
       {/* Modals */}
       <ImportClusterModal
@@ -554,6 +596,19 @@ export default function ClusterManagement() {
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
         cluster={selectedCluster}
+      />
+      <ConfirmationModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => {
+          setIsDeleteModalOpen(false)
+          setSelectedCluster(null)
+        }}
+        onConfirm={handleDeleteConfirm}
+        title="Delete Cluster"
+        message={`Are you sure you want to delete "${selectedCluster?.name}"? This action cannot be undone.`}
+        confirmText="Delete"
+        type="danger"
+        isLoading={deleteMutation.isPending}
       />
     </div>
   )

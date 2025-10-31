@@ -24,7 +24,7 @@ export const SidebarItem = ({ item }: SidebarItemProps) => {
     
     // For root paths (/, /dashboard, /clusters, etc.), only exact match
     if (itemPath === '/' || itemPath === '/dashboard' || itemPath === '/clusters' || 
-        itemPath === '/integrations' || itemPath === '/users' || itemPath === '/groups') {
+        itemPath === '/integrations' || itemPath === '/users' || itemPath === '/groups' || itemPath === '/logging' || itemPath === '/audit-settings') {
       return false;
     }
     

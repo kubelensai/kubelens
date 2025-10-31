@@ -8,6 +8,7 @@ import {
   TrashIcon,
   PowerIcon,
   KeyIcon,
+  ShieldCheckIcon,
 } from '@heroicons/react/24/outline'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import ResizableTableHeader from '@/components/shared/ResizableTableHeader'
@@ -28,6 +29,7 @@ interface User {
   auth_provider: 'local' | 'google'
   is_admin: boolean
   is_active: boolean
+  mfa_enabled?: boolean
   last_login: string
   created_at: string
 }
@@ -54,6 +56,7 @@ export default function Users() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isResetPasswordModalOpen, setIsResetPasswordModalOpen] = useState(false)
+  const [isResetMFAModalOpen, setIsResetMFAModalOpen] = useState(false)
   const [isToggleActiveModalOpen, setIsToggleActiveModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
@@ -345,6 +348,28 @@ export default function Users() {
     setIsResetPasswordModalOpen(true)
   }
 
+  const handleResetMFA = (user: User, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setSelectedUser(user)
+    setIsResetMFAModalOpen(true)
+  }
+
+  // MFA Reset mutation
+  const resetMFAMutation = useMutation({
+    mutationFn: async (userId: number) => {
+      await api.post(`/users/${userId}/reset-mfa`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      notifyResourceAction.updated('User MFA', selectedUser?.email || '')
+      setIsResetMFAModalOpen(false)
+      setSelectedUser(null)
+    },
+    onError: (error: any) => {
+      notifyResourceAction.failed('reset MFA for', selectedUser?.email || '', error.response?.data?.error)
+    },
+  })
+
   const confirmResetPassword = (newPassword: string) => {
     if (!selectedUser) return
     resetPasswordMutation.mutate({ userId: selectedUser.id, newPassword })
@@ -449,6 +474,16 @@ export default function Users() {
                   width={columnWidths.status}
                 />
                 <ResizableTableHeader 
+                  label="MFA"
+                  columnKey="mfa"
+                  sortKey="mfa_enabled"
+                  currentSortKey={sortConfig?.key as string}
+                  currentSortDirection={sortConfig?.direction || null}
+                  onSort={requestSort}
+                  onResizeStart={handleMouseDown}
+                  width={columnWidths.mfa || 100}
+                />
+                <ResizableTableHeader 
                   label="Last Login"
                   columnKey="last_login"
                   sortKey="last_login"
@@ -549,6 +584,24 @@ export default function Users() {
                       )}
                     </td>
 
+                    {/* MFA Status */}
+                    <td className="px-6 py-4" style={{ width: columnWidths.mfa || 100 }}>
+                      {user.auth_provider === 'local' ? (
+                        user.mfa_enabled ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-1 text-xs font-semibold text-green-800 dark:bg-green-900 dark:text-green-200">
+                            <ShieldCheckIcon className="h-3 w-3" />
+                            Enabled
+                          </span>
+                        ) : (
+                          <span className="inline-flex rounded-full bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-600 dark:bg-gray-700 dark:text-gray-400">
+                            Disabled
+                          </span>
+                        )
+                      ) : (
+                        <span className="text-sm text-gray-400">-</span>
+                      )}
+                    </td>
+
                     {/* Last Login */}
                     <td className="px-6 py-4" style={{ width: columnWidths.last_login }}>
                       {user.last_login ? (
@@ -579,6 +632,15 @@ export default function Users() {
                             >
                               <KeyIcon className="h-4 w-4" />
                             </button>
+                            {user.mfa_enabled && (
+                              <button
+                                onClick={(e) => handleResetMFA(user, e)}
+                                className="p-1.5 text-purple-600 hover:text-purple-900 dark:text-purple-400 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
+                                title="Reset MFA"
+                              >
+                                <ShieldCheckIcon className="h-4 w-4" />
+                              </button>
+                            )}
                             <button
                               onClick={(e) => handleToggleActive(user, e)}
                               className={`p-1.5 ${
@@ -655,6 +717,23 @@ export default function Users() {
           onConfirm={confirmResetPassword}
           userEmail={selectedUser.email}
           isLoading={resetPasswordMutation.isPending}
+        />
+      )}
+
+      {/* Reset MFA Modal */}
+      {selectedUser && (
+        <ConfirmationModal
+          isOpen={isResetMFAModalOpen}
+          onClose={() => {
+            setIsResetMFAModalOpen(false)
+            setSelectedUser(null)
+          }}
+          onConfirm={() => resetMFAMutation.mutate(selectedUser.id)}
+          title="Reset Multi-Factor Authentication"
+          message={`Are you sure you want to reset MFA for user "${selectedUser.email}"? They will need to set up MFA again on their next login.`}
+          confirmText="Reset MFA"
+          isLoading={resetMFAMutation.isPending}
+          type="warning"
         />
       )}
 

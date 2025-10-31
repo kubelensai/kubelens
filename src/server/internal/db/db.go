@@ -1,10 +1,14 @@
 package db
 
 import (
+	"crypto/rand"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"math/big"
 
 	_ "modernc.org/sqlite"
+	"golang.org/x/crypto/bcrypt"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -115,9 +119,21 @@ type User struct {
 	ProviderUserID string `json:"provider_user_id,omitempty"` // External user ID
 	IsActive       bool   `json:"is_active"`
 	IsAdmin        bool   `json:"is_admin"`
+	MFAEnabled     bool   `json:"mfa_enabled"`
+	MFAEnforcedAt  string `json:"mfa_enforced_at,omitempty"`
 	LastLogin      string `json:"last_login,omitempty"`
 	CreatedAt      string `json:"created_at"`
 	UpdatedAt      string `json:"updated_at"`
+}
+
+// MFASecret represents a user's MFA secret
+type MFASecret struct {
+	ID          int    `json:"id"`
+	UserID      int    `json:"user_id"`
+	Secret      string `json:"-"` // Never expose in JSON
+	BackupCodes string `json:"-"` // Never expose in JSON
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 // Group represents a user group with RBAC permissions
@@ -317,10 +333,24 @@ func (db *DB) init() error {
 		provider_user_id TEXT,
 		is_active BOOLEAN DEFAULT 1,
 		is_admin BOOLEAN DEFAULT 0,
+		mfa_enabled BOOLEAN DEFAULT 0,
+		mfa_enforced_at DATETIME,
 		last_login DATETIME,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		UNIQUE(auth_provider, provider_user_id)
+	);
+
+	CREATE TABLE IF NOT EXISTS mfa_secrets (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id INTEGER UNIQUE NOT NULL,
+		secret TEXT NOT NULL,
+		backup_codes TEXT,
+		last_used_code TEXT,
+		last_used_at DATETIME,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	);
 
 	CREATE TABLE IF NOT EXISTS groups (
@@ -351,6 +381,87 @@ func (db *DB) init() error {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	);
+
+	CREATE TABLE IF NOT EXISTS audit_logs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		datetime DATETIME DEFAULT CURRENT_TIMESTAMP,
+		event_type TEXT NOT NULL,
+		event_category TEXT NOT NULL,
+		level TEXT NOT NULL,
+		user_id INTEGER,
+		username TEXT,
+		email TEXT,
+		source_ip TEXT,
+		user_agent TEXT,
+		resource TEXT,
+		action TEXT,
+		description TEXT NOT NULL,
+		metadata TEXT,
+		success BOOLEAN DEFAULT 1,
+		error_message TEXT,
+		request_method TEXT,
+		request_uri TEXT,
+		response_code INTEGER,
+		duration_ms INTEGER,
+		session_id TEXT,
+		correlation_id TEXT,
+		geo_location TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_audit_logs_datetime ON audit_logs(datetime DESC);
+	CREATE INDEX IF NOT EXISTS idx_audit_logs_event_type ON audit_logs(event_type);
+	CREATE INDEX IF NOT EXISTS idx_audit_logs_event_category ON audit_logs(event_category);
+	CREATE INDEX IF NOT EXISTS idx_audit_logs_level ON audit_logs(level);
+	CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
+	CREATE INDEX IF NOT EXISTS idx_audit_logs_source_ip ON audit_logs(source_ip);
+	CREATE INDEX IF NOT EXISTS idx_audit_logs_success ON audit_logs(success);
+
+	CREATE TABLE IF NOT EXISTS audit_settings (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id INTEGER,
+		
+		-- Global enable/disable
+		enabled BOOLEAN DEFAULT 1,
+		
+		-- Category-level settings
+		collect_authentication BOOLEAN DEFAULT 1,
+		collect_security BOOLEAN DEFAULT 1,
+		collect_audit BOOLEAN DEFAULT 1,
+		collect_system BOOLEAN DEFAULT 1,
+		
+		-- Level-level settings
+		collect_info BOOLEAN DEFAULT 1,
+		collect_warn BOOLEAN DEFAULT 1,
+		collect_error BOOLEAN DEFAULT 1,
+		collect_critical BOOLEAN DEFAULT 1,
+		
+		-- Specific event types (JSON array)
+		enabled_event_types TEXT DEFAULT '[]',
+		disabled_event_types TEXT DEFAULT '[]',
+		
+		-- Sampling (reduce volume)
+		sampling_enabled BOOLEAN DEFAULT 0,
+		sampling_rate REAL DEFAULT 1.0,
+		
+		-- Filters (JSON arrays)
+		exclude_users TEXT DEFAULT '[]',
+		exclude_ips TEXT DEFAULT '[]',
+		include_only_users TEXT DEFAULT '[]',
+		include_only_ips TEXT DEFAULT '[]',
+		
+		-- Retention override
+		custom_retention_days INTEGER,
+		
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_by INTEGER,
+		
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+		FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
+	);
+
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_settings_global ON audit_settings(user_id) WHERE user_id IS NULL;
 
 	CREATE TABLE IF NOT EXISTS user_sessions (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -428,6 +539,8 @@ func (db *DB) init() error {
 		`ALTER TABLE clusters ADD COLUMN auth_type TEXT DEFAULT 'token'`,
 		`ALTER TABLE clusters ADD COLUMN auth_config TEXT`,
 		`ALTER TABLE clusters ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP`,
+		`ALTER TABLE mfa_secrets ADD COLUMN last_used_code TEXT`,
+		`ALTER TABLE mfa_secrets ADD COLUMN last_used_at DATETIME`,
 	}
 
 	for _, migration := range migrations {
@@ -435,7 +548,9 @@ func (db *DB) init() error {
 		// Ignore duplicate column errors
 		if err != nil && err.Error() != "duplicate column name: auth_type" &&
 			err.Error() != "duplicate column name: auth_config" &&
-			err.Error() != "duplicate column name: updated_at" {
+			err.Error() != "duplicate column name: updated_at" &&
+			err.Error() != "duplicate column name: last_used_code" &&
+			err.Error() != "duplicate column name: last_used_at" {
 			log.Warnf("Migration warning: %v", err)
 		}
 	}
@@ -1133,7 +1248,7 @@ func (db *DB) GetUserByID(id int) (*User, error) {
 	var fullNameSQL, avatarURLSQL, providerUserIDSQL, lastLoginSQL sql.NullString
 
 	query := `
-	SELECT id, email, username, password_hash, full_name, avatar_url, auth_provider, provider_user_id, is_active, is_admin, last_login, created_at, updated_at
+	SELECT id, email, username, password_hash, full_name, avatar_url, auth_provider, provider_user_id, is_active, is_admin, mfa_enabled, last_login, created_at, updated_at
 	FROM users
 	WHERE id = ?
 	`
@@ -1149,6 +1264,7 @@ func (db *DB) GetUserByID(id int) (*User, error) {
 		&providerUserIDSQL,
 		&user.IsActive,
 		&user.IsAdmin,
+		&user.MFAEnabled,
 		&lastLoginSQL,
 		&user.CreatedAt,
 		&user.UpdatedAt,
@@ -1168,10 +1284,10 @@ func (db *DB) GetUserByID(id int) (*User, error) {
 // GetUserByEmail retrieves a user by email
 func (db *DB) GetUserByEmail(email string) (*User, error) {
 	var user User
-	var fullNameSQL, avatarURLSQL, providerUserIDSQL, lastLoginSQL sql.NullString
+	var fullNameSQL, avatarURLSQL, providerUserIDSQL, lastLoginSQL, mfaEnforcedAtSQL sql.NullString
 
 	query := `
-	SELECT id, email, username, password_hash, full_name, avatar_url, auth_provider, provider_user_id, is_active, is_admin, last_login, created_at, updated_at
+	SELECT id, email, username, password_hash, full_name, avatar_url, auth_provider, provider_user_id, is_active, is_admin, mfa_enabled, mfa_enforced_at, last_login, created_at, updated_at
 	FROM users
 	WHERE email = ?
 	`
@@ -1187,6 +1303,8 @@ func (db *DB) GetUserByEmail(email string) (*User, error) {
 		&providerUserIDSQL,
 		&user.IsActive,
 		&user.IsAdmin,
+		&user.MFAEnabled,
+		&mfaEnforcedAtSQL,
 		&lastLoginSQL,
 		&user.CreatedAt,
 		&user.UpdatedAt,
@@ -1198,6 +1316,7 @@ func (db *DB) GetUserByEmail(email string) (*User, error) {
 	user.FullName = fullNameSQL.String
 	user.AvatarURL = avatarURLSQL.String
 	user.ProviderUserID = providerUserIDSQL.String
+	user.MFAEnforcedAt = mfaEnforcedAtSQL.String
 	user.LastLogin = lastLoginSQL.String
 
 	return &user, nil
@@ -1243,7 +1362,7 @@ func (db *DB) GetUserByProvider(provider, providerUserID string) (*User, error) 
 // ListUsers retrieves all users
 func (db *DB) ListUsers() ([]*User, error) {
 	query := `
-	SELECT id, email, username, full_name, avatar_url, auth_provider, provider_user_id, is_active, is_admin, last_login, created_at, updated_at
+	SELECT id, email, username, full_name, avatar_url, auth_provider, provider_user_id, is_active, is_admin, mfa_enabled, last_login, created_at, updated_at
 	FROM users
 	ORDER BY created_at DESC
 	`
@@ -1269,6 +1388,7 @@ func (db *DB) ListUsers() ([]*User, error) {
 			&providerUserIDSQL,
 			&user.IsActive,
 			&user.IsAdmin,
+			&user.MFAEnabled,
 			&lastLoginSQL,
 			&user.CreatedAt,
 			&user.UpdatedAt,
@@ -1493,16 +1613,61 @@ func (db *DB) GetUserGroups(userID int) ([]*Group, error) {
 	return groups, rows.Err()
 }
 
+// generateRandomPassword generates a random alphanumeric password of specified length
+func generateRandomPassword(length int) (string, error) {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	password := make([]byte, length)
+	for i := range password {
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		if err != nil {
+			return "", err
+		}
+		password[i] = charset[num.Int64()]
+	}
+	return string(password), nil
+}
+
 // InitializeDefaultData creates default admin user and groups
-func (db *DB) InitializeDefaultData() error {
+func (db *DB) InitializeDefaultData(adminPassword string) error {
 	// Check if admin user already exists
 	_, err := db.GetUserByEmail("admin@kubelens.local")
-	if err == nil {
-		// Admin already exists
+	adminExists := (err == nil)
+	
+	// If admin exists and password is provided via env, update it
+	if adminExists && adminPassword != "" {
+		log.Info("🔐 Updating admin password from environment variable...")
+		hashedPasswordBytes, err := bcrypt.GenerateFromPassword([]byte(adminPassword), bcrypt.DefaultCost)
+		if err != nil {
+			return fmt.Errorf("failed to hash admin password: %w", err)
+		}
+		
+		// Update admin password
+		query := `UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE email = ?`
+		_, err = db.conn.Exec(query, string(hashedPasswordBytes), "admin@kubelens.local")
+		if err != nil {
+			return fmt.Errorf("failed to update admin password: %w", err)
+		}
+		
+		log.Info("✅ Admin password updated successfully")
+		return nil
+	}
+	
+	// If admin exists and no password provided, do nothing
+	if adminExists {
 		return nil
 	}
 
 	log.Info("🔐 Initializing default admin user and groups...")
+	
+	// Generate random password if not provided
+	isAutoGenerated := false
+	if adminPassword == "" {
+		adminPassword, err = generateRandomPassword(10)
+		if err != nil {
+			return fmt.Errorf("failed to generate random password: %w", err)
+		}
+		isAutoGenerated = true
+	}
 
 	// Create admin group with full permissions
 	adminPermissions := []Permission{
@@ -1568,11 +1733,18 @@ func (db *DB) InitializeDefaultData() error {
 		log.Warnf("Viewer group creation: %v", err)
 	}
 
-	// Create admin user with bcrypt hash of "admin123"
+	// Hash the password
+	hashedPasswordBytes, err := bcrypt.GenerateFromPassword([]byte(adminPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash admin password: %w", err)
+	}
+	hashedPassword := string(hashedPasswordBytes)
+
+	// Create admin user
 	adminUser := &User{
 		Email:        "admin@kubelens.local",
 		Username:     "admin",
-		PasswordHash: "$2a$10$YXBj80kAZccjNsMNjD31R.EyWqTYow5yH6mxbasV9wWvtOBCPqjJO", // bcrypt hash of "admin123"
+		PasswordHash: hashedPassword,
 		FullName:     "Administrator",
 		AuthProvider: "local",
 		IsActive:     true,
@@ -1588,12 +1760,62 @@ func (db *DB) InitializeDefaultData() error {
 		log.Warnf("Failed to add admin to admin group: %v", err)
 	}
 
+	// Log success message
 	log.Info("✅ Default admin user created:")
 	log.Info("   Email: admin@kubelens.local")
-	log.Info("   Password: admin123")
-	log.Info("   ⚠️  Please change the password after first login!")
+	
+	// Only print password if it was auto-generated
+	if isAutoGenerated {
+		log.Infof("   Password: %s", adminPassword)
+		log.Info("   ⚠️  Please save this password and change it after first login!")
+	}
+
+	// Initialize default audit settings (global settings with user_id = NULL)
+	if err := db.initializeDefaultAuditSettings(); err != nil {
+		log.Warnf("Failed to initialize default audit settings: %v", err)
+	} else {
+		log.Info("✅ Default audit settings initialized")
+	}
 
 	return nil
+}
+
+// initializeDefaultAuditSettings creates default global audit settings
+func (db *DB) initializeDefaultAuditSettings() error {
+	// Check if global settings already exist
+	var count int
+	err := db.conn.QueryRow(`SELECT COUNT(*) FROM audit_settings WHERE user_id IS NULL`).Scan(&count)
+	if err != nil {
+		return err
+	}
+	
+	if count > 0 {
+		return nil // Already initialized
+	}
+	
+	// Create default global settings (Full Logging preset)
+	query := `
+	INSERT INTO audit_settings (
+		user_id, enabled,
+		collect_authentication, collect_security, collect_audit, collect_system,
+		collect_info, collect_warn, collect_error, collect_critical,
+		enabled_event_types, disabled_event_types,
+		sampling_enabled, sampling_rate,
+		exclude_users, exclude_ips, include_only_users, include_only_ips,
+		custom_retention_days
+	) VALUES (
+		NULL, 1,
+		1, 1, 1, 1,
+		1, 1, 1, 1,
+		'[]', '[]',
+		0, 1.0,
+		'[]', '[]', '[]', '[]',
+		NULL
+	)
+	`
+	
+	_, err = db.conn.Exec(query)
+	return err
 }
 
 // ========== User Session Management ==========

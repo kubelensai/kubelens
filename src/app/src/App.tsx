@@ -547,6 +547,8 @@ function AppContent() {
         { name: "Users", href: "/users", icon: IdentificationIcon },
         { name: "Groups", href: "/groups", icon: UserGroupIcon },
         { name: "Integrations", href: "/integrations", icon: PuzzlePieceIcon },
+        { name: "Logging", href: "/logging", icon: DocumentTextIcon },
+        { name: "Audit Settings", href: "/audit-settings", icon: AdjustmentsHorizontalIcon },
       ],
     },
   ];
@@ -557,8 +559,8 @@ function AppContent() {
     let filteredItems = items;
 
     if (!hasEnabledClusters) {
-      // When no enabled clusters, only show Dashboard, Clusters, Integrations, Users, and Groups
-      filteredItems = items.filter((item) => item.name === "Dashboard" || item.name === "Clusters" || item.name === "Integrations" || item.name === "Users" || item.name === "Groups");
+      // When no enabled clusters, only show Dashboard, Clusters, Integrations, Users, Groups, Logging, and Audit Settings
+      filteredItems = items.filter((item) => item.name === "Dashboard" || item.name === "Clusters" || item.name === "Integrations" || item.name === "Users" || item.name === "Groups" || item.name === "Logging" || item.name === "Audit Settings");
     }
 
     // Then filter by search query

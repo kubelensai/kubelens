@@ -14,8 +14,10 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/sonnguyen/kubelens/internal/api"
+	"github.com/sonnguyen/kubelens/internal/audit"
 	"github.com/sonnguyen/kubelens/internal/auth"
 	"github.com/sonnguyen/kubelens/internal/cluster"
+	"github.com/sonnguyen/kubelens/internal/middleware"
 	"github.com/sonnguyen/kubelens/internal/config"
 	"github.com/sonnguyen/kubelens/internal/db"
 	"github.com/sonnguyen/kubelens/internal/modules"
@@ -26,9 +28,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	// Import integration modules (conditionally compiled via build tags)
-	_ "github.com/sonnguyen/kubelens/internal/integrations/gcp" // +build gcp
-	// _ "github.com/sonnguyen/kubelens/internal/integrations/aws"    // +build aws
-	// _ "github.com/sonnguyen/kubelens/internal/integrations/azure"  // +build azure
+	_ "github.com/sonnguyen/kubelens/internal/integrations/gcp"
 )
 
 func main() {
@@ -51,7 +51,7 @@ func main() {
 	defer database.Close()
 
 	// Initialize default admin user and groups
-	if err := database.InitializeDefaultData(); err != nil {
+	if err := database.InitializeDefaultData(cfg.AdminPassword); err != nil {
 		log.Warnf("Failed to initialize default data: %v", err)
 	}
 
@@ -67,12 +67,23 @@ func main() {
 	wsHub := ws.NewHub()
 	go wsHub.Run()
 
+	// Initialize audit logger and retention manager
+	auditLogger := audit.NewLogger(database)
+	audit.InitGlobalLogger(database) // Initialize global logger for package-level Log() function
+	retentionPolicy := audit.DefaultRetentionPolicy()
+	retentionManager := audit.NewRetentionManager(database, retentionPolicy)
+	retentionManager.Start()
+	defer retentionManager.Stop()
+
 	// Setup Gin router
 	if cfg.ReleaseMode {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
 	router := gin.Default()
+
+	// Security headers middleware
+	router.Use(middleware.SecurityHeaders())
 
 	// CORS middleware - Allow all origins in development (easier for testing)
 	// For production, set specific origins via CORS_ORIGINS env var
@@ -91,6 +102,10 @@ func main() {
 	corsConfig.MaxAge = 12 * time.Hour
 	
 	router.Use(cors.New(corsConfig))
+
+	// Global rate limiting (100 requests per minute per IP)
+	globalRateLimiter := middleware.NewRateLimiter(600*time.Millisecond, 100)
+	router.Use(globalRateLimiter.Middleware())
 
 	// Health check endpoint
 	router.GET("/health", func(c *gin.Context) {
@@ -136,22 +151,37 @@ func main() {
 		jwtSecret = "kubelens-secret-change-in-production" // Default for development
 		log.Warn("⚠️  JWT_SECRET not set, using default (not secure for production!)")
 	}
-	authHandler := auth.NewHandler(database, jwtSecret)
+	authHandler := auth.NewHandler(database, jwtSecret, auditLogger)
 
 	// API routes
 	apiHandler := api.NewHandler(clusterManager, database, wsHub)
 	v1 := router.Group("/api/v1")
 	{
+		// Login rate limiter: 5 requests per minute per IP (stricter for auth endpoints)
+		loginRateLimiter := middleware.NewRateLimiter(12*time.Second, 5)
+		
 		// Authentication routes (public)
 		authRoutes := v1.Group("/auth")
 		{
 			// Signup disabled
 			// authRoutes.POST("/signup", authHandler.Signup)
-			authRoutes.POST("/signin", authHandler.Signin)
+			authRoutes.POST("/signin", loginRateLimiter.Middleware(), authHandler.Signin)
 			authRoutes.GET("/me", auth.AuthMiddleware(jwtSecret), authHandler.GetCurrentUser)
 			authRoutes.PATCH("/profile", auth.AuthMiddleware(jwtSecret), authHandler.UpdateProfile)
 			authRoutes.POST("/change-password", auth.AuthMiddleware(jwtSecret), authHandler.ChangePassword)
 			authRoutes.POST("/logout", auth.AuthMiddleware(jwtSecret), authHandler.Logout)
+
+			// MFA routes
+			mfaHandler := auth.NewMFAHandler(database)
+			mfaRoutes := authRoutes.Group("/mfa")
+			mfaRoutes.Use(auth.AuthMiddleware(jwtSecret))
+			{
+				mfaRoutes.POST("/setup", mfaHandler.SetupMFA)
+				mfaRoutes.POST("/enable", mfaHandler.VerifyAndEnableMFA)
+				mfaRoutes.POST("/disable", mfaHandler.DisableMFA)
+				mfaRoutes.GET("/status", mfaHandler.GetMFAStatus)
+				mfaRoutes.POST("/regenerate-codes", mfaHandler.RegenerateBackupCodes)
+			}
 		}
 
 		// User management routes (admin only)
@@ -166,6 +196,10 @@ func main() {
 			userRoutes.GET("/:id/groups", authHandler.GetUserGroups)
 			userRoutes.PUT("/:id/groups", authHandler.UpdateUserGroups)
 			userRoutes.POST("/:id/reset-password", authHandler.ResetUserPassword)
+			
+			// MFA admin routes
+			mfaHandler := auth.NewMFAHandler(database)
+			userRoutes.POST("/:id/reset-mfa", mfaHandler.AdminResetMFA)
 		}
 
 		// Permission options route (admin only)
@@ -209,6 +243,32 @@ func main() {
 
 		// User permissions route (authenticated users)
 		v1.GET("/permissions", auth.AuthMiddleware(jwtSecret), authHandler.GetUserPermissionsHandler)
+
+		// Audit routes (admin only)
+		auditHandler := audit.NewHandler(database, auditLogger, retentionManager)
+		auditRoutes := v1.Group("/audit")
+		auditRoutes.Use(auth.AuthMiddleware(jwtSecret), auth.AdminOnly())
+		{
+			// Audit logs
+			auditRoutes.GET("/logs", auditHandler.ListAuditLogs)
+			auditRoutes.GET("/logs/:id", auditHandler.GetAuditLog)
+			auditRoutes.GET("/logs/stats", auditHandler.GetAuditStats)
+			auditRoutes.POST("/export", auditHandler.ExportAuditLogs)
+
+			// Audit settings
+			auditRoutes.GET("/settings", auditHandler.GetAuditSettings)
+			auditRoutes.PUT("/settings", auditHandler.UpdateAuditSettings)
+			auditRoutes.GET("/settings/presets", auditHandler.GetAuditPresets)
+			auditRoutes.POST("/settings/preset/:name", auditHandler.ApplyAuditPreset)
+			auditRoutes.GET("/settings/impact", auditHandler.GetStorageImpact)
+
+			// Retention management
+			auditRoutes.GET("/retention/stats", auditHandler.GetRetentionStats)
+			auditRoutes.POST("/retention/archive", auditHandler.TriggerArchive)
+			auditRoutes.POST("/retention/cleanup", auditHandler.TriggerCleanup)
+			auditRoutes.GET("/retention/policy", auditHandler.GetRetentionPolicy)
+			auditRoutes.PUT("/retention/policy", auditHandler.UpdateRetentionPolicy)
+		}
 
 	// Protected routes - require authentication
 	protected := v1.Group("")

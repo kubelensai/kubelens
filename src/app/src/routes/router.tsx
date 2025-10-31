@@ -75,6 +75,8 @@ import PersistentVolumeDetails from "../pages/PersistentVolumeDetails";
 import PersistentVolumeClaimDetails from "../pages/PersistentVolumeClaimDetails";
 import Users from "../pages/Users";
 import Groups from "../pages/Groups";
+import Logging from "../pages/Logging";
+import AuditSettings from "../pages/AuditSettings";
 import ValidatingWebhookConfigurations from "../pages/ValidatingWebhookConfigurations";
 import ValidatingWebhookConfigurationDetails from "../pages/ValidatingWebhookConfigurationDetails";
 import NotFound from "../pages/NotFound";
@@ -197,6 +199,14 @@ const routes = [
       {
         path: "groups",
         element: <Groups />,
+      },
+      {
+        path: "logging",
+        element: <Logging />,
+      },
+      {
+        path: "audit-settings",
+        element: <AuditSettings />,
       },
       {
         path: "profile",

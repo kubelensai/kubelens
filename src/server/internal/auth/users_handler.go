@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sonnguyen/kubelens/internal/audit"
 	"github.com/sonnguyen/kubelens/internal/db"
 	log "github.com/sirupsen/logrus"
 )
@@ -83,6 +84,20 @@ func (h *Handler) CreateUser(c *gin.Context) {
 	}
 
 	log.Infof("User created by admin: %s (%s)", user.Email, user.Username)
+
+	// Audit log
+	if adminUser, exists := c.Get("user"); exists {
+		if admin, ok := adminUser.(*db.User); ok {
+			audit.Log(c, audit.EventUserCreated, admin.ID, admin.Username, admin.Email,
+				fmt.Sprintf("Created user: %s (%s)", user.Username, user.Email),
+				map[string]interface{}{
+					"target_user_id": user.ID,
+					"target_username": user.Username,
+					"target_email": user.Email,
+					"is_admin": req.IsAdmin,
+				})
+		}
+	}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "user created successfully",
@@ -219,6 +234,21 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 
 	log.Infof("User updated: %s (%s)", user.Email, user.Username)
 
+	// Audit log
+	if adminUser, exists := c.Get("user"); exists {
+		if admin, ok := adminUser.(*db.User); ok {
+			audit.Log(c, audit.EventUserUpdated, admin.ID, admin.Username, admin.Email,
+				fmt.Sprintf("Updated user: %s (%s)", user.Username, user.Email),
+				map[string]interface{}{
+					"target_user_id": user.ID,
+					"target_username": user.Username,
+					"target_email": user.Email,
+					"is_active": user.IsActive,
+					"is_admin": user.IsAdmin,
+				})
+		}
+	}
+
 	c.JSON(http.StatusOK, user)
 }
 
@@ -239,6 +269,13 @@ func (h *Handler) DeleteUser(c *gin.Context) {
 		return
 	}
 
+	// Get user info before deletion for audit log
+	targetUser, err := h.db.GetUserByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+
 	if err := h.db.DeleteUser(id); err != nil {
 		log.Errorf("Failed to delete user: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete user"})
@@ -246,6 +283,19 @@ func (h *Handler) DeleteUser(c *gin.Context) {
 	}
 
 	log.Infof("User deleted: ID %d", id)
+
+	// Audit log
+	if adminUser, exists := c.Get("user"); exists {
+		if admin, ok := adminUser.(*db.User); ok {
+			audit.Log(c, audit.EventUserDeleted, admin.ID, admin.Username, admin.Email,
+				fmt.Sprintf("Deleted user: %s (%s)", targetUser.Username, targetUser.Email),
+				map[string]interface{}{
+					"target_user_id": targetUser.ID,
+					"target_username": targetUser.Username,
+					"target_email": targetUser.Email,
+				})
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "user deleted successfully"})
 }
