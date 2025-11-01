@@ -185,8 +185,8 @@ export default function NamespaceSelector() {
   // Show loading state while fetching clusters or namespaces
   if (isLoadingClusters || isLoading) {
     return (
-      <div className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-500 dark:text-gray-400">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
+      <div className="flex items-center gap-2 p-2 sm:px-3 sm:py-1.5 text-sm text-gray-500 dark:text-gray-400">
+        <div className="h-5 w-5 sm:h-4 sm:w-4 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
         <span className="hidden sm:inline">Loading...</span>
       </div>
     )
@@ -205,24 +205,29 @@ export default function NamespaceSelector() {
         onClick={() => setIsOpen(!isOpen)}
         disabled={!effectiveCluster}
         className={clsx(
-          "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all",
+          "flex items-center gap-2 rounded-lg font-medium transition-all",
           "bg-gray-50 dark:bg-gray-800/50",
           "border border-gray-200 dark:border-gray-700",
           "text-gray-700 dark:text-gray-300",
+          // Mobile: icon only, Desktop: full selector
+          "p-2 sm:px-3 sm:py-1.5",
           effectiveCluster 
             ? "hover:bg-gray-100 dark:hover:bg-gray-700/50 cursor-pointer" 
             : "opacity-50 cursor-not-allowed",
           isOpen && effectiveCluster && "ring-2 ring-primary-500 border-primary-500"
         )}
+        aria-label={selectedNamespace ? `Namespace: ${displayName}` : 'All Namespaces'}
+        title={displayName}
       >
         {selectedNamespace ? (
-          <Square3Stack3DIcon className="h-4 w-4 text-primary-600 dark:text-primary-400" />
+          <Square3Stack3DIcon className="h-5 w-5 sm:h-4 sm:w-4 text-primary-600 dark:text-primary-400 flex-shrink-0" />
         ) : (
-          <GlobeAltIcon className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+          <GlobeAltIcon className="h-5 w-5 sm:h-4 sm:w-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
         )}
-        <span className="hidden sm:inline truncate max-w-32">{displayName}</span>
+        {/* Text and chevron - desktop only */}
+        <span className="hidden sm:inline truncate max-w-32 text-sm">{displayName}</span>
         <ChevronDownIcon className={clsx(
-          "h-4 w-4 transition-transform",
+          "hidden sm:block h-4 w-4 transition-transform flex-shrink-0",
           isOpen && "rotate-180"
         )} />
       </button>
