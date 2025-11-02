@@ -30,7 +30,7 @@ func (h *Handler) GetNotifications(c *gin.Context) {
 		limit = 100
 	}
 	
-	notifications, err := h.db.GetNotifications(userID, limit)
+	notifications, err := h.db.GetUserNotifications(uint(userID), limit)
 	if err != nil {
 		log.Errorf("Failed to get notifications: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get notifications"})
@@ -54,7 +54,7 @@ func (h *Handler) GetUnreadNotifications(c *gin.Context) {
 		return
 	}
 	
-	notifications, err := h.db.GetUnreadNotifications(userID)
+	notifications, err := h.db.GetUnreadNotifications(uint(userID))
 	if err != nil {
 		log.Errorf("Failed to get unread notifications: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get unread notifications"})
@@ -78,7 +78,7 @@ func (h *Handler) GetUnreadCount(c *gin.Context) {
 		return
 	}
 	
-	count, err := h.db.GetUnreadCount(userID)
+	count, err := h.db.CountUnreadNotifications(uint(userID))
 	if err != nil {
 		log.Errorf("Failed to get unread count: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get unread count"})
@@ -103,11 +103,10 @@ func (h *Handler) CreateNotification(c *gin.Context) {
 	}
 	
 	notification := &db.Notification{
-		UserID:  req.UserID,
+		UserID:  uint(req.UserID),
 		Type:    req.Type,
 		Title:   req.Title,
 		Message: req.Message,
-		Read:    false,
 	}
 	
 	if err := h.db.CreateNotification(notification); err != nil {
@@ -121,15 +120,9 @@ func (h *Handler) CreateNotification(c *gin.Context) {
 
 // MarkNotificationAsRead marks a notification as read
 func (h *Handler) MarkNotificationAsRead(c *gin.Context) {
-	userIDVal, exists := c.Get("user_id")
+	_, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return
-	}
-	
-	userID, ok := userIDVal.(int)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user ID"})
 		return
 	}
 	
@@ -140,7 +133,7 @@ func (h *Handler) MarkNotificationAsRead(c *gin.Context) {
 		return
 	}
 	
-	if err := h.db.MarkNotificationAsRead(notificationID, userID); err != nil {
+	if err := h.db.MarkNotificationAsRead(uint(notificationID)); err != nil {
 		log.Errorf("Failed to mark notification as read: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to mark notification as read"})
 		return
@@ -163,7 +156,7 @@ func (h *Handler) MarkAllNotificationsAsRead(c *gin.Context) {
 		return
 	}
 	
-	if err := h.db.MarkAllNotificationsAsRead(userID); err != nil {
+	if err := h.db.MarkAllNotificationsAsRead(uint(userID)); err != nil {
 		log.Errorf("Failed to mark all notifications as read: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to mark all notifications as read"})
 		return
@@ -174,15 +167,9 @@ func (h *Handler) MarkAllNotificationsAsRead(c *gin.Context) {
 
 // DeleteNotification deletes a notification
 func (h *Handler) DeleteNotification(c *gin.Context) {
-	userIDVal, exists := c.Get("user_id")
+	_, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return
-	}
-	
-	userID, ok := userIDVal.(int)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user ID"})
 		return
 	}
 	
@@ -193,7 +180,7 @@ func (h *Handler) DeleteNotification(c *gin.Context) {
 		return
 	}
 	
-	if err := h.db.DeleteNotification(notificationID, userID); err != nil {
+	if err := h.db.DeleteNotification(uint(notificationID)); err != nil{
 		log.Errorf("Failed to delete notification: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete notification"})
 		return
@@ -216,7 +203,7 @@ func (h *Handler) ClearAllNotifications(c *gin.Context) {
 		return
 	}
 	
-	if err := h.db.ClearAllNotifications(userID); err != nil {
+	if err := h.db.DeleteUserNotifications(uint(userID)); err != nil {
 		log.Errorf("Failed to clear all notifications: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to clear all notifications"})
 		return

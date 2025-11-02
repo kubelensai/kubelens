@@ -289,7 +289,7 @@ func (m *GCPModule) DiscoverClusters(c *gin.Context) {
 	}
 
 	// Get OAuth2 token from database
-	token, err := oauth2Handler.GetToken(c.Request.Context(), integration.ID)
+	token, err := oauth2Handler.GetToken(c.Request.Context(), int(integration.ID))
 	if err != nil {
 		c.JSON(500, gin.H{"error": fmt.Sprintf("Failed to get OAuth2 token: %v", err)})
 		return
@@ -341,7 +341,7 @@ func (m *GCPModule) ImportClusters(c *gin.Context) {
 	}
 
 	// Get OAuth2 token
-	token, err := oauth2Handler.GetToken(c.Request.Context(), integration.ID)
+	token, err := oauth2Handler.GetToken(c.Request.Context(), int(integration.ID))
 	if err != nil {
 		c.JSON(500, gin.H{"error": fmt.Sprintf("Failed to get OAuth2 token: %v", err)})
 		return

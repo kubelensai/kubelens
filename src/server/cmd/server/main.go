@@ -44,7 +44,14 @@ func main() {
 	log.Info("Starting kubelens server...")
 
 	// Initialize database
-	database, err := db.New(cfg.DatabasePath)
+	dbConnectionString := cfg.GetDatabaseConnectionString()
+	if cfg.DatabaseURL != "" {
+		log.Infof("💾 Using custom database connection (DATABASE_URL)")
+	} else {
+		log.Infof("💾 Using SQLite database: %s", cfg.DatabasePath)
+	}
+	
+	database, err := db.New(dbConnectionString)
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}

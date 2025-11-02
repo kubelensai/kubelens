@@ -40,7 +40,7 @@ func (h *Handler) GetPermissionOptions(c *gin.Context) {
 
 // ListGroups returns all groups (admin only)
 func (h *Handler) ListGroups(c *gin.Context) {
-	groups, err := h.db.ListGroups()
+	groups, _, err := h.db.ListGroups(1, 1000) // Get all groups (up to 1000)
 	if err != nil {
 		log.Errorf("Failed to list groups: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list groups"})
@@ -75,7 +75,7 @@ func (h *Handler) CreateGroup(c *gin.Context) {
 		Name:        req.Name,
 		Description: req.Description,
 		IsSystem:    false, // User-created groups are not system groups
-		Permissions: string(permissionsJSON),
+		Permissions: db.JSON(permissionsJSON),
 	}
 
 	if err := h.db.CreateGroup(group); err != nil {
@@ -89,7 +89,7 @@ func (h *Handler) CreateGroup(c *gin.Context) {
 	// Audit log
 	if adminUser, exists := c.Get("user"); exists {
 		if admin, ok := adminUser.(*db.User); ok {
-			audit.Log(c, audit.EventGroupCreated, admin.ID, admin.Username, admin.Email,
+			audit.Log(c, audit.EventGroupCreated, int(admin.ID), admin.Username, admin.Email,
 				fmt.Sprintf("Created group: %s", group.Name),
 				map[string]interface{}{
 					"group_id": group.ID,
@@ -113,7 +113,7 @@ func (h *Handler) GetGroup(c *gin.Context) {
 		return
 	}
 
-	group, err := h.db.GetGroupByID(id)
+	group, err := h.db.GetGroupByID(uint(id))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "group not found"})
 		return
@@ -132,7 +132,7 @@ func (h *Handler) UpdateGroupHandler(c *gin.Context) {
 	}
 
 	// Check if group exists
-	group, err := h.db.GetGroupByID(id)
+	group, err := h.db.GetGroupByID(uint(id))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "group not found"})
 		return
@@ -165,7 +165,7 @@ func (h *Handler) UpdateGroupHandler(c *gin.Context) {
 
 	group.Name = req.Name
 	group.Description = req.Description
-	group.Permissions = string(permissionsJSON)
+	group.Permissions = db.JSON(permissionsJSON)
 
 	if err := h.db.UpdateGroup(group); err != nil {
 		log.Errorf("Failed to update group: %v", err)
@@ -178,7 +178,7 @@ func (h *Handler) UpdateGroupHandler(c *gin.Context) {
 	// Audit log
 	if adminUser, exists := c.Get("user"); exists {
 		if admin, ok := adminUser.(*db.User); ok {
-			audit.Log(c, audit.EventGroupUpdated, admin.ID, admin.Username, admin.Email,
+			audit.Log(c, audit.EventGroupUpdated, int(admin.ID), admin.Username, admin.Email,
 				fmt.Sprintf("Updated group: %s", group.Name),
 				map[string]interface{}{
 					"group_id": group.ID,
@@ -203,7 +203,7 @@ func (h *Handler) DeleteGroup(c *gin.Context) {
 	}
 
 	// Check if group exists and is not a system group
-	group, err := h.db.GetGroupByID(id)
+	group, err := h.db.GetGroupByID(uint(id))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "group not found"})
 		return
@@ -214,7 +214,7 @@ func (h *Handler) DeleteGroup(c *gin.Context) {
 		return
 	}
 
-	if err := h.db.DeleteGroup(id); err != nil {
+	if err := h.db.DeleteGroup(uint(id)); err != nil {
 		log.Errorf("Failed to delete group: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete group"})
 		return
@@ -225,7 +225,7 @@ func (h *Handler) DeleteGroup(c *gin.Context) {
 	// Audit log
 	if adminUser, exists := c.Get("user"); exists {
 		if admin, ok := adminUser.(*db.User); ok {
-			audit.Log(c, audit.EventGroupDeleted, admin.ID, admin.Username, admin.Email,
+			audit.Log(c, audit.EventGroupDeleted, int(admin.ID), admin.Username, admin.Email,
 				fmt.Sprintf("Deleted group: %s", group.Name),
 				map[string]interface{}{
 					"group_id": group.ID,
@@ -247,13 +247,13 @@ func (h *Handler) ListGroupUsers(c *gin.Context) {
 	}
 
 	// Check if group exists
-	if _, err := h.db.GetGroupByID(id); err != nil {
+	if _, err := h.db.GetGroupByID(uint(id)); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "group not found"})
 		return
 	}
 
 	// Get all users
-	users, err := h.db.ListUsers()
+	users, _, err := h.db.ListUsers(1, 10000) // Get all users
 	if err != nil {
 		log.Errorf("Failed to list users: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list users"})
@@ -268,7 +268,7 @@ func (h *Handler) ListGroupUsers(c *gin.Context) {
 			continue
 		}
 		for _, g := range groups {
-			if g.ID == id {
+			if g.ID == uint(id) {
 				groupUsers = append(groupUsers, user)
 				break
 			}
@@ -299,18 +299,18 @@ func (h *Handler) AddUserToGroupHandler(c *gin.Context) {
 	}
 
 	// Check if group exists
-	if _, err := h.db.GetGroupByID(groupID); err != nil {
+	if _, err := h.db.GetGroupByID(uint(groupID)); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "group not found"})
 		return
 	}
 
 	// Check if user exists
-	if _, err := h.db.GetUserByID(req.UserID); err != nil {
+	if _, err := h.db.GetUserByID(uint(req.UserID)); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return
 	}
 
-	if err := h.db.AddUserToGroup(req.UserID, groupID); err != nil {
+	if err := h.db.AddUserToGroup(uint(req.UserID), uint(groupID)); err != nil {
 		log.Errorf("Failed to add user to group: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to add user to group"})
 		return
@@ -337,7 +337,7 @@ func (h *Handler) RemoveUserFromGroupHandler(c *gin.Context) {
 		return
 	}
 
-	if err := h.db.RemoveUserFromGroup(userID, groupID); err != nil {
+	if err := h.db.RemoveUserFromGroup(uint(userID), uint(groupID)); err != nil {
 		log.Errorf("Failed to remove user from group: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to remove user from group"})
 		return

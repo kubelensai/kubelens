@@ -17,18 +17,19 @@ export const getApiBaseUrl = (): string => {
   // Mobile app - use configured API server URL with /api/v1 path
   if (isCapacitor()) {
     // Can be set via Capacitor config or environment variable at build time
-    const baseUrl = import.meta.env.VITE_API_SERVER_URL || 'https://api.kubelens.app'
+    const baseUrl = import.meta.env.VITE_API_SERVER_URL || 'http://localhost:8080'
     return baseUrl + '/api/v1'
   }
   
   // Web app (dev or production with proxy) - use relative path
+  // This ensures web browsers always use the proxy, never direct API calls
   return '/api/v1'
 }
 
 // Get WebSocket base URL
 export const getWsBaseUrl = (): string => {
   if (isCapacitor()) {
-    const apiUrl = import.meta.env.VITE_API_SERVER_URL || 'https://api.kubelens.app'
+    const apiUrl = import.meta.env.VITE_API_SERVER_URL || 'http://localhost:8080'
     // Convert http(s) to ws(s)
     return apiUrl.replace(/^http/, 'ws') + '/api/v1/ws'
   }

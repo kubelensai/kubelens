@@ -97,7 +97,7 @@ func (h *Handler) StartOAuth2Flow(c *gin.Context) {
 
 	// Store state (in production, use Redis with TTL)
 	h.stateStore[state] = &StateData{
-		IntegrationID: integration.ID,
+		IntegrationID: int(integration.ID), // Convert uint to int
 		Provider:      integration.Type,
 		CreatedAt:     time.Now(),
 	}
@@ -222,7 +222,7 @@ func (h *Handler) HandleCallback(c *gin.Context) {
 
 	// Save tokens to database
 	dbToken := &db.OAuth2Token{
-		IntegrationID: stateData.IntegrationID,
+		IntegrationID: uint(stateData.IntegrationID), // Convert int to uint
 		Provider:      stateData.Provider,
 		AccessToken:   oauth2Token.AccessToken,
 		RefreshToken:  oauth2Token.RefreshToken,
@@ -232,7 +232,8 @@ func (h *Handler) HandleCallback(c *gin.Context) {
 	}
 
 	if !oauth2Token.Expiry.IsZero() {
-		dbToken.Expiry = oauth2Token.Expiry.Format(time.RFC3339)
+		expiry := oauth2Token.Expiry
+		dbToken.Expiry = &expiry // Convert time.Time to *time.Time
 	}
 
 	if err := h.db.SaveOAuth2Token(dbToken); err != nil {
@@ -242,7 +243,7 @@ func (h *Handler) HandleCallback(c *gin.Context) {
 	}
 
 	// Mark integration as configured
-	if err := h.db.UpdateIntegrationConfigured(stateData.IntegrationID, true); err != nil {
+	if err := h.db.UpdateIntegrationConfigured(uint(stateData.IntegrationID), true); err != nil {
 		log.Errorf("Failed to update integration status: %v", err)
 	}
 
@@ -253,7 +254,7 @@ func (h *Handler) HandleCallback(c *gin.Context) {
 // RefreshToken refreshes an expired OAuth2 token
 func (h *Handler) RefreshToken(integrationID int, provider string) (*oauth2.Token, error) {
 	// Get stored token
-	storedToken, err := h.db.GetOAuth2Token(integrationID, provider)
+	storedToken, err := h.db.GetOAuth2Token(uint(integrationID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get stored token: %w", err)
 	}
@@ -282,11 +283,8 @@ func (h *Handler) RefreshToken(integrationID int, provider string) (*oauth2.Toke
 		TokenType:    storedToken.TokenType,
 	}
 
-	if storedToken.Expiry != "" {
-		expiry, err := time.Parse(time.RFC3339, storedToken.Expiry)
-		if err == nil {
-			token.Expiry = expiry
-		}
+	if storedToken.Expiry != nil && !storedToken.Expiry.IsZero() {
+		token.Expiry = *storedToken.Expiry
 	}
 
 	tokenSource := oauth2Config.TokenSource(ctx, token)
@@ -302,7 +300,8 @@ func (h *Handler) RefreshToken(integrationID int, provider string) (*oauth2.Toke
 	}
 	storedToken.TokenType = newToken.TokenType
 	if !newToken.Expiry.IsZero() {
-		storedToken.Expiry = newToken.Expiry.Format(time.RFC3339)
+		expiry := newToken.Expiry
+		storedToken.Expiry = &expiry
 	}
 
 	if err := h.db.SaveOAuth2Token(storedToken); err != nil {
@@ -315,15 +314,14 @@ func (h *Handler) RefreshToken(integrationID int, provider string) (*oauth2.Toke
 
 // GetValidToken returns a valid OAuth2 token, refreshing if necessary
 func (h *Handler) GetValidToken(integrationID int, provider string) (*oauth2.Token, error) {
-	storedToken, err := h.db.GetOAuth2Token(integrationID, provider)
+	storedToken, err := h.db.GetOAuth2Token(uint(integrationID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get token: %w", err)
 	}
 
 	// Check if token is expired
-	if storedToken.Expiry != "" {
-		expiry, err := time.Parse(time.RFC3339, storedToken.Expiry)
-		if err == nil && time.Now().After(expiry) {
+	if storedToken.Expiry != nil && !storedToken.Expiry.IsZero() {
+		if time.Now().After(*storedToken.Expiry) {
 			// Token expired, refresh it
 			log.Infof("Token expired for integration %d, refreshing...", integrationID)
 			return h.RefreshToken(integrationID, provider)
@@ -337,11 +335,8 @@ func (h *Handler) GetValidToken(integrationID int, provider string) (*oauth2.Tok
 		TokenType:    storedToken.TokenType,
 	}
 
-	if storedToken.Expiry != "" {
-		expiry, err := time.Parse(time.RFC3339, storedToken.Expiry)
-		if err == nil {
-			token.Expiry = expiry
-		}
+	if storedToken.Expiry != nil && !storedToken.Expiry.IsZero() {
+		token.Expiry = *storedToken.Expiry
 	}
 
 	return token, nil
@@ -374,14 +369,14 @@ func (h *Handler) RevokeToken(c *gin.Context) {
 	}
 
 	// Delete token from database
-	if err := h.db.DeleteOAuth2Token(integrationID, provider); err != nil {
+	if err := h.db.DeleteOAuth2Token(uint(integrationID)); err != nil {
 		log.Errorf("Failed to delete OAuth2 token: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to revoke token"})
 		return
 	}
 
 	// Mark integration as not configured
-	if err := h.db.UpdateIntegrationConfigured(integrationID, false); err != nil {
+	if err := h.db.UpdateIntegrationConfigured(uint(integrationID), false); err != nil {
 		log.Errorf("Failed to update integration status: %v", err)
 	}
 
@@ -391,33 +386,26 @@ func (h *Handler) RevokeToken(c *gin.Context) {
 // GetToken retrieves and refreshes OAuth2 token for an integration
 func (h *Handler) GetToken(ctx context.Context, integrationID int) (*oauth2.Token, error) {
 	// Get token from database
-	tokens, err := h.db.ListOAuth2Tokens(integrationID)
+	token, err := h.db.GetOAuth2Token(uint(integrationID))
 	if err != nil {
-		return nil, fmt.Errorf("failed to get tokens: %w", err)
+		return nil, fmt.Errorf("failed to get token: %w", err)
 	}
-
-	if len(tokens) == 0 {
-		return nil, fmt.Errorf("no OAuth2 token found for integration %d", integrationID)
-	}
-
-	// Use the first token (in production, you might want to filter by provider)
-	tokenData := tokens[0]
 
 	// Parse expiry
 	var expiry time.Time
-	if tokenData.Expiry != "" {
-		expiry, _ = time.Parse(time.RFC3339, tokenData.Expiry)
+	if token.Expiry != nil && !token.Expiry.IsZero() {
+		expiry = *token.Expiry
 	}
 
-	token := &oauth2.Token{
-		AccessToken:  tokenData.AccessToken,
-		TokenType:    tokenData.TokenType,
-		RefreshToken: tokenData.RefreshToken,
+	oauth2Tok := &oauth2.Token{
+		AccessToken:  token.AccessToken,
+		TokenType:    token.TokenType,
+		RefreshToken: token.RefreshToken,
 		Expiry:       expiry,
 	}
 
 	// Check if token needs refresh
-	if token.Expiry.Before(time.Now().Add(5 * time.Minute)) && token.RefreshToken != "" {
+	if oauth2Tok.Expiry.Before(time.Now().Add(5 * time.Minute)) && oauth2Tok.RefreshToken != "" {
 		log.Infof("Token expired or expiring soon, refreshing...")
 
 		// Configure OAuth2 for token refresh
@@ -428,36 +416,37 @@ func (h *Handler) GetToken(ctx context.Context, integrationID int) (*oauth2.Toke
 
 		oauth2Config := oauth2.Config{
 			ClientID:     h.dexClientID,
-			ClientSecret: h.dexSecret,
+			ClientSecret:  h.dexSecret,
 			Endpoint:     provider.Endpoint(),
 		}
 
 		// Refresh token
-		tokenSource := oauth2Config.TokenSource(ctx, token)
+		tokenSource := oauth2Config.TokenSource(ctx, oauth2Tok)
 		newToken, err := tokenSource.Token()
 		if err != nil {
 			return nil, fmt.Errorf("failed to refresh token: %w", err)
 		}
 
 		// Save refreshed token
+		newExpiry := newToken.Expiry
 		refreshedTokenData := &db.OAuth2Token{
-			IntegrationID: integrationID,
-			Provider:      tokenData.Provider,
+			IntegrationID: uint(integrationID),
+			Provider:      token.Provider,
 			AccessToken:   newToken.AccessToken,
 			RefreshToken:  newToken.RefreshToken,
 			TokenType:     newToken.TokenType,
-			Expiry:        newToken.Expiry.Format(time.RFC3339),
-			Scopes:        tokenData.Scopes,
+			Expiry:        &newExpiry,
+			Scopes:        token.Scopes,
 		}
 		if err := h.db.SaveOAuth2Token(refreshedTokenData); err != nil {
 			log.Errorf("Failed to save refreshed token: %v", err)
 			// Continue anyway with the new token
 		}
 
-		token = newToken
+		oauth2Tok = newToken
 	}
 
-	return token, nil
+	return oauth2Tok, nil
 }
 
 // GetTokenInfo returns information about stored tokens
@@ -470,38 +459,26 @@ func (h *Handler) GetTokenInfo(c *gin.Context) {
 		return
 	}
 
-	tokens, err := h.db.ListOAuth2Tokens(integrationID)
+	token, err := h.db.GetOAuth2Token(uint(integrationID))
 	if err != nil {
-		log.Errorf("Failed to list tokens: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get tokens"})
+		log.Errorf("Failed to get token: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get token"})
 		return
 	}
 
-	// Sanitize tokens (don't return actual token values)
-	sanitized := make([]map[string]interface{}, len(tokens))
-	for i, token := range tokens {
-		var expiry *time.Time
-		if token.Expiry != "" {
-			t, err := time.Parse(time.RFC3339, token.Expiry)
-			if err == nil {
-				expiry = &t
-			}
-		}
-
-		sanitized[i] = map[string]interface{}{
-			"provider":       token.Provider,
-			"token_type":     token.TokenType,
-			"expiry":         expiry,
-			"has_refresh":    token.RefreshToken != "",
-			"scopes":         token.Scopes,
-			"created_at":     token.CreatedAt,
-			"updated_at":     token.UpdatedAt,
-		}
+	// Sanitize token (don't return actual token value)
+	sanitized := map[string]interface{}{
+		"id":             token.ID,
+		"integration_id": token.IntegrationID,
+		"provider":       token.Provider,
+		"token_type":     token.TokenType,
+		"has_refresh":    token.RefreshToken != "",
+		"expiry":         token.Expiry,
+		"scopes":         token.Scopes,
+		"created_at":     token.CreatedAt,
+		"updated_at":     token.UpdatedAt,
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"tokens": sanitized,
-		"count":  len(sanitized),
-	})
+	c.JSON(http.StatusOK, sanitized)
 }
 

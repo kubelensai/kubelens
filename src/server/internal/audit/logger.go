@@ -91,11 +91,18 @@ func (al *Logger) LogAuth(eventType string, userID *int, username, email, source
 		level = LevelWarn
 	}
 
+	// Convert *int to *uint
+	var uid *uint
+	if userID != nil {
+		u := uint(*userID)
+		uid = &u
+	}
+
 	return al.Log(LogEntry{
 		EventType:     eventType,
 		EventCategory: CategoryAuthentication,
 		Level:         level,
-		UserID:        userID,
+		UserID:        uid,
 		Username:      username,
 		Email:         email,
 		SourceIP:      sourceIP,
@@ -106,11 +113,18 @@ func (al *Logger) LogAuth(eventType string, userID *int, username, email, source
 
 // LogSecurity creates a security-related audit log entry
 func (al *Logger) LogSecurity(eventType string, userID *int, username, sourceIP, description string, level string) error {
+	// Convert *int to *uint
+	var uid *uint
+	if userID != nil {
+		u := uint(*userID)
+		uid = &u
+	}
+
 	return al.Log(LogEntry{
 		EventType:     eventType,
 		EventCategory: CategorySecurity,
 		Level:         level,
-		UserID:        userID,
+		UserID:        uid,
 		Username:      username,
 		SourceIP:      sourceIP,
 		Description:   description,
@@ -122,15 +136,21 @@ func (al *Logger) LogSecurity(eventType string, userID *int, username, sourceIP,
 func (al *Logger) LogAudit(eventType string, userID *int, username, resource, action, description string, success bool) error {
 	level := LevelInfo
 	if !success {
-		level := LevelError
-		_ = level // Suppress unused variable warning
+		level = LevelError
+	}
+
+	// Convert *int to *uint
+	var uid *uint
+	if userID != nil {
+		u := uint(*userID)
+		uid = &u
 	}
 
 	return al.Log(LogEntry{
 		EventType:     eventType,
 		EventCategory: CategoryAudit,
 		Level:         level,
-		UserID:        userID,
+		UserID:        uid,
 		Username:      username,
 		Resource:      resource,
 		Action:        action,
@@ -276,11 +296,18 @@ func Log(c *gin.Context, eventType string, userID int, username, email, descript
 	// Determine category and level based on event type
 	category, level := categorizeEvent(eventType)
 
+	// Convert int userID to *uint
+	var uid *uint
+	if userID > 0 {
+		u := uint(userID)
+		uid = &u
+	}
+
 	entry := LogEntry{
 		EventType:     eventType,
 		EventCategory: category,
 		Level:         level,
-		UserID:        &userID,
+		UserID:        uid,
 		Username:      username,
 		Email:         email,
 		SourceIP:      sourceIP,

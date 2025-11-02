@@ -12,6 +12,7 @@ import (
 type Config struct {
 	Port                    int      `mapstructure:"port"`
 	DatabasePath            string   `mapstructure:"database_path"`
+	DatabaseURL             string   `mapstructure:"database_url"` // Full connection string (overrides database_path)
 	KubeConfig              string   `mapstructure:"kubeconfig"`
 	LogLevel                string   `mapstructure:"log_level"`
 	CORSOrigins             []string `mapstructure:"cors_origins"`
@@ -75,18 +76,35 @@ func Load() (*Config, error) {
 	v.BindEnv("admin_password")
 	v.BindEnv("global_rate_limit_per_min")
 	v.BindEnv("login_rate_limit_per_min")
+	v.BindEnv("database_path")
+	v.BindEnv("database_url")
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, err
 	}
 
-	// Ensure database directory exists
-	dbDir := filepath.Dir(cfg.DatabasePath)
-	if err := os.MkdirAll(dbDir, 0755); err != nil {
-		return nil, err
+	// Ensure database directory exists (only for file-based databases)
+	if cfg.DatabaseURL == "" {
+		dbDir := filepath.Dir(cfg.DatabasePath)
+		if err := os.MkdirAll(dbDir, 0755); err != nil {
+			return nil, err
+		}
 	}
 
 	return &cfg, nil
+}
+
+// GetDatabaseConnectionString returns the database connection string
+// Priority: DATABASE_URL > DATABASE_PATH (with SQLite DSN parameters)
+func (c *Config) GetDatabaseConnectionString() string {
+	// If DATABASE_URL is set, use it directly (for PostgreSQL, MySQL, etc.)
+	if c.DatabaseURL != "" {
+		return c.DatabaseURL
+	}
+	
+	// Otherwise, use DATABASE_PATH with SQLite optimizations
+	// Enable WAL mode and other pragmas for better concurrency
+	return c.DatabasePath + "?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&_cache_size=1000"
 }
 

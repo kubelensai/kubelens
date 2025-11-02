@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # Kubelens Server with SQLite
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+      args:
+        BUILD_TAGS: "gcp"
+    container_name: kubelens-server-sqlite
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - LOG_LEVEL=info
+      - DATABASE_URL=sqlite:///data/kubelens.db
+      - KUBELENS_ADMIN_PASSWORD=admin123
+      - GLOBAL_RATE_LIMIT=1000
+      - LOGIN_RATE_LIMIT=5
+    volumes:
+      - sqlite_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - kubelens
+
+  # Kubelens App (Frontend)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+      args:
+        API_SERVER: "http://localhost:8080"
+    container_name: kubelens-app-sqlite
+    ports:
+      - "3000:80"
+    depends_on:
+      - server
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - kubelens
+
+volumes:
+  sqlite_data:
+    driver: local
+
+networks:
+  kubelens:
+    driver: bridge
+

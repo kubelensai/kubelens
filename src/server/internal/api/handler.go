@@ -199,7 +199,7 @@ func (h *Handler) AddCluster(c *gin.Context) {
 	dbCluster := &db.Cluster{
 		Name:       req.Name,
 		AuthType:   req.AuthType,
-		AuthConfig: string(authConfigJSON),
+		AuthConfig: db.JSON(authConfigJSON),
 		Server:     serverURL,
 		IsDefault:  req.IsDefault,
 		Enabled:    req.Enabled,
@@ -411,7 +411,7 @@ func (h *Handler) UpdateClusterEnabled(c *gin.Context) {
 	}
 
 	// Update in database
-	if err := h.db.UpdateClusterEnabled(name, req.Enabled); err != nil {
+	if err := h.db.UpdateClusterEnabled(cluster.ID, req.Enabled); err != nil {
 		log.Errorf("Failed to update cluster enabled status: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -484,7 +484,7 @@ func (h *Handler) UpdateClusterEnabled(c *gin.Context) {
 			if !req.Enabled {
 				action = "disabled"
 			}
-			audit.Log(c, audit.EventClusterUpdated, u.ID, u.Username, u.Email,
+			audit.Log(c, audit.EventClusterUpdated, int(u.ID), u.Username, u.Email,
 				fmt.Sprintf("Cluster %s: %s", action, name),
 				map[string]interface{}{
 					"cluster_name": name,
@@ -5657,7 +5657,7 @@ func (h *Handler) UpdateIntegration(c *gin.Context) {
 	}
 
 	// Get existing integration
-	integration, err := h.db.GetIntegrationByID(id)
+	integration, err := h.db.GetIntegrationByID(uint(id))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "integration not found"})
 		return

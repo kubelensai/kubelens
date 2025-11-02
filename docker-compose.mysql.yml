@@ -1,0 +1,107 @@
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: kubelens-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=root123
+      - MYSQL_DATABASE=kubelens
+      - MYSQL_USER=kubelens
+      - MYSQL_PASSWORD=kubelens123
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "kubelens", "-pkubelens123"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - kubelens
+
+  # Kubelens Server with MySQL
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+      args:
+        BUILD_TAGS: "gcp"
+    container_name: kubelens-server-mysql
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - LOG_LEVEL=info
+      - DATABASE_URL=mysql://kubelens:kubelens123@tcp(mysql:3306)/kubelens?charset=utf8mb4&parseTime=True&loc=Local
+      - KUBELENS_ADMIN_PASSWORD=admin123
+      - GLOBAL_RATE_LIMIT=1000
+      - LOGIN_RATE_LIMIT=5
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - kubelens
+
+  # Kubelens App (Frontend)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+      args:
+        API_SERVER: "http://localhost:8080"
+    container_name: kubelens-app-mysql
+    ports:
+      - "3000:80"
+    depends_on:
+      - server
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - kubelens
+
+  # phpMyAdmin (Optional - for database management)
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: kubelens-phpmyadmin
+    ports:
+      - "8081:80"
+    environment:
+      - PMA_HOST=mysql
+      - PMA_PORT=3306
+      - PMA_USER=kubelens
+      - PMA_PASSWORD=kubelens123
+      - UPLOAD_LIMIT=64M
+    depends_on:
+      - mysql
+    restart: unless-stopped
+    networks:
+      - kubelens
+    profiles:
+      - tools
+
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  kubelens:
+    driver: bridge
+

@@ -112,15 +112,15 @@ func (rm *RetentionManager) deleteVeryOldLogs() (int, error) {
 
 	// Delete non-critical logs older than cold retention
 	coldCutoff := time.Now().AddDate(0, 0, -rm.policy.ColdRetentionDays)
-	deleted1, err := rm.db.DeleteOldAuditLogs(coldCutoff, false)
+	deleted1, err := rm.db.DeleteOldAuditLogs(coldCutoff)
 	if err != nil {
 		return 0, err
 	}
 	totalDeleted += deleted1
 
-	// Delete critical logs older than critical retention
+	// Delete critical logs older than critical retention  
 	criticalCutoff := time.Now().AddDate(0, 0, -rm.policy.CriticalRetentionDays)
-	deleted2, err := rm.db.DeleteOldAuditLogs(criticalCutoff, true)
+	deleted2, err := rm.db.DeleteOldAuditLogs(criticalCutoff)
 	if err != nil {
 		return totalDeleted, err
 	}

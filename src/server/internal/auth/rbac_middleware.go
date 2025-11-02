@@ -27,7 +27,7 @@ func (h *Handler) PermissionChecker(resource string, action string) gin.HandlerF
 		}
 
 		// Get user permissions
-		permissions, err := h.db.GetUserPermissions(userID.(int))
+		permissions, err := h.db.GetUserPermissions(uint(uint(userID.(int))))
 		if err != nil {
 			log.Errorf("Failed to get user permissions: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check permissions"})
@@ -37,7 +37,7 @@ func (h *Handler) PermissionChecker(resource string, action string) gin.HandlerF
 
 		// Check if user has the required permission
 		if !hasPermission(permissions, resource, action) {
-			log.Warnf("User %d denied access to %s:%s", userID.(int), resource, action)
+			log.Warnf("User %d denied access to %s:%s", uint(userID.(int)), resource, action)
 			c.JSON(http.StatusForbidden, gin.H{
 				"error": "insufficient permissions",
 				"required": gin.H{
@@ -100,7 +100,7 @@ func (h *Handler) ClusterScopeChecker() gin.HandlerFunc {
 		}
 
 		// Get user permissions
-		permissions, err := h.db.GetUserPermissions(userID.(int))
+		permissions, err := h.db.GetUserPermissions(uint(uint(userID.(int))))
 		if err != nil {
 			log.Errorf("Failed to get user permissions: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check permissions"})
@@ -110,7 +110,7 @@ func (h *Handler) ClusterScopeChecker() gin.HandlerFunc {
 
 		// Check if user has access to this cluster
 		if !hasClusterAccess(permissions, cluster) {
-			log.Warnf("User %d denied access to cluster %s", userID.(int), cluster)
+			log.Warnf("User %d denied access to cluster %s", uint(userID.(int)), cluster)
 			c.JSON(http.StatusForbidden, gin.H{
 				"error":   "no access to this cluster",
 				"cluster": cluster,
@@ -173,7 +173,7 @@ func (h *Handler) NamespaceScopeChecker() gin.HandlerFunc {
 		}
 
 		// Get user permissions
-		permissions, err := h.db.GetUserPermissions(userID.(int))
+		permissions, err := h.db.GetUserPermissions(uint(uint(userID.(int))))
 		if err != nil {
 			log.Errorf("Failed to get user permissions: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check permissions"})
@@ -183,7 +183,7 @@ func (h *Handler) NamespaceScopeChecker() gin.HandlerFunc {
 
 		// Check if user has access to this namespace
 		if !hasNamespaceAccess(permissions, namespace) {
-			log.Warnf("User %d denied access to namespace %s", userID.(int), namespace)
+			log.Warnf("User %d denied access to namespace %s", uint(userID.(int)), namespace)
 			c.JSON(http.StatusForbidden, gin.H{
 				"error":     "no access to this namespace",
 				"namespace": namespace,
@@ -224,7 +224,7 @@ func (h *Handler) GetUserPermissionsHandler(c *gin.Context) {
 	}
 
 	// Get user permissions
-	permissions, err := h.db.GetUserPermissions(userID.(int))
+	permissions, err := h.db.GetUserPermissions(uint(userID.(int)))
 	if err != nil {
 		log.Errorf("Failed to get user permissions: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get permissions"})
@@ -232,11 +232,11 @@ func (h *Handler) GetUserPermissionsHandler(c *gin.Context) {
 	}
 
 	// Get user groups for additional context
-	groups, err := h.db.GetUserGroups(userID.(int))
+		groups, err := h.db.GetUserGroups(uint(uint(userID.(int))))
 	if err != nil {
 		log.Errorf("Failed to get user groups: %v", err)
 		// Don't fail, just return permissions without groups
-		groups = []*db.Group{}
+		groups = []db.Group{}
 	}
 
 	// Build response
@@ -266,7 +266,7 @@ func (h *Handler) GetUserPermissionsHandler(c *gin.Context) {
 // Helper function to check if user can perform action on resource
 func (h *Handler) CanUserAccess(userID int, resource string, action string) (bool, error) {
 	// Get user
-	user, err := h.db.GetUserByID(userID)
+	user, err := h.db.GetUserByID(uint(userID))
 	if err != nil {
 		return false, err
 	}
@@ -277,7 +277,7 @@ func (h *Handler) CanUserAccess(userID int, resource string, action string) (boo
 	}
 
 	// Get user permissions
-	permissions, err := h.db.GetUserPermissions(userID)
+	permissions, err := h.db.GetUserPermissions(uint(userID))
 	if err != nil {
 		return false, err
 	}
@@ -288,7 +288,7 @@ func (h *Handler) CanUserAccess(userID int, resource string, action string) (boo
 // Helper function to get allowed clusters for a user
 func (h *Handler) GetUserAllowedClusters(userID int) ([]string, error) {
 	// Get user
-	user, err := h.db.GetUserByID(userID)
+	user, err := h.db.GetUserByID(uint(userID))
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +299,7 @@ func (h *Handler) GetUserAllowedClusters(userID int) ([]string, error) {
 	}
 
 	// Get user permissions
-	permissions, err := h.db.GetUserPermissions(userID)
+	permissions, err := h.db.GetUserPermissions(uint(userID))
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +328,7 @@ func (h *Handler) GetUserAllowedClusters(userID int) ([]string, error) {
 // Helper function to get allowed namespaces for a user in a specific cluster
 func (h *Handler) GetUserAllowedNamespaces(userID int, cluster string) ([]string, error) {
 	// Get user
-	user, err := h.db.GetUserByID(userID)
+	user, err := h.db.GetUserByID(uint(userID))
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +339,7 @@ func (h *Handler) GetUserAllowedNamespaces(userID int, cluster string) ([]string
 	}
 
 	// Get user permissions
-	permissions, err := h.db.GetUserPermissions(userID)
+	permissions, err := h.db.GetUserPermissions(uint(userID))
 	if err != nil {
 		return nil, err
 	}

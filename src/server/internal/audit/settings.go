@@ -14,11 +14,5 @@ func DefaultSettings() *Settings {
 		CollectCritical:       true,
 		SamplingEnabled:       false,
 		SamplingRate:          1.0,
-		EnabledEventTypes:     []string{},
-		DisabledEventTypes:    []string{},
-		ExcludeUsers:          []int{},
-		ExcludeIPs:            []string{},
-		IncludeOnlyUsers:      []int{},
-		IncludeOnlyIPs:        []string{},
 	}
 }

@@ -69,7 +69,7 @@ func (h *Handler) Signup(c *gin.Context) {
 	}
 
 	// Check username
-	existingUsers, _ := h.db.ListUsers()
+	existingUsers, _, _ := h.db.ListUsers(1, 10000)
 	for _, u := range existingUsers {
 		if u.Username == req.Username {
 			c.JSON(http.StatusConflict, gin.H{"error": "username already taken"})
@@ -103,7 +103,7 @@ func (h *Handler) Signup(c *gin.Context) {
 	}
 
 	// Generate token
-	token, err := GenerateToken(user.ID, user.Email, user.Username, user.IsAdmin, h.secret)
+	token, err := GenerateToken(int(user.ID), user.Email, user.Username, user.IsAdmin, h.secret)
 	if err != nil {
 		log.Errorf("Failed to generate token: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate token"})
@@ -212,9 +212,10 @@ func (h *Handler) Signin(c *gin.Context) {
 			req.Email, c.ClientIP(), attemptCount)
 		
 		// Audit log: Login failed (wrong password)
+		userIDInt := int(user.ID)
 		h.auditLogger.LogAuth(
 			audit.EventAuthLoginFailed,
-			&user.ID,
+			&userIDInt,
 			user.Username,
 			user.Email,
 			c.ClientIP(),
@@ -262,10 +263,10 @@ func (h *Handler) Signin(c *gin.Context) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid MFA token"})
 			return
 		}
-	} else if user.MFAEnforcedAt == "" {
+	} else if user.MFAEnforcedAt == nil || user.MFAEnforcedAt.IsZero() {
 		// MFA not set up yet - require setup on first login
 		// Generate a temporary token for MFA setup
-		tempToken, err := GenerateToken(user.ID, user.Email, user.Username, user.IsAdmin, h.secret)
+		tempToken, err := GenerateToken(int(user.ID), user.Email, user.Username, user.IsAdmin, h.secret)
 		if err != nil {
 			log.Errorf("Failed to generate temporary token: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate token"})
@@ -289,7 +290,7 @@ func (h *Handler) Signin(c *gin.Context) {
 	}
 
 	// Generate token
-	token, err := GenerateToken(user.ID, user.Email, user.Username, user.IsAdmin, h.secret)
+	token, err := GenerateToken(int(user.ID), user.Email, user.Username, user.IsAdmin, h.secret)
 	if err != nil {
 		log.Errorf("Failed to generate token: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate token"})
@@ -299,9 +300,10 @@ func (h *Handler) Signin(c *gin.Context) {
 	log.Infof("User signed in successfully: %s (%s) from IP: %s", user.Email, user.Username, c.ClientIP())
 
 	// Audit log: Login successful
+	userIDInt := int(user.ID)
 	h.auditLogger.LogAuth(
 		audit.EventAuthLoginSuccess,
-		&user.ID,
+		&userIDInt,
 		user.Username,
 		user.Email,
 		c.ClientIP(),
@@ -332,7 +334,7 @@ func (h *Handler) GetCurrentUser(c *gin.Context) {
 		return
 	}
 
-	user, err := h.db.GetUserByID(userID.(int))
+	user, err := h.db.GetUserByID(uint(userID.(int)))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return
@@ -370,7 +372,7 @@ func (h *Handler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	user, err := h.db.GetUserByID(userID.(int))
+	user, err := h.db.GetUserByID(uint(userID.(int)))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return
@@ -422,14 +424,14 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	user, err := h.db.GetUserByID(userID.(int))
+	user, err := h.db.GetUserByID(uint(userID.(int)))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return
 	}
 
 	// Check if username is already taken by another user
-	users, _ := h.db.ListUsers()
+	users, _, _ := h.db.ListUsers(1, 10000)
 	for _, u := range users {
 		if u.Username == req.Username && u.ID != user.ID {
 			c.JSON(http.StatusConflict, gin.H{"error": "username already taken"})

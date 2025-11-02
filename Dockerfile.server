@@ -39,6 +39,12 @@ RUN mkdir -p /data && \
 # Switch to non-root user
 USER kubelens
 
+# Environment variables with defaults
+ENV DATABASE_URL="sqlite:///data/kubelens.db" \
+    KUBELENS_ADMIN_PASSWORD="" \
+    GLOBAL_RATE_LIMIT="1000" \
+    LOGIN_RATE_LIMIT="5"
+
 # Expose port
 EXPOSE 8080
 

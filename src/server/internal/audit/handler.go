@@ -110,7 +110,7 @@ func (h *Handler) GetAuditLog(c *gin.Context) {
 		return
 	}
 
-	logEntry, err := h.db.GetAuditLog(id)
+	logEntry, err := h.db.GetAuditLogByID(uint(id))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Audit log not found"})
 		return
@@ -123,7 +123,16 @@ func (h *Handler) GetAuditLog(c *gin.Context) {
 func (h *Handler) GetAuditStats(c *gin.Context) {
 	period := c.DefaultQuery("period", "24h")
 
-	stats, err := h.db.GetAuditStats(period)
+	// Parse period to time duration
+	duration, err := time.ParseDuration(period)
+	if err != nil {
+		duration = 24 * time.Hour // Default to 24 hours
+	}
+
+	endDate := time.Now()
+	startDate := endDate.Add(-duration)
+
+	stats, err := h.db.GetAuditLogStats(startDate, endDate)
 	if err != nil {
 		log.Errorf("Failed to get audit stats: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve statistics"})
@@ -204,8 +213,14 @@ func (h *Handler) UpdateAuditSettings(c *gin.Context) {
 		return
 	}
 
+	// Set updated by user ID
+	if userID != nil {
+		uid := uint(userID.(int))
+		settings.UpdatedBy = &uid
+	}
+
 	// Update settings in database
-	if err := h.db.UpdateAuditSettings(&settings, userID.(int)); err != nil {
+	if err := h.db.UpdateAuditSettings(&settings); err != nil {
 		log.Errorf("Failed to update audit settings: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update settings"})
 		return
@@ -235,11 +250,8 @@ func (h *Handler) ApplyAuditPreset(c *gin.Context) {
 		return
 	}
 
-	// Apply preset
-	if !settings.ApplyPreset(presetName) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Preset not found"})
-		return
-	}
+	// Apply preset (ApplyPreset doesn't return a value, it just modifies settings)
+	settings.ApplyPreset(presetName)
 
 	// Get current user ID
 	userID, exists := c.Get("user_id")
@@ -248,8 +260,14 @@ func (h *Handler) ApplyAuditPreset(c *gin.Context) {
 		return
 	}
 
+	// Set updated by user ID
+	if userID != nil {
+		uid := uint(userID.(int))
+		settings.UpdatedBy = &uid
+	}
+
 	// Update settings in database
-	if err := h.db.UpdateAuditSettings(settings, userID.(int)); err != nil {
+	if err := h.db.UpdateAuditSettings(settings); err != nil {
 		log.Errorf("Failed to apply preset: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply preset"})
 		return

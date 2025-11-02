@@ -35,7 +35,7 @@ func (h *MFAHandler) SetupMFA(c *gin.Context) {
 	}
 
 	// Get user details
-	user, err := h.db.GetUserByID(userID.(int))
+	user, err := h.db.GetUserByID(uint(userID.(int)))
 	if err != nil {
 		log.Errorf("Failed to get user: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get user"})
@@ -54,7 +54,7 @@ func (h *MFAHandler) SetupMFA(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"secret":       mfaSetup.Secret,
-		"qr_code_url":  mfaSetup.QRCodeURL,
+		"qr_code_url":  mfaSetup.QRCode,
 		"backup_codes": mfaSetup.BackupCodes,
 	})
 }
@@ -81,7 +81,7 @@ func (h *MFAHandler) VerifyAndEnableMFA(c *gin.Context) {
 	}
 
 	// Verify MFA token
-	valid, err := h.db.VerifyMFAToken(userID.(int), req.Token)
+	valid, err := h.db.VerifyMFAToken(uint(userID.(int)), req.Token)
 	if err != nil {
 		log.Errorf("Failed to verify MFA token: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify token"})
@@ -94,7 +94,7 @@ func (h *MFAHandler) VerifyAndEnableMFA(c *gin.Context) {
 	}
 
 	// Enable MFA
-	if err := h.db.EnableMFA(userID.(int)); err != nil {
+	if err := h.db.EnableMFA(uint(userID.(int))); err != nil {
 		log.Errorf("Failed to enable MFA: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enable MFA"})
 		return
@@ -124,7 +124,7 @@ func (h *MFAHandler) DisableMFA(c *gin.Context) {
 	}
 
 	// Verify current MFA token before disabling
-	valid, err := h.db.VerifyMFAToken(userID.(int), req.Token)
+	valid, err := h.db.VerifyMFAToken(uint(userID.(int)), req.Token)
 	if err != nil {
 		log.Errorf("Failed to verify MFA token: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify token"})
@@ -137,7 +137,7 @@ func (h *MFAHandler) DisableMFA(c *gin.Context) {
 	}
 
 	// Disable MFA
-	if err := h.db.DisableMFA(userID.(int)); err != nil {
+	if err := h.db.DisableMFA(uint(userID.(int))); err != nil{
 		log.Errorf("Failed to disable MFA: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to disable MFA"})
 		return
@@ -161,7 +161,7 @@ func (h *MFAHandler) GetMFAStatus(c *gin.Context) {
 	}
 
 	// Get MFA status
-	mfaEnabled, err := h.db.GetMFAStatus(userID.(int))
+	mfaEnabled, err := h.db.GetMFAStatus(uint(userID.(int)))
 	if err != nil {
 		log.Errorf("Failed to get MFA status: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get MFA status"})
@@ -190,7 +190,7 @@ func (h *MFAHandler) RegenerateBackupCodes(c *gin.Context) {
 	}
 
 	// Verify current MFA token before regenerating codes
-	valid, err := h.db.VerifyMFAToken(userID.(int), req.Token)
+	valid, err := h.db.VerifyMFAToken(uint(userID.(int)), req.Token)
 	if err != nil {
 		log.Errorf("Failed to verify MFA token: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify token"})
@@ -203,7 +203,7 @@ func (h *MFAHandler) RegenerateBackupCodes(c *gin.Context) {
 	}
 
 	// Regenerate backup codes
-	backupCodes, err := h.db.RegenerateMFABackupCodes(userID.(int))
+	backupCodes, err := h.db.RegenerateMFABackupCodes(uint(userID.(int)))
 	if err != nil {
 		log.Errorf("Failed to regenerate backup codes: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to regenerate backup codes"})
@@ -236,7 +236,7 @@ func (h *MFAHandler) AdminResetMFA(c *gin.Context) {
 	}
 
 	// Check if user is admin
-	adminUser, err := h.db.GetUserByID(adminUserID.(int))
+	adminUser, err := h.db.GetUserByID(uint(adminUserID.(int)))
 	if err != nil {
 		log.Errorf("Failed to get admin user: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify admin"})
@@ -249,7 +249,7 @@ func (h *MFAHandler) AdminResetMFA(c *gin.Context) {
 	}
 
 	// Disable MFA for target user
-	if err := h.db.DisableMFA(targetUserID); err != nil {
+	if err := h.db.DisableMFA(uint(targetUserID)); err != nil {
 		log.Errorf("Failed to reset MFA for user %d: %v", targetUserID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset MFA"})
 		return

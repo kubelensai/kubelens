@@ -72,9 +72,11 @@ const AuditSettings = () => {
   const fetchStorageImpact = async () => {
     try {
       const response = await api.get('/audit/settings/impact');
-      setStorageImpact(response.data.reduction_percentage);
+      const value = response.data.reduction_percentage;
+      setStorageImpact(typeof value === 'number' ? value : 0);
     } catch (error) {
       console.error('Failed to fetch storage impact:', error);
+      setStorageImpact(0);
     }
   };
 
@@ -287,20 +289,20 @@ const AuditSettings = () => {
           {settings.sampling_enabled && (
             <div>
               <label className="mb-2 block text-xs font-medium text-gray-700 dark:text-gray-300 md:text-sm">
-                Sampling Rate: {(settings.sampling_rate * 100).toFixed(0)}%
+                Sampling Rate: {((settings.sampling_rate || 0) * 100).toFixed(0)}%
               </label>
               <input
                 type="range"
                 min="0.01"
                 max="1"
                 step="0.01"
-                value={settings.sampling_rate}
+                value={settings.sampling_rate || 0}
                 onChange={(e) => updateSetting('sampling_rate', parseFloat(e.target.value))}
                 disabled={!settings.enabled}
                 className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-700"
               />
               <p className="mt-2 text-xs text-gray-600 dark:text-gray-400 md:text-sm">
-                {settings.sampling_rate === 1 ? 'Log all events (100%)' : `Log ${(settings.sampling_rate * 100).toFixed(0)}% of events randomly`}
+                {settings.sampling_rate === 1 ? 'Log all events (100%)' : `Log ${((settings.sampling_rate || 0) * 100).toFixed(0)}% of events randomly`}
               </p>
             </div>
           )}
@@ -313,16 +315,16 @@ const AuditSettings = () => {
         <div className="space-y-2">
           <div className="flex justify-between text-sm md:text-base">
             <span className="text-gray-600 dark:text-gray-400">Storage Reduction:</span>
-            <span className="font-medium text-gray-900 dark:text-white">{storageImpact.toFixed(1)}%</span>
+            <span className="font-medium text-gray-900 dark:text-white">{(storageImpact || 0).toFixed(1)}%</span>
           </div>
           <div className="h-2 w-full rounded-full bg-gray-200 dark:bg-gray-700">
             <div
               className="h-2 rounded-full bg-blue-600 transition-all duration-300"
-              style={{ width: `${storageImpact}%` }}
+              style={{ width: `${storageImpact || 0}%` }}
             />
           </div>
           <p className="text-xs text-gray-600 dark:text-gray-400 md:text-sm">
-            {storageImpact === 0 ? 'Full logging (no reduction)' : `Estimated ${storageImpact.toFixed(1)}% reduction in storage usage`}
+            {storageImpact === 0 ? 'Full logging (no reduction)' : `Estimated ${(storageImpact || 0).toFixed(1)}% reduction in storage usage`}
           </p>
         </div>
       </div>

@@ -1,0 +1,108 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: kubelens-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=kubelens
+      - POSTGRES_USER=kubelens
+      - POSTGRES_PASSWORD=kubelens123
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kubelens -d kubelens"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - kubelens
+
+  # Kubelens Server with PostgreSQL
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+      args:
+        BUILD_TAGS: "gcp"
+    container_name: kubelens-server-postgres
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - LOG_LEVEL=info
+      - DATABASE_URL=postgres://kubelens:kubelens123@postgres:5432/kubelens?sslmode=disable
+      - KUBELENS_ADMIN_PASSWORD=admin123
+      - GLOBAL_RATE_LIMIT=1000
+      - LOGIN_RATE_LIMIT=5
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - kubelens
+
+  # Kubelens App (Frontend)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+      args:
+        API_SERVER: "http://localhost:8080"
+    container_name: kubelens-app-postgres
+    ports:
+      - "3000:80"
+    depends_on:
+      - server
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - kubelens
+
+  # pgAdmin (Optional - for database management)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: kubelens-pgadmin
+    ports:
+      - "5050:80"
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@kubelens.local
+      - PGADMIN_DEFAULT_PASSWORD=admin123
+      - PGADMIN_CONFIG_SERVER_MODE=False
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    networks:
+      - kubelens
+    profiles:
+      - tools
+
+volumes:
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+networks:
+  kubelens:
+    driver: bridge
+

@@ -22,7 +22,7 @@ func (h *Handler) GetSession(c *gin.Context) {
 		return
 	}
 
-	session, err := h.db.GetUserSession(userID.(int))
+	session, err := h.db.GetUserSession(uint(userID.(int)))
 	if err != nil {
 		log.Errorf("Failed to get user session: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get session"})
@@ -53,7 +53,7 @@ func (h *Handler) UpdateSession(c *gin.Context) {
 	}
 
 	// Get existing session or create if not exists
-	session, err := h.db.GetUserSession(userID.(int))
+	session, err := h.db.GetUserSession(uint(userID.(int)))
 	if err != nil {
 		log.Errorf("Failed to get user session: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get session"})
