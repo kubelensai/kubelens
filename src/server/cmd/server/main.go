@@ -45,8 +45,8 @@ func main() {
 
 	// Initialize database
 	dbConnectionString := cfg.GetDatabaseConnectionString()
-	if cfg.DatabaseURL != "" {
-		log.Infof("💾 Using custom database connection (DATABASE_URL)")
+	if cfg.DatabaseDSN != "" {
+		log.Infof("💾 Using custom database connection (DATABASE_DSN)")
 	} else {
 		log.Infof("💾 Using SQLite database: %s", cfg.DatabasePath)
 	}

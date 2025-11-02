@@ -12,7 +12,7 @@ import (
 type Config struct {
 	Port                    int      `mapstructure:"port"`
 	DatabasePath            string   `mapstructure:"database_path"`
-	DatabaseURL             string   `mapstructure:"database_url"` // Full connection string (overrides database_path)
+	DatabaseDSN             string   `mapstructure:"database_dsn"` // Full DSN connection string (overrides database_path)
 	KubeConfig              string   `mapstructure:"kubeconfig"`
 	LogLevel                string   `mapstructure:"log_level"`
 	CORSOrigins             []string `mapstructure:"cors_origins"`
@@ -96,11 +96,11 @@ func Load() (*Config, error) {
 }
 
 // GetDatabaseConnectionString returns the database connection string
-// Priority: DATABASE_URL > DATABASE_PATH (with SQLite DSN parameters)
+// Priority: DATABASE_DSN > DATABASE_PATH (with SQLite parameters)
 func (c *Config) GetDatabaseConnectionString() string {
-	// If DATABASE_URL is set, use it directly (for PostgreSQL, MySQL, etc.)
-	if c.DatabaseURL != "" {
-		return c.DatabaseURL
+	// If DATABASE_DSN is set, use it directly (for PostgreSQL, MySQL, etc.)
+	if c.DatabaseDSN != "" {
+		return c.DatabaseDSN
 	}
 	
 	// Otherwise, use DATABASE_PATH with SQLite optimizations
