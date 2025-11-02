@@ -45,11 +45,22 @@ func main() {
 
 	// Initialize database
 	dbConnectionString := cfg.GetDatabaseConnectionString()
-	if cfg.DatabaseDSN != "" {
-		log.Infof("💾 Using custom database connection (DATABASE_DSN)")
-		log.Debugf("📝 Connection string: %s", dbConnectionString)
-	} else {
-		log.Infof("💾 Using SQLite database: %s", cfg.DatabasePath)
+	dbType := cfg.DatabaseType
+	if dbType == "" {
+		dbType = "sqlite"
+	}
+	
+	switch dbType {
+	case "postgres", "postgresql":
+		log.Infof("💾 Connecting to PostgreSQL database at %s:%d", cfg.DatabaseHost, cfg.DatabasePort)
+	case "mysql":
+		log.Infof("💾 Connecting to MySQL database at %s:%d", cfg.DatabaseHost, cfg.DatabasePort)
+	default:
+		dbPath := cfg.DatabasePath
+		if dbPath == "" {
+			dbPath = "./data/kubelens.db"
+		}
+		log.Infof("💾 Using SQLite database: %s", dbPath)
 	}
 	
 	database, err := db.New(dbConnectionString)

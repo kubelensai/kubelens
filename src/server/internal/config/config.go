@@ -1,6 +1,8 @@
 package config
 
 import (
+	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,8 +13,15 @@ import (
 // Config holds the application configuration
 type Config struct {
 	Port                    int      `mapstructure:"port"`
-	DatabasePath            string   `mapstructure:"database_path"`
-	DatabaseDSN             string   `mapstructure:"database_dsn"` // Full DSN connection string (overrides database_path)
+	// Database connection parameters
+	DatabaseType            string   `mapstructure:"database_type"`     // mysql, postgres, sqlite (default: sqlite)
+	DatabaseHost            string   `mapstructure:"database_host"`     // Database host
+	DatabasePort            int      `mapstructure:"database_port"`     // Database port
+	DatabaseName            string   `mapstructure:"database_name"`     // Database name
+	DatabaseUser            string   `mapstructure:"database_user"`     // Database user
+	DatabasePassword        string   `mapstructure:"database_password"` // Database password
+	DatabaseSSLMode         string   `mapstructure:"database_sslmode"`  // SSL mode for PostgreSQL (default: disable)
+	DatabasePath            string   `mapstructure:"database_path"`     // Path for SQLite database file
 	KubeConfig              string   `mapstructure:"kubeconfig"`
 	LogLevel                string   `mapstructure:"log_level"`
 	CORSOrigins             []string `mapstructure:"cors_origins"`
@@ -76,17 +85,27 @@ func Load() (*Config, error) {
 	v.BindEnv("admin_password")
 	v.BindEnv("global_rate_limit_per_min")
 	v.BindEnv("login_rate_limit_per_min")
+	v.BindEnv("database_type")
+	v.BindEnv("database_host")
+	v.BindEnv("database_port")
+	v.BindEnv("database_name")
+	v.BindEnv("database_user")
+	v.BindEnv("database_password")
+	v.BindEnv("database_sslmode")
 	v.BindEnv("database_path")
-	v.BindEnv("database_dsn")
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, err
 	}
 
-	// Ensure database directory exists (only for file-based databases)
-	if cfg.DatabaseDSN == "" {
-		dbDir := filepath.Dir(cfg.DatabasePath)
+	// Ensure database directory exists (only for SQLite)
+	if cfg.DatabaseType == "" || cfg.DatabaseType == "sqlite" {
+		dbPath := cfg.DatabasePath
+		if dbPath == "" {
+			dbPath = "./data/kubelens.db"
+		}
+		dbDir := filepath.Dir(dbPath)
 		if err := os.MkdirAll(dbDir, 0755); err != nil {
 			return nil, err
 		}
@@ -95,16 +114,84 @@ func Load() (*Config, error) {
 	return &cfg, nil
 }
 
-// GetDatabaseConnectionString returns the database connection string
-// Priority: DATABASE_DSN > DATABASE_PATH (with SQLite parameters)
+// GetDatabaseConnectionString returns the database connection string built from individual parameters
 func (c *Config) GetDatabaseConnectionString() string {
-	// If DATABASE_DSN is set, use it directly (for PostgreSQL, MySQL, etc.)
-	if c.DatabaseDSN != "" {
-		return c.DatabaseDSN
+	return c.buildDSNFromComponents()
+}
+
+// buildDSNFromComponents constructs a DSN from individual connection parameters
+func (c *Config) buildDSNFromComponents() string {
+	dbType := c.DatabaseType
+	if dbType == "" {
+		dbType = "sqlite" // Default to SQLite
 	}
 	
-	// Otherwise, use DATABASE_PATH with SQLite optimizations
-	// Enable WAL mode and other pragmas for better concurrency
-	return c.DatabasePath + "?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&_cache_size=1000"
+	switch dbType {
+	case "postgres", "postgresql":
+		// PostgreSQL: postgres://user:password@host:port/database?sslmode=disable
+		host := c.DatabaseHost
+		if host == "" {
+			host = "localhost"
+		}
+		port := c.DatabasePort
+		if port == 0 {
+			port = 5432
+		}
+		dbname := c.DatabaseName
+		if dbname == "" {
+			dbname = "kubelens"
+		}
+		user := c.DatabaseUser
+		if user == "" {
+			user = "kubelens"
+		}
+		password := c.DatabasePassword
+		sslmode := c.DatabaseSSLMode
+		if sslmode == "" {
+			sslmode = "disable"
+		}
+		
+		// URL-encode username and password to handle special characters
+		encodedUser := url.QueryEscape(user)
+		encodedPassword := url.QueryEscape(password)
+		
+		return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+			encodedUser, encodedPassword, host, port, dbname, sslmode)
+	
+	case "mysql":
+		// MySQL: user:password@tcp(host:port)/database?charset=utf8mb4&parseTime=True&loc=Local
+		host := c.DatabaseHost
+		if host == "" {
+			host = "localhost"
+		}
+		port := c.DatabasePort
+		if port == 0 {
+			port = 3306
+		}
+		dbname := c.DatabaseName
+		if dbname == "" {
+			dbname = "kubelens"
+		}
+		user := c.DatabaseUser
+		if user == "" {
+			user = "kubelens"
+		}
+		password := c.DatabasePassword
+		
+		// URL-encode username and password
+		encodedUser := url.QueryEscape(user)
+		encodedPassword := url.QueryEscape(password)
+		
+		return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+			encodedUser, encodedPassword, host, port, dbname)
+	
+	default: // sqlite
+		// SQLite: /path/to/db?params
+		dbPath := c.DatabasePath
+		if dbPath == "" {
+			dbPath = "./data/kubelens.db"
+		}
+		return dbPath + "?cache=shared&mode=rwc&_journal_mode=WAL"
+	}
 }
 
