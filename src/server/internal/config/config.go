@@ -77,7 +77,7 @@ func Load() (*Config, error) {
 	v.BindEnv("global_rate_limit_per_min")
 	v.BindEnv("login_rate_limit_per_min")
 	v.BindEnv("database_path")
-	v.BindEnv("database_url")
+	v.BindEnv("database_dsn")
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
@@ -85,7 +85,7 @@ func Load() (*Config, error) {
 	}
 
 	// Ensure database directory exists (only for file-based databases)
-	if cfg.DatabaseURL == "" {
+	if cfg.DatabaseDSN == "" {
 		dbDir := filepath.Dir(cfg.DatabasePath)
 		if err := os.MkdirAll(dbDir, 0755); err != nil {
 			return nil, err
