@@ -47,6 +47,7 @@ func main() {
 	dbConnectionString := cfg.GetDatabaseConnectionString()
 	if cfg.DatabaseDSN != "" {
 		log.Infof("💾 Using custom database connection (DATABASE_DSN)")
+		log.Debugf("📝 Connection string: %s", dbConnectionString)
 	} else {
 		log.Infof("💾 Using SQLite database: %s", cfg.DatabasePath)
 	}

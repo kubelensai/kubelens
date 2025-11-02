@@ -118,15 +118,54 @@ func (m *GCPModule) Migrate(db interface{}) error {
 		return fmt.Errorf("unable to access database connection for migrations")
 	}
 
-	schema := m.GetSchema()
-
-	// Create tables
-	for _, table := range schema.Tables {
-		log.Infof("Creating table: %s", table.Name)
-		if _, err := sqlDB.Exec(table.Schema); err != nil {
-			return fmt.Errorf("failed to create table %s: %w", table.Name, err)
+	// Determine if we're using PostgreSQL
+	isPostgres := false
+	if row := sqlDB.QueryRow("SELECT version();"); row != nil {
+		var version string
+		if err := row.Scan(&version); err == nil {
+			isPostgres = len(version) > 0 && (len(version) < 10 || version[:10] == "PostgreSQL")
 		}
 	}
+	
+	// Get schema with appropriate syntax
+	var tableSchema string
+	if isPostgres {
+		// PostgreSQL syntax
+		tableSchema = `
+			CREATE TABLE IF NOT EXISTS gcp_integrations (
+				id SERIAL PRIMARY KEY,
+				integration_id INTEGER NOT NULL,
+				project_id TEXT NOT NULL,
+				service_account_key TEXT NOT NULL,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				UNIQUE(integration_id),
+				FOREIGN KEY (integration_id) REFERENCES integrations(id) ON DELETE CASCADE
+			);
+		`
+	} else {
+		// SQLite syntax (default)
+		tableSchema = `
+			CREATE TABLE IF NOT EXISTS gcp_integrations (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				integration_id INTEGER NOT NULL,
+				project_id TEXT NOT NULL,
+				service_account_key TEXT NOT NULL,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				UNIQUE(integration_id),
+				FOREIGN KEY (integration_id) REFERENCES integrations(id) ON DELETE CASCADE
+			);
+		`
+	}
+
+	// Create table
+	log.Infof("Creating table: gcp_integrations")
+	if _, err := sqlDB.Exec(tableSchema); err != nil {
+		return fmt.Errorf("failed to create table gcp_integrations: %w", err)
+	}
+
+	schema := m.GetSchema()
 
 	// Create indexes
 	for _, index := range schema.Indexes {

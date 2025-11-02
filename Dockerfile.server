@@ -40,7 +40,7 @@ RUN mkdir -p /data && \
 USER kubelens
 
 # Environment variables with defaults
-ENV DATABASE_DSN="sqlite:///data/kubelens.db" \
+ENV KUBELENS_DATABASE_PATH="/data/kubelens.db" \
     KUBELENS_ADMIN_PASSWORD="" \
     GLOBAL_RATE_LIMIT="1000" \
     LOGIN_RATE_LIMIT="5"
