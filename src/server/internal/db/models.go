@@ -22,7 +22,7 @@ const (
 // Cluster represents a Kubernetes cluster configuration
 type Cluster struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
-	Name      string    `gorm:"uniqueIndex;not null" json:"name"`
+	Name      string    `gorm:"type:varchar(255);uniqueIndex;not null" json:"name"`
 	AuthType  string    `gorm:"default:'token';not null" json:"auth_type"`
 	AuthConfig JSON     `gorm:"type:text;not null" json:"auth_config"`        // JSON serialization
 	Server    string    `gorm:"type:text" json:"server,omitempty"`
@@ -43,8 +43,8 @@ func (Cluster) TableName() string {
 // User represents a user account
 type User struct {
 	ID             uint       `gorm:"primaryKey" json:"id"`
-	Email          string     `gorm:"uniqueIndex;not null" json:"email"`
-	Username       string     `gorm:"uniqueIndex;not null" json:"username"`
+	Email          string     `gorm:"type:varchar(255);uniqueIndex;not null" json:"email"`
+	Username       string     `gorm:"type:varchar(255);uniqueIndex;not null" json:"username"`
 	PasswordHash   string     `gorm:"column:password_hash" json:"-"`
 	FullName       string     `gorm:"column:full_name" json:"full_name,omitempty"`
 	AvatarURL      string     `gorm:"column:avatar_url" json:"avatar_url,omitempty"`
@@ -72,7 +72,7 @@ func (User) TableName() string {
 // Group represents a user group with RBAC permissions
 type Group struct {
 	ID          uint      `gorm:"primaryKey" json:"id"`
-	Name        string    `gorm:"uniqueIndex;not null" json:"name"`
+	Name        string    `gorm:"type:varchar(255);uniqueIndex;not null" json:"name"`
 	Description string    `gorm:"type:text" json:"description,omitempty"`
 	IsSystem    bool      `gorm:"column:is_system;default:false" json:"is_system"`
 	Permissions JSON      `gorm:"type:text;not null" json:"permissions"` // JSON array
@@ -103,7 +103,7 @@ func (UserGroup) TableName() string {
 type Session struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	UserID    uint      `gorm:"not null;index" json:"user_id"`
-	Token     string    `gorm:"uniqueIndex;not null" json:"token"`
+	Token     string    `gorm:"type:varchar(255);uniqueIndex;not null" json:"token"`
 	ExpiresAt time.Time `gorm:"not null;index" json:"expires_at"`
 	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
 
@@ -404,7 +404,7 @@ func (MFASecret) TableName() string {
 // Integration represents a cloud provider integration
 type Integration struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
-	Name         string    `gorm:"uniqueIndex;not null" json:"name"`
+	Name         string    `gorm:"type:varchar(255);uniqueIndex;not null" json:"name"`
 	Type         string    `gorm:"type:varchar(50);not null" json:"type"` // gcp, aws, azure, prometheus, datadog
 	Config       string    `gorm:"type:text" json:"config,omitempty"`     // JSON blob
 	AuthMethod   string    `gorm:"type:varchar(50);column:auth_method" json:"auth_method,omitempty"` // oauth2, service_account, api_key
@@ -466,7 +466,7 @@ func (OAuth2Token) TableName() string {
 // ClusterMetadata stores cluster metadata and statistics
 type ClusterMetadata struct {
 	ID             uint      `gorm:"primaryKey" json:"id"`
-	ClusterName    string    `gorm:"uniqueIndex;not null;column:cluster_name" json:"cluster_name"`
+	ClusterName    string    `gorm:"type:varchar(255);uniqueIndex;not null;column:cluster_name" json:"cluster_name"`
 	KubeVersion    string    `gorm:"type:varchar(50);column:kube_version" json:"kube_version,omitempty"`
 	NodeCount      int       `gorm:"default:0;column:node_count" json:"node_count"`
 	PodCount       int       `gorm:"default:0;column:pod_count" json:"pod_count"`

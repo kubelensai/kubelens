@@ -5,16 +5,32 @@ package gcp
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 
 	"github.com/sonnguyen/kubelens/internal/db"
 	"github.com/sonnguyen/kubelens/internal/modules"
 	"github.com/sonnguyen/kubelens/internal/oauth2"
 )
+
+// GCPIntegration represents a GCP integration configuration stored in the database
+type GCPIntegration struct {
+	ID                 uint      `gorm:"primaryKey" json:"id"`
+	IntegrationID      uint      `gorm:"uniqueIndex;not null;column:integration_id" json:"integration_id"`
+	ProjectID          string    `gorm:"type:text;not null;column:project_id" json:"project_id"`
+	ServiceAccountKey  string    `gorm:"type:text;not null;column:service_account_key" json:"service_account_key"`
+	CreatedAt          time.Time `gorm:"autoCreateTime;column:created_at" json:"created_at"`
+	UpdatedAt          time.Time `gorm:"autoUpdateTime;column:updated_at" json:"updated_at"`
+}
+
+// TableName overrides the table name
+func (GCPIntegration) TableName() string {
+	return "gcp_integrations"
+}
 
 // GCPModule implements the Module interface for GCP/GKE integration
 type GCPModule struct {
@@ -102,77 +118,25 @@ func (m *GCPModule) GetSchema() *modules.SchemaDefinition {
 	}
 }
 
-// Migrate runs database migrations for the GCP module
-func (m *GCPModule) Migrate(db interface{}) error {
-	// Type assert to *sql.DB (from db.DB wrapper)
-	var sqlDB *sql.DB
-	
-	// Try to get the underlying sql.DB from the wrapper
-	type dbWrapper interface {
-		GetConn() *sql.DB
+// Migrate runs database migrations for the GCP module using GORM
+func (m *GCPModule) Migrate(database interface{}) error {
+	// The database is *db.DB which embeds *db.GormDB which embeds *gorm.DB
+	// This means *db.DB IS a *gorm.DB (through embedding) and has all gorm.DB methods
+	// We can use it directly as a gorm-like interface
+	type gormLike interface {
+		AutoMigrate(dst ...interface{}) error
+		Migrator() gorm.Migrator
 	}
 	
-	if wrapper, ok := db.(dbWrapper); ok {
-		sqlDB = wrapper.GetConn()
-	} else {
-		return fmt.Errorf("unable to access database connection for migrations")
+	gormDB, ok := database.(gormLike)
+	if !ok {
+		return fmt.Errorf("database does not support GORM operations, got type: %T", database)
 	}
 
-	// Determine if we're using PostgreSQL
-	isPostgres := false
-	if row := sqlDB.QueryRow("SELECT version();"); row != nil {
-		var version string
-		if err := row.Scan(&version); err == nil {
-			isPostgres = len(version) > 0 && (len(version) < 10 || version[:10] == "PostgreSQL")
-		}
-	}
-	
-	// Get schema with appropriate syntax
-	var tableSchema string
-	if isPostgres {
-		// PostgreSQL syntax
-		tableSchema = `
-			CREATE TABLE IF NOT EXISTS gcp_integrations (
-				id SERIAL PRIMARY KEY,
-				integration_id INTEGER NOT NULL,
-				project_id TEXT NOT NULL,
-				service_account_key TEXT NOT NULL,
-				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-				UNIQUE(integration_id),
-				FOREIGN KEY (integration_id) REFERENCES integrations(id) ON DELETE CASCADE
-			);
-		`
-	} else {
-		// SQLite syntax (default)
-		tableSchema = `
-			CREATE TABLE IF NOT EXISTS gcp_integrations (
-				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				integration_id INTEGER NOT NULL,
-				project_id TEXT NOT NULL,
-				service_account_key TEXT NOT NULL,
-				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-				UNIQUE(integration_id),
-				FOREIGN KEY (integration_id) REFERENCES integrations(id) ON DELETE CASCADE
-			);
-		`
-	}
-
-	// Create table
-	log.Infof("Creating table: gcp_integrations")
-	if _, err := sqlDB.Exec(tableSchema); err != nil {
-		return fmt.Errorf("failed to create table gcp_integrations: %w", err)
-	}
-
-	schema := m.GetSchema()
-
-	// Create indexes
-	for _, index := range schema.Indexes {
-		log.Debugf("Creating index: %s", index.Name)
-		if _, err := sqlDB.Exec(index.Schema); err != nil {
-			log.Warnf("Failed to create index %s: %v", index.Name, err)
-		}
+	// Run GORM AutoMigrate for GCP integration table
+	log.Infof("Running GORM AutoMigrate for gcp_integrations table")
+	if err := gormDB.AutoMigrate(&GCPIntegration{}); err != nil {
+		return fmt.Errorf("failed to auto-migrate gcp_integrations: %w", err)
 	}
 
 	log.Info("✅ GCP module database schema ready")
