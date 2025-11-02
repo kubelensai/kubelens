@@ -673,6 +673,7 @@ func (h *Handler) ListPods(c *gin.Context) {
 	namespace := c.Query("namespace")
 	deployment := c.Query("deployment")
 	job := c.Query("job")
+	nodeName := c.Query("nodeName") // Support filtering by node name using field selector
 
 	if namespace == "" {
 		namespace = metav1.NamespaceAll
@@ -686,7 +687,15 @@ func (h *Handler) ListPods(c *gin.Context) {
 
 	listOptions := metav1.ListOptions{}
 	
-	// If deployment is specified, filter pods by deployment
+	// If nodeName is specified, use field selector for server-side filtering (Best Practice)
+	// This is significantly more efficient than client-side filtering, especially in large clusters
+	// Field selector is processed by the API server, reducing network transfer and memory usage
+	if nodeName != "" {
+		listOptions.FieldSelector = fmt.Sprintf("spec.nodeName=%s", nodeName)
+		log.Infof("Filtering pods by node: %s (using field selector)", nodeName)
+	}
+	
+	// If deployment is specified, filter pods by deployment using label selector
 	if deployment != "" {
 		// Get the deployment to find its selector
 		dep, err := client.AppsV1().Deployments(namespace).Get(context.Background(), deployment, metav1.GetOptions{})
@@ -706,7 +715,7 @@ func (h *Handler) ListPods(c *gin.Context) {
 		}
 	}
 	
-	// If job is specified, filter pods by job
+	// If job is specified, filter pods by job using label selector
 	if job != "" {
 		// Get the job to find its selector
 		jobObj, err := client.BatchV1().Jobs(namespace).Get(context.Background(), job, metav1.GetOptions{})
