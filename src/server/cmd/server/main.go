@@ -103,8 +103,17 @@ func main() {
 	
 	router.Use(cors.New(corsConfig))
 
-	// Global rate limiting (100 requests per minute per IP)
-	globalRateLimiter := middleware.NewRateLimiter(600*time.Millisecond, 100)
+	// Global rate limiting (configurable via KUBELENS_GLOBAL_RATE_LIMIT_PER_MIN, default: 1000 req/min)
+	globalRequestsPerMin := cfg.GlobalRateLimitPerMin
+	if globalRequestsPerMin <= 0 {
+		globalRequestsPerMin = 1000 // Fallback to default
+	}
+	globalRateInterval := time.Duration(60000/globalRequestsPerMin) * time.Millisecond
+	globalBurst := globalRequestsPerMin // Burst size = requests per minute
+	log.Infof("🛡️  Global rate limit: %d requests/min (1 request per %v, burst: %d)", 
+		globalRequestsPerMin, globalRateInterval, globalBurst)
+	
+	globalRateLimiter := middleware.NewRateLimiter(globalRateInterval, globalBurst)
 	router.Use(globalRateLimiter.Middleware())
 
 	// Health check endpoint
@@ -157,8 +166,17 @@ func main() {
 	apiHandler := api.NewHandler(clusterManager, database, wsHub)
 	v1 := router.Group("/api/v1")
 	{
-		// Login rate limiter: 5 requests per minute per IP (stricter for auth endpoints)
-		loginRateLimiter := middleware.NewRateLimiter(12*time.Second, 5)
+		// Login rate limiter (configurable via KUBELENS_LOGIN_RATE_LIMIT_PER_MIN, default: 5 req/min)
+		loginRequestsPerMin := cfg.LoginRateLimitPerMin
+		if loginRequestsPerMin <= 0 {
+			loginRequestsPerMin = 5 // Fallback to default
+		}
+		loginRateInterval := time.Duration(60000/loginRequestsPerMin) * time.Millisecond
+		loginBurst := loginRequestsPerMin // Burst size = requests per minute
+		log.Infof("🔐 Login rate limit: %d requests/min (1 request per %v, burst: %d)", 
+			loginRequestsPerMin, loginRateInterval, loginBurst)
+		
+		loginRateLimiter := middleware.NewRateLimiter(loginRateInterval, loginBurst)
 		
 		// Authentication routes (public)
 		authRoutes := v1.Group("/auth")
