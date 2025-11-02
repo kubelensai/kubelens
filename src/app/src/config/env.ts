@@ -14,10 +14,11 @@ export const isCapacitor = () => {
 
 // Get API base URL based on environment
 export const getApiBaseUrl = (): string => {
-  // Mobile app - use configured API server URL
+  // Mobile app - use configured API server URL with /api/v1 path
   if (isCapacitor()) {
     // Can be set via Capacitor config or environment variable at build time
-    return import.meta.env.VITE_API_SERVER_URL || 'https://api.kubelens.app'
+    const baseUrl = import.meta.env.VITE_API_SERVER_URL || 'https://api.kubelens.app'
+    return baseUrl + '/api/v1'
   }
   
   // Web app (dev or production with proxy) - use relative path

@@ -47,20 +47,44 @@ export default function NodeDetails({}: NodeDetailsProps) {
     }
   }, [cluster, nodeName])
 
+  // Auto-refresh pods when Pods tab is active
+  useEffect(() => {
+    if (activeTab !== 'pods' || !cluster || !nodeName) return
+
+    const refreshPods = async () => {
+      try {
+        const podsRes = await api.get(`/clusters/${cluster}/pods`)
+        const podsData = podsRes.data || []
+        setPods(podsData.filter((pod: any) => pod.spec?.nodeName === nodeName))
+      } catch (error) {
+        console.error('Failed to refresh pods:', error)
+      }
+    }
+
+    // Initial fetch
+    refreshPods()
+
+    // Set up interval for auto-refresh every 5 seconds
+    const intervalId = setInterval(refreshPods, 5000)
+
+    // Cleanup on unmount or when dependencies change
+    return () => clearInterval(intervalId)
+  }, [activeTab, cluster, nodeName])
+
   const fetchNodeDetails = async () => {
     try {
       setIsLoading(true)
       const [nodeRes, metricsRes, podsRes, eventsRes] = await Promise.all([
         api.get(`/clusters/${cluster}/nodes/${nodeName}`),
         api.get(`/clusters/${cluster}/nodes/${nodeName}/metrics`).catch(() => ({ data: null })),
-        api.get(`/clusters/${cluster}/pods`).catch(() => ({ data: { pods: [] } })),
-        api.get(`/clusters/${cluster}/events`).catch(() => ({ data: { events: [] } })),
+        api.get(`/clusters/${cluster}/pods`).catch(() => ({ data: [] })),
+        api.get(`/clusters/${cluster}/events`).catch(() => ({ data: [] })),
       ])
 
       const nodeData = nodeRes.data
       const metricsData = metricsRes.data
-      const podsData = podsRes.data.pods || []
-      const eventsData = eventsRes.data.events || []
+      const podsData = podsRes.data || []
+      const eventsData = eventsRes.data || []
 
       setNode(nodeData)
       setNodeMetrics(metricsData)

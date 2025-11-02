@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { getClusters, getPods } from '@/services/api'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import clsx from 'clsx'
 import { 
   CubeIcon, 
@@ -113,135 +113,198 @@ export default function Pods() {
       return allPods.flat()
     },
     enabled: cluster ? true : (!!clusters && clusters.length > 0),
+    refetchInterval: 5000, // Auto-refresh every 5 seconds
   })
 
-  // Fetch metrics for all pods when pods change
+  // Track visible pods to fetch metrics only for them
+  const [visiblePods, setVisiblePods] = useState<PodData[]>([])
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const metricsIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // Callback to receive paginated data from DataTable
+  const handlePaginatedDataChange = useCallback((paginatedPods: PodData[]) => {
+    console.log(`[Pods] Paginated data changed: ${paginatedPods.length} visible pods`)
+    setVisiblePods(paginatedPods)
+  }, [])
+  
+  // Fetch metrics when visible pods change
   useEffect(() => {
-    if (allPods && allPods.length > 0) {
-      fetchAllPodMetrics()
+    if (visiblePods.length > 0) {
+      // Cancel previous fetch if still running
+      if (abortControllerRef.current) {
+        console.log('[Pods] Cancelling previous metrics fetch')
+        abortControllerRef.current.abort()
+      }
+      
+      // Create new abort controller for this fetch
+      abortControllerRef.current = new AbortController()
+      
+      console.log(`[Pods] Fetching metrics for ${visiblePods.length} visible pods`)
+      fetchPodMetrics(visiblePods, abortControllerRef.current.signal)
+      
+      // Clear existing interval
+      if (metricsIntervalRef.current) {
+        clearInterval(metricsIntervalRef.current)
+      }
+      
+      // Set up periodic metrics refresh for visible pods (every 5 seconds)
+      metricsIntervalRef.current = setInterval(() => {
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort()
+        }
+        abortControllerRef.current = new AbortController()
+        console.log(`[Pods] Auto-refreshing metrics for ${visiblePods.length} visible pods`)
+        fetchPodMetrics(visiblePods, abortControllerRef.current.signal)
+      }, 5000)
+      
+      // Cleanup on unmount or when visible pods change
+      return () => {
+        if (metricsIntervalRef.current) {
+          clearInterval(metricsIntervalRef.current)
+        }
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort()
+        }
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allPods])
+  }, [visiblePods])
 
-  const fetchAllPodMetrics = async () => {
-    if (!allPods) return
+  // Fetch metrics only for specific pods (visible on current page)
+  const fetchPodMetrics = async (pods: PodData[], signal?: AbortSignal) => {
+    if (!pods || pods.length === 0) return
+    
     const metricsMap: PodMetrics = {}
     
-    // Process in batches of 10 to avoid overwhelming the API
-    const batchSize = 10
-    for (let i = 0; i < allPods.length; i += batchSize) {
-      const batch = allPods.slice(i, i + batchSize)
-      
+    try {
+      // Fetch metrics for all visible pods in parallel
       await Promise.all(
-        batch.map(async (pod: any) => {
-          try {
-            // Calculate requests and limits from pod spec (no API call needed)
-            let totalCpuRequests = 0
-            let totalMemoryRequests = 0
-            let totalCpuLimits = 0
-            let totalMemoryLimits = 0
-            
-            pod.spec?.containers?.forEach((container: any) => {
-              if (container.resources?.requests?.cpu) {
-                const cpuStr = container.resources.requests.cpu
-                if (cpuStr.endsWith('m')) {
-                  totalCpuRequests += parseInt(cpuStr.replace('m', ''))
-                } else {
-                  totalCpuRequests += parseFloat(cpuStr) * 1000
-                }
+      pods.map(async (pod: any) => {
+        // Check if request was aborted
+        if (signal?.aborted) {
+          console.log(`[Pods] Fetch aborted for pod: ${pod.metadata.name}`)
+          return
+        }
+        
+        try {
+          // Calculate requests and limits from pod spec (no API call needed)
+          let totalCpuRequests = 0
+          let totalMemoryRequests = 0
+          let totalCpuLimits = 0
+          let totalMemoryLimits = 0
+          
+          pod.spec?.containers?.forEach((container: any) => {
+            if (container.resources?.requests?.cpu) {
+              const cpuStr = container.resources.requests.cpu
+              if (cpuStr.endsWith('m')) {
+                totalCpuRequests += parseInt(cpuStr.replace('m', ''))
+              } else {
+                totalCpuRequests += parseFloat(cpuStr) * 1000
               }
-              
-              if (container.resources?.requests?.memory) {
-                const memStr = container.resources.requests.memory
-                if (memStr.endsWith('Ki')) {
-                  totalMemoryRequests += parseInt(memStr.replace('Ki', '')) * 1024
-                } else if (memStr.endsWith('Mi')) {
-                  totalMemoryRequests += parseInt(memStr.replace('Mi', '')) * 1024 * 1024
-                } else if (memStr.endsWith('Gi')) {
-                  totalMemoryRequests += parseInt(memStr.replace('Gi', '')) * 1024 * 1024 * 1024
-                } else {
-                  totalMemoryRequests += parseInt(memStr)
-                }
-              }
-              
-              if (container.resources?.limits?.cpu) {
-                const cpuStr = container.resources.limits.cpu
-                if (cpuStr.endsWith('m')) {
-                  totalCpuLimits += parseInt(cpuStr.replace('m', ''))
-                } else {
-                  totalCpuLimits += parseFloat(cpuStr) * 1000
-                }
-              }
-              
-              if (container.resources?.limits?.memory) {
-                const memStr = container.resources.limits.memory
-                if (memStr.endsWith('Ki')) {
-                  totalMemoryLimits += parseInt(memStr.replace('Ki', '')) * 1024
-                } else if (memStr.endsWith('Mi')) {
-                  totalMemoryLimits += parseInt(memStr.replace('Mi', '')) * 1024 * 1024
-                } else if (memStr.endsWith('Gi')) {
-                  totalMemoryLimits += parseInt(memStr.replace('Gi', '')) * 1024 * 1024 * 1024
-                } else {
-                  totalMemoryLimits += parseInt(memStr)
-                }
-              }
-            })
-            
-            // Fetch actual usage from metrics API
-            let totalCpu = 0
-            let totalMemory = 0
-            
-            try {
-              const response = await api.get(`/clusters/${pod.clusterName}/namespaces/${pod.metadata.namespace}/pods/${pod.metadata.name}/metrics`)
-              const data = response.data
-              
-              if (data && data.containers) {
-                data.containers.forEach((container: any) => {
-                  if (container.usage) {
-                    // Parse CPU (e.g., "10m" or "0.01")
-                    const cpuStr = container.usage.cpu || '0'
-                    if (cpuStr.endsWith('m')) {
-                      totalCpu += parseInt(cpuStr.replace('m', ''))
-                    } else if (cpuStr.endsWith('n')) {
-                      totalCpu += parseInt(cpuStr.replace('n', '')) / 1000000
-                    } else {
-                      totalCpu += parseFloat(cpuStr) * 1000
-                    }
-                    
-                    // Parse Memory (e.g., "128Mi" or "134217728")
-                    const memStr = container.usage.memory || '0'
-                    if (memStr.endsWith('Ki')) {
-                      totalMemory += parseInt(memStr.replace('Ki', '')) * 1024
-                    } else if (memStr.endsWith('Mi')) {
-                      totalMemory += parseInt(memStr.replace('Mi', '')) * 1024 * 1024
-                    } else if (memStr.endsWith('Gi')) {
-                      totalMemory += parseInt(memStr.replace('Gi', '')) * 1024 * 1024 * 1024
-                    } else {
-                      totalMemory += parseInt(memStr)
-                    }
-                  }
-                })
-              }
-            } catch (error) {
-              // Metrics API might not be available, continue with 0 usage
             }
             
-            metricsMap[`${pod.clusterName}-${pod.metadata.namespace}-${pod.metadata.name}`] = {
-              cpuUsage: totalCpu,
-              memoryUsage: totalMemory,
-              cpuRequests: totalCpuRequests,
-              memoryRequests: totalMemoryRequests,
-              cpuLimits: totalCpuLimits,
-              memoryLimits: totalMemoryLimits
+            if (container.resources?.requests?.memory) {
+              const memStr = container.resources.requests.memory
+              if (memStr.endsWith('Ki')) {
+                totalMemoryRequests += parseInt(memStr.replace('Ki', '')) * 1024
+              } else if (memStr.endsWith('Mi')) {
+                totalMemoryRequests += parseInt(memStr.replace('Mi', '')) * 1024 * 1024
+              } else if (memStr.endsWith('Gi')) {
+                totalMemoryRequests += parseInt(memStr.replace('Gi', '')) * 1024 * 1024 * 1024
+              } else {
+                totalMemoryRequests += parseInt(memStr)
+              }
+            }
+            
+            if (container.resources?.limits?.cpu) {
+              const cpuStr = container.resources.limits.cpu
+              if (cpuStr.endsWith('m')) {
+                totalCpuLimits += parseInt(cpuStr.replace('m', ''))
+              } else {
+                totalCpuLimits += parseFloat(cpuStr) * 1000
+              }
+            }
+            
+            if (container.resources?.limits?.memory) {
+              const memStr = container.resources.limits.memory
+              if (memStr.endsWith('Ki')) {
+                totalMemoryLimits += parseInt(memStr.replace('Ki', '')) * 1024
+              } else if (memStr.endsWith('Mi')) {
+                totalMemoryLimits += parseInt(memStr.replace('Mi', '')) * 1024 * 1024
+              } else if (memStr.endsWith('Gi')) {
+                totalMemoryLimits += parseInt(memStr.replace('Gi', '')) * 1024 * 1024 * 1024
+              } else {
+                totalMemoryLimits += parseInt(memStr)
+              }
+            }
+          })
+          
+          // Fetch actual usage from metrics API
+          let totalCpu = 0
+          let totalMemory = 0
+          
+          try {
+            const response = await api.get(`/clusters/${pod.clusterName}/namespaces/${pod.metadata.namespace}/pods/${pod.metadata.name}/metrics`)
+            const data = response.data
+            
+            if (data && data.containers) {
+              data.containers.forEach((container: any) => {
+                if (container.usage) {
+                  // Parse CPU (e.g., "10m" or "0.01")
+                  const cpuStr = container.usage.cpu || '0'
+                  if (cpuStr.endsWith('m')) {
+                    totalCpu += parseInt(cpuStr.replace('m', ''))
+                  } else if (cpuStr.endsWith('n')) {
+                    totalCpu += parseInt(cpuStr.replace('n', '')) / 1000000
+                  } else {
+                    totalCpu += parseFloat(cpuStr) * 1000
+                  }
+                  
+                  // Parse Memory (e.g., "128Mi" or "134217728")
+                  const memStr = container.usage.memory || '0'
+                  if (memStr.endsWith('Ki')) {
+                    totalMemory += parseInt(memStr.replace('Ki', '')) * 1024
+                  } else if (memStr.endsWith('Mi')) {
+                    totalMemory += parseInt(memStr.replace('Mi', '')) * 1024 * 1024
+                  } else if (memStr.endsWith('Gi')) {
+                    totalMemory += parseInt(memStr.replace('Gi', '')) * 1024 * 1024 * 1024
+                  } else {
+                    totalMemory += parseInt(memStr)
+                  }
+                }
+              })
             }
           } catch (error) {
-            // Silently fail for individual pods
+            // Metrics API might not be available, continue with 0 usage
           }
-        })
-      )
-      
-      // Update metrics after each batch
-      setPodMetrics(prev => ({ ...prev, ...metricsMap }))
+          
+          metricsMap[`${pod.clusterName}-${pod.metadata.namespace}-${pod.metadata.name}`] = {
+            cpuUsage: totalCpu,
+            memoryUsage: totalMemory,
+            cpuRequests: totalCpuRequests,
+            memoryRequests: totalMemoryRequests,
+            cpuLimits: totalCpuLimits,
+            memoryLimits: totalMemoryLimits
+          }
+        } catch (error) {
+          // Silently fail for individual pods
+        }
+      })
+    )
+    
+      // Update metrics state (only if not aborted)
+      if (!signal?.aborted) {
+        console.log(`[Pods] Setting metrics for ${Object.keys(metricsMap).length} pods`)
+        // Force a new object reference to trigger React re-render
+        setPodMetrics({ ...metricsMap })
+      } else {
+        console.log('[Pods] Fetch was aborted, not updating metrics')
+      }
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.log('[Pods] Fetch aborted')
+      } else {
+        console.error('[Pods] Error fetching metrics:', error)
+      }
     }
   }
 
@@ -693,6 +756,9 @@ export default function Pods() {
             <CubeIcon className="w-6 h-6 text-gray-400 dark:text-gray-500" />
           </div>
         }
+        pageSize={10}
+        pageSizeOptions={[10, 20, 50, 100]}
+        onPaginatedDataChange={handlePaginatedDataChange}
         mobileCardRenderer={(pod) => (
           <div className="space-y-3">
             <div className="flex items-start justify-between gap-3">

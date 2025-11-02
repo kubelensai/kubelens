@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { getClusters, getNodes, cordonNode, uncordonNode, deleteNode } from '@/services/api'
 import { 
@@ -110,37 +110,106 @@ export default function Nodes() {
     refetchInterval: 5000,
   })
 
-  // Fetch metrics for all nodes
+  // Track visible nodes to fetch metrics only for them
+  const [visibleNodes, setVisibleNodes] = useState<NodeData[]>([])
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const metricsIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // Callback to receive paginated data from DataTable
+  const handlePaginatedDataChange = useCallback((paginatedNodes: NodeData[]) => {
+    console.log(`[Nodes] Paginated data changed: ${paginatedNodes.length} visible nodes`)
+    setVisibleNodes(paginatedNodes)
+  }, [])
+  
+  // Fetch metrics when visible nodes change
   useEffect(() => {
-    if (allNodes && allNodes.length > 0) {
-      fetchAllNodeMetrics()
+    if (visibleNodes.length > 0) {
+      // Cancel previous fetch if still running
+      if (abortControllerRef.current) {
+        console.log('[Nodes] Cancelling previous metrics fetch')
+        abortControllerRef.current.abort()
+      }
+      
+      // Create new abort controller for this fetch
+      abortControllerRef.current = new AbortController()
+      
+      console.log(`[Nodes] Fetching metrics for ${visibleNodes.length} visible nodes`)
+      fetchNodeMetrics(visibleNodes, abortControllerRef.current.signal)
+      
+      // Clear existing interval
+      if (metricsIntervalRef.current) {
+        clearInterval(metricsIntervalRef.current)
+      }
+      
+      // Set up periodic metrics refresh for visible nodes (every 5 seconds)
+      metricsIntervalRef.current = setInterval(() => {
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort()
+        }
+        abortControllerRef.current = new AbortController()
+        console.log(`[Nodes] Auto-refreshing metrics for ${visibleNodes.length} visible nodes`)
+        fetchNodeMetrics(visibleNodes, abortControllerRef.current.signal)
+      }, 5000)
+      
+      // Cleanup on unmount or when visible nodes change
+      return () => {
+        if (metricsIntervalRef.current) {
+          clearInterval(metricsIntervalRef.current)
+        }
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort()
+        }
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allNodes])
+  }, [visibleNodes])
 
-  const fetchAllNodeMetrics = async () => {
-    if (!allNodes) return
+  // Fetch metrics only for specific nodes (visible on current page)
+  const fetchNodeMetrics = async (nodes: NodeData[], signal?: AbortSignal) => {
+    if (!nodes || nodes.length === 0) return
+    
     const metricsMap: NodeMetrics = {}
     
-    await Promise.all(
-      allNodes.map(async (node: any) => {
-        try {
-          const response = await api.get(`/clusters/${node.clusterName}/nodes/${node.metadata.name}/metrics`)
-          const data = response.data
-          
-          if (data && data.usage) {
-            metricsMap[`${node.clusterName}-${node.metadata.name}`] = {
-              cpuUsage: typeof data.usage.cpu === 'number' ? data.usage.cpu : 0,
-              memoryUsage: typeof data.usage.memory === 'number' ? data.usage.memory : 0
-            }
+    try {
+      // Fetch metrics for all visible nodes in parallel
+      await Promise.all(
+        nodes.map(async (node: any) => {
+          // Check if request was aborted
+          if (signal?.aborted) {
+            console.log(`[Nodes] Fetch aborted for node: ${node.metadata.name}`)
+            return
           }
-        } catch (error) {
-          // Silently fail for metrics
-        }
-      })
-    )
-    
-    setNodeMetrics(metricsMap)
+          
+          try {
+            const response = await api.get(`/clusters/${node.clusterName}/nodes/${node.metadata.name}/metrics`)
+            const data = response.data
+            
+            if (data && data.usage) {
+              metricsMap[`${node.clusterName}-${node.metadata.name}`] = {
+                cpuUsage: typeof data.usage.cpu === 'number' ? data.usage.cpu : 0,
+                memoryUsage: typeof data.usage.memory === 'number' ? data.usage.memory : 0
+              }
+            }
+          } catch (error) {
+            // Silently fail for metrics
+          }
+        })
+      )
+      
+      // Update metrics state (only if not aborted)
+      if (!signal?.aborted) {
+        console.log(`[Nodes] Setting metrics for ${Object.keys(metricsMap).length} nodes`)
+        // Force a new object reference to trigger React re-render
+        setNodeMetrics({ ...metricsMap })
+      } else {
+        console.log('[Nodes] Fetch was aborted, not updating metrics')
+      }
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.log('[Nodes] Fetch aborted')
+      } else {
+        console.error('[Nodes] Error fetching metrics:', error)
+      }
+    }
   }
 
   // Helper functions
@@ -593,6 +662,9 @@ export default function Nodes() {
             <ServerIcon className="w-6 h-6 text-gray-400 dark:text-gray-500" />
           </div>
         }
+        pageSize={10}
+        pageSizeOptions={[10, 20, 50, 100]}
+        onPaginatedDataChange={handlePaginatedDataChange}
         onRowClick={handleViewDetails}
         mobileCardRenderer={(node) => (
           <div className="space-y-3">

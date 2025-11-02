@@ -61,15 +61,13 @@ function AppContent() {
   const isSessionInitialized = useSessionStore((state) => state.isInitialized);
   const { isExpanded, isHovered, isMobileOpen, toggleSidebar, toggleMobileSidebar } = useSidebar();
 
-  // Initialize auth and session on mount
+  // Initialize auth state and fetch session on mount
   useEffect(() => {
     const initialize = async () => {
+      // Initialize auth state from localStorage
       await initializeAuth();
-      // Only fetch session if user is authenticated
-      const token = localStorage.getItem('token');
-      if (token) {
-        await fetchSession();
-      }
+      // Fetch session data
+      await fetchSession();
     };
     initialize();
   }, [initializeAuth, fetchSession]);
@@ -192,7 +190,7 @@ function AppContent() {
     {
       label: "MENU",
       items: [
-        { name: "Dashboard", href: "/", icon: HomeIcon },
+        { name: "Dashboard", href: "/dashboard", icon: HomeIcon },
         {
           name: "Nodes",
           href: selectedCluster ? `/clusters/${selectedCluster}/nodes` : "/nodes",

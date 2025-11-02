@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
+import { getSafeRedirectUrl } from '@/utils/navigation'
 import MFASetupModal from '@/components/MFASetupModal'
 import MFAVerification from '@/components/MFAVerification'
 import { 
@@ -28,6 +29,7 @@ export default function Login() {
   const [showMFASetup, setShowMFASetup] = useState(false)
   
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { login } = useAuthStore()
 
   // Initialize dark mode from localStorage or system preference
@@ -90,7 +92,12 @@ export default function Login() {
       } else {
         // Login successful
         login(data.token, data.user)
-        navigate('/dashboard')
+        
+        // Get intended destination from redirect parameter
+        const destination = getSafeRedirectUrl(searchParams)
+        console.log('[Login] Success! Redirecting to:', destination)
+        
+        navigate(destination, { replace: true })
       }
     },
     onError: (error: any) => {

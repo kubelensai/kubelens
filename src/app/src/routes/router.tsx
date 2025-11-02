@@ -1,7 +1,10 @@
-import { createBrowserRouter } from "react-router-dom";
+import { createBrowserRouter, createHashRouter } from "react-router-dom";
+import { Capacitor } from '@capacitor/core';
 
 import App from "../App";
+import ProtectedRoute from "../components/auth/ProtectedRoute";
 import RequireEnabledCluster from "../components/shared/RequireEnabledCluster";
+import LoadingScreen from "../pages/LoadingScreen";
 import ClusterManagement from "../pages/ClusterManagement";
 import ClusterRoleBindings from "../pages/ClusterRoleBindings";
 import ClusterRoleBindingDetails from "../pages/ClusterRoleBindingDetails";
@@ -161,7 +164,13 @@ const generateResourceRoutes = (resources: any[]) => {
 };
 
 const routes = [
-  // Auth routes (no layout)
+  // 🎯 Loading screen - Entry point for all navigation
+  {
+    path: "/",
+    element: <LoadingScreen />,
+  },
+
+  // 🔓 Public routes (no authentication required)
   {
     path: "/login",
     element: <Login />,
@@ -171,47 +180,46 @@ const routes = [
   //   path: "/signup",
   //   element: <Signup />,
   // },
-  // Main app routes (with layout)
+
+  // 🔒 Protected routes (authentication required)
   {
-    path: "/",
-    element: <App />,
+    element: <ProtectedRoute />,
     children: [
       {
-        index: true,
-        element: <Dashboard />,
-      },
-      {
-        path: "dashboard",
-        element: <Dashboard />,
-      },
-      {
-        path: "clusters",
-        element: <ClusterManagement />,
-      },
-      {
-        path: "integrations",
-        element: <Integrations />,
-      },
-      {
-        path: "users",
-        element: <Users />,
-      },
-      {
-        path: "groups",
-        element: <Groups />,
-      },
-      {
-        path: "logging",
-        element: <Logging />,
-      },
-      {
-        path: "audit-settings",
-        element: <AuditSettings />,
-      },
-      {
-        path: "profile",
-        element: <Profile />,
-      },
+        element: <App />,
+        children: [
+          {
+            path: "/dashboard",
+            element: <Dashboard />,
+          },
+          {
+            path: "/clusters",
+            element: <ClusterManagement />,
+          },
+          {
+            path: "/integrations",
+            element: <Integrations />,
+          },
+          {
+            path: "/users",
+            element: <Users />,
+          },
+          {
+            path: "/groups",
+            element: <Groups />,
+          },
+          {
+            path: "/logging",
+            element: <Logging />,
+          },
+          {
+            path: "/audit-settings",
+            element: <AuditSettings />,
+          },
+          {
+            path: "/profile",
+            element: <Profile />,
+          },
       // Generate routes for all resource types
       ...Object.values(resourceTypes).flatMap(generateResourceRoutes),
       // Node Details routes
@@ -390,16 +398,26 @@ const routes = [
         path: "clusters/:cluster/namespaces/:namespace/customresources/:group/:version/:resource",
         element: withClusterCheck(<GenericCRDPage />),
       },
-      // 404 catch-all route (must be last)
-      {
-        path: "*",
-        element: <NotFound />,
+          // 404 catch-all route (must be last)
+          {
+            path: "*",
+            element: <NotFound />,
+          },
+        ],
       },
     ],
   },
 ];
 
-const router = createBrowserRouter(routes, {
+// Use HashRouter for mobile (Capacitor) and BrowserRouter for web
+// HashRouter uses # in URLs which works with file:// protocol
+// BrowserRouter uses HTML5 history which only works on web servers
+const isNativePlatform = Capacitor.isNativePlatform();
+const routerFactory = isNativePlatform ? createHashRouter : createBrowserRouter;
+
+console.log('[Router] Platform:', isNativePlatform ? 'Native (Mobile)' : 'Web', '- Using:', isNativePlatform ? 'HashRouter' : 'BrowserRouter');
+
+const router = routerFactory(routes, {
   future: {
     v7_fetcherPersist: true,
     v7_normalizeFormMethod: true,

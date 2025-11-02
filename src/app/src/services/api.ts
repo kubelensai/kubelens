@@ -1,6 +1,7 @@
 import axios from 'axios'
 import type { Cluster, Pod, Deployment, Service, Node, Event } from '@/types'
 import { getApiBaseUrl } from '@/config/env'
+import { createRedirectUrl } from '@/utils/navigation'
 
 const api = axios.create({
   baseURL: getApiBaseUrl(),
@@ -24,16 +25,28 @@ api.interceptors.request.use(
   }
 )
 
-// Handle 401 responses (unauthorized)
+// Handle 401 responses (unauthorized/session expired)
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Clear auth data and redirect to login
+      console.log('[API Interceptor] 🔒 401 Unauthorized - Session expired')
+      
+      // Clear auth data from storage
       localStorage.removeItem('token')
       localStorage.removeItem('user')
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login'
+      
+      // Only redirect if not already on login page
+      if (window.location.pathname !== '/login' && window.location.pathname !== '/') {
+        const currentPath = window.location.pathname + window.location.search + window.location.hash
+        console.log('[API Interceptor] Current path:', currentPath)
+        
+        // Create redirect URL with current path as intended destination
+        const loginUrl = createRedirectUrl('/login', currentPath)
+        console.log('[API Interceptor] Redirecting to:', loginUrl)
+        
+        // Use replace to prevent back button issues
+        window.location.replace(loginUrl)
       }
     }
     return Promise.reject(error)

@@ -35,10 +35,13 @@ export interface DataTableProps<T> {
   showPagination?: boolean
   showSearch?: boolean
   pageSize?: number
+  pageSizeOptions?: number[]  // Available page size options (e.g., [10, 20, 50, 100])
   mobileCardRenderer?: (item: T, index: number) => ReactNode
   onRowClick?: (item: T) => void
   className?: string
   keyExtractor: (item: T) => string | number
+  // Expose paginated data for parent to use
+  onPaginatedDataChange?: (paginatedData: T[]) => void
 }
 
 export function DataTable<T>({
@@ -50,7 +53,9 @@ export function DataTable<T>({
   emptyIcon,
   showPagination = true,
   showSearch = true,
-  pageSize = 10,
+  pageSize: initialPageSize = 10,
+  pageSizeOptions = [10, 20, 50, 100],
+  onPaginatedDataChange,
   mobileCardRenderer,
   onRowClick,
   className,
@@ -62,6 +67,7 @@ export function DataTable<T>({
     direction: 'asc' | 'desc'
   } | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(initialPageSize)
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
   const [openFilterColumn, setOpenFilterColumn] = useState<string | null>(null)
   const filterDropdownRef = useRef<HTMLDivElement>(null)
@@ -178,6 +184,14 @@ export function DataTable<T>({
     return sortedData.slice(start, start + pageSize)
   }, [sortedData, currentPage, pageSize, showPagination])
 
+  // Notify parent when paginated data changes (for fetching metrics for visible items only)
+  useEffect(() => {
+    if (onPaginatedDataChange && !isLoading) {
+      onPaginatedDataChange(paginatedData)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paginatedData, isLoading])  // Don't include onPaginatedDataChange to avoid infinite loops
+
   // Handle sorting
   const handleSort = (key: string) => {
     const column = columns.find((col) => col.key === key)
@@ -196,6 +210,12 @@ export function DataTable<T>({
   // Handle pagination
   const goToPage = (page: number) => {
     setCurrentPage(Math.max(1, Math.min(page, totalPages)))
+  }
+
+  // Handle page size change
+  const handlePageSizeChange = (newPageSize: number) => {
+    setPageSize(newPageSize)
+    setCurrentPage(1)  // Reset to first page when changing page size
   }
 
   // Reset to page 1 when search changes
@@ -432,17 +452,35 @@ export function DataTable<T>({
       {/* Pagination */}
       {showPagination && totalPages > 1 && !isLoading && (
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-2">
-          <div className="text-sm text-gray-700 dark:text-gray-300">
-            Showing{' '}
-            <span className="font-medium">
-              {(currentPage - 1) * pageSize + 1}
-            </span>{' '}
-            to{' '}
-            <span className="font-medium">
-              {Math.min(currentPage * pageSize, sortedData.length)}
-            </span>{' '}
-            of{' '}
-            <span className="font-medium">{sortedData.length}</span> results
+          <div className="flex items-center gap-4">
+            <div className="text-sm text-gray-700 dark:text-gray-300">
+              Showing{' '}
+              <span className="font-medium">
+                {(currentPage - 1) * pageSize + 1}
+              </span>{' '}
+              to{' '}
+              <span className="font-medium">
+                {Math.min(currentPage * pageSize, sortedData.length)}
+              </span>{' '}
+              of{' '}
+              <span className="font-medium">{sortedData.length}</span> results
+            </div>
+            
+            {/* Page Size Selector */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-700 dark:text-gray-300">Show:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+                className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
+              >
+                {pageSizeOptions.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">

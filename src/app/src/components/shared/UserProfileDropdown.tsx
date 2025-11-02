@@ -5,16 +5,20 @@ import {
   UserIcon,
 } from '@heroicons/react/24/outline'
 import { useAuthStore } from '@/stores/authStore'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 
 export default function UserProfileDropdown() {
   const { user, logout } = useAuthStore()
+  const location = useLocation()
 
   if (!user) return null
 
   const handleLogout = async () => {
     if (confirm('Are you sure you want to logout?')) {
-      await logout()
+      // Get current full path (pathname + search + hash)
+      const currentPath = location.pathname + location.search + location.hash
+      console.log('[UserProfileDropdown] Logging out from:', currentPath)
+      await logout(currentPath)
     }
   }
 
