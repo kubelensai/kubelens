@@ -5,6 +5,7 @@ import path from 'path'
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const isMobile = mode === 'mobile'
+  const isProduction = mode === 'production'
   
   return {
     plugins: [react()],
@@ -12,6 +13,10 @@ export default defineConfig(({ mode }) => {
       alias: {
         '@': path.resolve(__dirname, './src'),
       },
+    },
+    // Global esbuild options (applies to both dev and build)
+    esbuild: {
+      drop: isProduction ? ['console', 'debugger'] : [],
     },
     server: {
       port: 5173,
@@ -29,6 +34,8 @@ export default defineConfig(({ mode }) => {
       target: isMobile ? 'es2015' : 'modules',
       // Ensure sourcemaps for debugging
       sourcemap: mode === 'development',
+      // Use esbuild for minification (faster than terser)
+      minify: 'esbuild',
     },
   }
 })
