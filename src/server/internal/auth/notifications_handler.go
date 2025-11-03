@@ -88,10 +88,22 @@ func (h *Handler) GetUnreadCount(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"count": count})
 }
 
-// CreateNotification creates a new notification (internal use or admin)
+// CreateNotification creates a new notification for the authenticated user
 func (h *Handler) CreateNotification(c *gin.Context) {
+	// Get user ID from context (set by auth middleware)
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	
+	userID, ok := userIDVal.(int)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user ID"})
+		return
+	}
+	
 	var req struct {
-		UserID  int    `json:"user_id" binding:"required"`
 		Type    string `json:"type" binding:"required,oneof=success error warning info"`
 		Title   string `json:"title" binding:"required"`
 		Message string `json:"message" binding:"required"`
@@ -103,7 +115,7 @@ func (h *Handler) CreateNotification(c *gin.Context) {
 	}
 	
 	notification := &db.Notification{
-		UserID:  uint(req.UserID),
+		UserID:  uint(userID),
 		Type:    req.Type,
 		Title:   req.Title,
 		Message: req.Message,
