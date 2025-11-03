@@ -11,6 +11,7 @@ import clsx from 'clsx'
 import Editor from '@monaco-editor/react'
 import MultiSelect from './MultiSelect'
 import { DataTable, Column } from './DataTable'
+import { formatDateTime } from '@/utils/dateFormat'
 
 interface EnhancedMultiPodLogViewerProps {
   cluster: string
@@ -80,7 +81,7 @@ export default function EnhancedMultiPodLogViewer({
     { value: 'Australia/Sydney', label: 'Sydney (AEDT)' },
   ]
 
-  // Format timestamp based on selected timezone
+  // Format timestamp based on selected timezone with explicit timezone display
   const formatTimestamp = (timestamp: string): string => {
     if (!timestamp) return timestamp
     
@@ -88,12 +89,24 @@ export default function EnhancedMultiPodLogViewer({
       const date = new Date(timestamp)
       
       if (timezone === 'Local') {
-        return date.toLocaleString()
+        // Use centralized formatter for local time with timezone display
+        return formatDateTime(timestamp)
       } else if (timezone === 'UTC') {
-        return timestamp // Keep original UTC format
+        // Format UTC with explicit label
+        return date.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC')
       } else {
-        // Format with specific timezone
-        return date.toLocaleString('en-US', { timeZone: timezone })
+        // Format with specific timezone and show timezone name
+        return date.toLocaleString('en-US', {
+          timeZone: timezone,
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false,
+          timeZoneName: 'short' // Shows timezone like "EST", "JST", etc.
+        })
       }
     } catch (error) {
       return timestamp // Return original if parsing fails

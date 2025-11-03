@@ -673,7 +673,16 @@ export default function SecretDetails({}: SecretDetailsProps) {
                       <div>
                         <span className="text-green-600 dark:text-green-400 font-medium">Not Before:</span>
                         <p className="font-medium text-gray-900 dark:text-white mt-1 text-xs">
-                          {new Date(certInfo.notBefore).toLocaleString()}
+                          {new Date(certInfo.notBefore).toLocaleString(undefined, {
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                            hour12: false,
+                            timeZoneName: 'short'
+                          })}
                         </p>
                       </div>
                       <div className="col-span-1 md:col-span-2">
@@ -682,7 +691,16 @@ export default function SecretDetails({}: SecretDetailsProps) {
                           'font-medium mt-1 text-xs',
                           certInfo.isExpired ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white'
                         )}>
-                          {new Date(certInfo.notAfter).toLocaleString()}
+                          {new Date(certInfo.notAfter).toLocaleString(undefined, {
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                            hour12: false,
+                            timeZoneName: 'short'
+                          })}
                           {!certInfo.isExpired && certInfo.daysUntilExpiry >= 0 && (
                             <span className={clsx(
                               'ml-2',

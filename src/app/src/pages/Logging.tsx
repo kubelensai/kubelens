@@ -3,6 +3,7 @@ import api from '@/services/api';
 import { DataTable, Column } from '@/components/shared/DataTable';
 import { ShieldCheckIcon, ExclamationTriangleIcon, XCircleIcon, CheckCircleIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline';
 import Breadcrumb from '@/components/shared/Breadcrumb';
+import { formatDateTime, getLocalDateTimeInputValue, localDateTimeToISO } from '@/utils/dateFormat';
 
 interface AuditLog {
   id: number;
@@ -43,20 +44,9 @@ const Logging = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize] = useState(50);
 
-  // Set default date range to last 24 hours
-  const getDefaultStartDate = () => {
-    const date = new Date();
-    date.setDate(date.getDate() - 1); // 24 hours ago
-    return date.toISOString().slice(0, 16); // Format for datetime-local input
-  };
-
-  const getDefaultEndDate = () => {
-    return new Date().toISOString().slice(0, 16); // Now
-  };
-
   // Filters
-  const [startDate, setStartDate] = useState(getDefaultStartDate());
-  const [endDate, setEndDate] = useState(getDefaultEndDate());
+  const [startDate, setStartDate] = useState(getLocalDateTimeInputValue(-1)); // 24 hours ago
+  const [endDate, setEndDate] = useState(getLocalDateTimeInputValue(0)); // Now
   const [eventCategory, setEventCategory] = useState('');
   const [level, setLevel] = useState('');
   const [sourceIP, setSourceIP] = useState('');
@@ -75,8 +65,8 @@ const Logging = () => {
         page_size: pageSize,
       };
 
-      if (startDate) params.start_date = new Date(startDate).toISOString();
-      if (endDate) params.end_date = new Date(endDate).toISOString();
+      if (startDate) params.start_date = localDateTimeToISO(startDate);
+      if (endDate) params.end_date = localDateTimeToISO(endDate);
       if (eventCategory) params.event_category = eventCategory;
       if (level) params.level = level;
       if (sourceIP) params.source_ip = sourceIP;
@@ -109,8 +99,8 @@ const Logging = () => {
   };
 
   const handleClearFilters = () => {
-    setStartDate(getDefaultStartDate());
-    setEndDate(getDefaultEndDate());
+    setStartDate(getLocalDateTimeInputValue(-1)); // 24 hours ago
+    setEndDate(getLocalDateTimeInputValue(0)); // Now
     setEventCategory('');
     setLevel('');
     setSourceIP('');
@@ -120,8 +110,8 @@ const Logging = () => {
 
   const handleExport = async () => {
     try {
-      const start = startDate ? new Date(startDate).toISOString() : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      const end = endDate ? new Date(endDate).toISOString() : new Date().toISOString();
+      const start = startDate ? localDateTimeToISO(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const end = endDate ? localDateTimeToISO(endDate) : new Date().toISOString();
 
       const response = await api.post('/audit/export', {
         start_date: start,
@@ -163,10 +153,6 @@ const Logging = () => {
     }
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleString();
-  };
 
   const columns: Column<AuditLog>[] = [
     {
@@ -174,12 +160,12 @@ const Logging = () => {
       header: 'Timestamp',
       accessor: (log) => (
         <span className="whitespace-nowrap text-sm text-gray-900 dark:text-white">
-          {formatDate(log.datetime)}
+          {formatDateTime(log.datetime)}
         </span>
       ),
       sortable: true,
       sortValue: (log) => log.datetime,
-      searchValue: (log) => formatDate(log.datetime),
+      searchValue: (log) => formatDateTime(log.datetime),
     },
     {
       key: 'level',

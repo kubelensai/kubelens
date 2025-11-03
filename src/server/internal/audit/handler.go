@@ -42,12 +42,14 @@ func (h *Handler) ListAuditLogs(c *gin.Context) {
 	
 	if startDate := c.Query("start_date"); startDate != "" {
 		if t, err := time.Parse(time.RFC3339, startDate); err == nil {
-			filters["start_date"] = t
+			// Convert to UTC for database comparison
+			filters["start_date"] = t.UTC()
 		}
 	}
 	if endDate := c.Query("end_date"); endDate != "" {
 		if t, err := time.Parse(time.RFC3339, endDate); err == nil {
-			filters["end_date"] = t
+			// Convert to UTC for database comparison
+			filters["end_date"] = t.UTC()
 		}
 	}
 	if eventType := c.Query("event_type"); eventType != "" {
@@ -167,10 +169,10 @@ func (h *Handler) ExportAuditLogs(c *gin.Context) {
 		return
 	}
 
-	// Query logs for export
+	// Query logs for export (convert to UTC for database comparison)
 	filters := map[string]interface{}{
-		"start_date": startDate,
-		"end_date":   endDate,
+		"start_date": startDate.UTC(),
+		"end_date":   endDate.UTC(),
 	}
 	logs, _, err := h.db.ListAuditLogs(1, 100000, filters) // Large limit for export
 	if err != nil {
