@@ -73,6 +73,22 @@ app.use('/api', createProxyMiddleware(proxyOptions))
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
+// Runtime configuration endpoint - generates config.js dynamically
+app.get('/config.js', (req, res) => {
+  const mode = process.env.NODE_ENV || 'production'
+  const config = `// Runtime configuration - DO NOT EDIT
+// This file is generated dynamically from environment variables
+window.env = {
+  API_SERVER: '${API_SERVER}',
+  MODE: '${mode}'
+};
+`
+  res.setHeader('Content-Type', 'application/javascript')
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+  res.send(config)
+  console.log(`📝 Served runtime config: API_SERVER=${API_SERVER}, MODE=${mode}`)
+})
+
 // Serve static files from dist directory
 const distPath = path.join(__dirname, 'dist')
 app.use(express.static(distPath, {

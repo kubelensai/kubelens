@@ -2,10 +2,12 @@
  * Environment Configuration
  * 
  * Handles different API base URLs for different platforms:
- * - Web (dev): Uses Vite proxy -> /api/v1
- * - Web (production with Node.js server): Uses proxy server -> /api/v1
- * - Mobile (Capacitor): Direct API calls -> configured server URL
+ * - Local Development: Uses relative path /api/v1 (Vite proxy)
+ * - Production Browser: Uses relative path /api/v1 (served by app container with proxy)
+ * - Production Mobile: Uses runtime configured API server URL (e.g., https://api.kubelens.app/api/v1)
  */
+
+import { getApiServerUrl } from './runtime'
 
 // Check if running in Capacitor (mobile app)
 export const isCapacitor = () => {
@@ -14,22 +16,22 @@ export const isCapacitor = () => {
 
 // Get API base URL based on environment
 export const getApiBaseUrl = (): string => {
-  // Mobile app - use configured API server URL with /api/v1 path
+  // Mobile app - use runtime configured API server URL with /api/v1 path
   if (isCapacitor()) {
-    // Can be set via Capacitor config or environment variable at build time
-    const baseUrl = import.meta.env.VITE_API_SERVER_URL || 'http://localhost:8080'
+    const baseUrl = getApiServerUrl()
     return baseUrl + '/api/v1'
   }
   
-  // Web app (dev or production with proxy) - use relative path
-  // This ensures web browsers always use the proxy, never direct API calls
+  // Web app (dev or production) - always use relative path
+  // In development: Vite proxy handles /api/* -> localhost:8080/api/*
+  // In production: App container proxy handles /api/* -> server:8080/api/*
   return '/api/v1'
 }
 
 // Get WebSocket base URL
 export const getWsBaseUrl = (): string => {
   if (isCapacitor()) {
-    const apiUrl = import.meta.env.VITE_API_SERVER_URL || 'http://localhost:8080'
+    const apiUrl = getApiServerUrl()
     // Convert http(s) to ws(s)
     return apiUrl.replace(/^http/, 'ws') + '/api/v1/ws'
   }
