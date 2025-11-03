@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { ChevronDownIcon, CheckIcon, Square3Stack3DIcon, GlobeAltIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import { useQuery } from '@tanstack/react-query'
 import { getNamespaces } from '@/services/api'
@@ -14,6 +14,7 @@ export default function NamespaceSelector() {
   const dropdownRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
+  const location = useLocation()
   const { cluster: clusterParam, namespace: namespaceParam } = useParams()
   
   const { selectedCluster, setSelectedCluster } = useClusterStore()
@@ -119,7 +120,8 @@ export default function NamespaceSelector() {
     
     // Navigate to appropriate route
     if (effectiveCluster) {
-      const currentPath = window.location.pathname
+      // Use React Router's location instead of window.location for better compatibility with Capacitor
+      const currentPath = location.pathname
       
       // Check if we're on a custom resource page
       const customResourceMatch = currentPath.match(/\/customresources\/([^/]+)\/([^/]+)\/([^/]+)/)

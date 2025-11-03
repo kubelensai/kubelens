@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { ChevronDownIcon, ServerIcon, CheckIcon, GlobeAltIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import { useClusters } from '@/hooks/useClusters'
 import { useClusterStore } from '@/stores/clusterStore'
@@ -11,6 +11,7 @@ export default function ClusterSelector() {
   const dropdownRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
+  const location = useLocation()
   const { cluster: clusterParam } = useParams()
   
   // Only show enabled clusters in selector
@@ -74,8 +75,8 @@ export default function ClusterSelector() {
     
     // Navigate to appropriate route
     if (clusterName) {
-      // If we're on a resource page, update the cluster in the URL
-      const currentPath = window.location.pathname
+      // Use React Router's location instead of window.location for better compatibility with Capacitor
+      const currentPath = location.pathname
       
       // Check if we're on a custom resource page
       const customResourceMatch = currentPath.match(/\/customresources\/([^/]+)\/([^/]+)\/([^/]+)/)
@@ -130,11 +131,12 @@ export default function ClusterSelector() {
       if (resourceType) {
         navigate(`/clusters/${clusterName}/${resourceType}`)
       } else {
-        navigate('/clusters')
+        // If not on a recognized resource page, go to dashboard
+        navigate('/dashboard')
       }
     } else {
-      // All clusters - go to overview
-      navigate('/')
+      // All clusters - go to dashboard
+      navigate('/dashboard')
     }
   }
 
