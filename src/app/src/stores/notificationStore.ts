@@ -71,8 +71,27 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   // Add notification (creates in backend)
   addNotification: async (notification) => {
     try {
-      // For now, we'll add it locally and let the backend sync happen
-      // In a real-world scenario, you might want to create it via API
+      // Get user_id from session or token (you'll need to implement this based on your auth setup)
+      // For now, we'll create the notification via API which will use the authenticated user
+      const response = await api.post('/notifications', {
+        type: notification.type,
+        title: notification.title,
+        message: notification.message,
+      })
+      
+      // Add the created notification to local state
+      const newNotification: Notification = response.data
+      
+      set((state) => ({
+        notifications: [newNotification, ...state.notifications].slice(0, 100),
+        unreadCount: state.unreadCount + 1
+      }))
+      
+      // Also fetch latest unread count from backend
+      await get().fetchUnreadCount()
+    } catch (error) {
+      console.error('Failed to add notification:', error)
+      // If API fails, add locally as fallback
       const newNotification: Notification = {
         ...notification,
         id: Date.now(), // Temporary ID
@@ -84,11 +103,6 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         notifications: [newNotification, ...state.notifications].slice(0, 100),
         unreadCount: state.unreadCount + 1
       }))
-      
-      // Optionally sync with backend in background
-      // This would require a backend endpoint to create notifications
-    } catch (error) {
-      console.error('Failed to add notification:', error)
     }
   },
   

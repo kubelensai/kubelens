@@ -1,5 +1,4 @@
-import { Fragment, useEffect, useState, useRef } from 'react'
-import { Menu, Transition } from '@headlessui/react'
+import { useEffect, useState, useRef } from 'react'
 import {
   BellIcon,
   CheckCircleIcon,
@@ -7,9 +6,7 @@ import {
   ExclamationTriangleIcon,
   InformationCircleIcon,
   XMarkIcon,
-  TrashIcon,
 } from '@heroicons/react/24/outline'
-import { BellIcon as BellIconSolid } from '@heroicons/react/24/solid'
 import clsx from 'clsx'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { formatDistanceToNow } from 'date-fns'
@@ -22,13 +19,15 @@ const notificationIcons = {
 }
 
 const notificationColors = {
-  success: 'text-green-500 bg-green-50 dark:bg-green-900/20',
-  error: 'text-red-500 bg-red-50 dark:bg-red-900/20',
-  warning: 'text-yellow-500 bg-yellow-50 dark:bg-yellow-900/20',
-  info: 'text-blue-500 bg-blue-50 dark:bg-blue-900/20',
+  success: 'text-success-600 bg-success-50 dark:bg-success-500/15',
+  error: 'text-error-600 bg-error-50 dark:bg-error-500/15',
+  warning: 'text-warning-600 bg-warning-50 dark:bg-warning-500/15',
+  info: 'text-primary-600 bg-primary-50 dark:bg-primary-500/15',
 }
 
 export default function NotificationCenter() {
+  const [isOpen, setIsOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
   const { 
     notifications, 
     unreadCount,
@@ -40,7 +39,6 @@ export default function NotificationCenter() {
     fetchUnreadCount
   } = useNotificationStore()
   
-  const [showPulse, setShowPulse] = useState(false)
   const prevCountRef = useRef(unreadCount)
 
   // Fetch notifications on mount
@@ -56,99 +54,82 @@ export default function NotificationCenter() {
     return () => clearInterval(interval)
   }, [fetchNotifications, fetchUnreadCount])
 
-  // Trigger pulse animation when new notification arrives
+  // Update ref when unreadCount changes
   useEffect(() => {
-    if (unreadCount > prevCountRef.current) {
-      setShowPulse(true)
-      const timer = setTimeout(() => setShowPulse(false), 1000)
-      return () => clearTimeout(timer)
-    }
     prevCountRef.current = unreadCount
   }, [unreadCount])
+
+  // Click outside to close
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node) &&
+        !(event.target as HTMLElement).closest('.notification-dropdown-toggle')
+      ) {
+        setIsOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const toggleDropdown = () => {
+    setIsOpen(!isOpen)
+    if (!isOpen) {
+      fetchNotifications()
+    }
+  }
 
   const handleNotificationClick = (id: number) => {
     markAsRead(id)
   }
 
   return (
-    <Menu as="div" className="relative">
-      {/* Notification Button */}
-      <Menu.Button 
-        className={clsx(
-          "relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors",
-          showPulse && "animate-bounce"
-        )}
+    <div className="relative">
+      <button
+        onClick={toggleDropdown}
+        className="notification-dropdown-toggle relative flex items-center justify-center text-gray-500 transition-colors bg-white border border-gray-200 rounded-full h-11 w-11 hover:text-gray-700 hover:bg-gray-100 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
       >
-        {unreadCount > 0 ? (
-          <BellIconSolid 
-            className={clsx(
-              "h-5 w-5 text-primary-600 dark:text-primary-400 transition-all duration-300",
-              showPulse && "scale-125"
-            )} 
-          />
-        ) : (
-          <BellIcon className="h-5 w-5 text-gray-700 dark:text-gray-300" />
-        )}
-        
-        {/* Badge Counter */}
-        {unreadCount > 0 && (
-          <span 
-            className={clsx(
-              "absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white ring-2 ring-white dark:ring-gray-800",
-              showPulse ? "animate-ping" : "animate-pulse"
-            )}
-          >
-            {unreadCount > 99 ? '99+' : unreadCount}
-          </span>
-        )}
-        
-        {/* Ripple Effect on New Notification */}
-        {showPulse && (
-          <span className="absolute inset-0 rounded-lg bg-primary-400 dark:bg-primary-500 opacity-75 animate-ping" />
-        )}
-      </Menu.Button>
+        <span
+          className={clsx(
+            "absolute right-0 top-0.5 z-10 h-2 w-2 rounded-full bg-orange-400",
+            unreadCount === 0 && "hidden"
+          )}
+        >
+          <span className="absolute inline-flex w-full h-full bg-orange-400 rounded-full opacity-75 animate-ping"></span>
+        </span>
+        <BellIcon className="h-5 w-5" />
+      </button>
 
-      {/* Notifications Panel */}
-      <Transition
-        as={Fragment}
-        enter="transition ease-out duration-100"
-        enterFrom="transform opacity-0 scale-95"
-        enterTo="transform opacity-100 scale-100"
-        leave="transition ease-in duration-75"
-        leaveFrom="transform opacity-100 scale-100"
-        leaveTo="transform opacity-0 scale-95"
-      >
-        <Menu.Items className="absolute right-0 mt-2 w-96 origin-top-right rounded-xl bg-white dark:bg-gray-800 shadow-2xl ring-1 ring-black ring-opacity-5 focus:outline-none overflow-hidden z-50">
+      {isOpen && (
+        <div
+          ref={dropdownRef}
+          className="absolute -right-[120px] sm:right-0 z-40 mt-2 flex h-auto max-h-[480px] w-[320px] sm:w-[361px] flex-col rounded-2xl border border-gray-200 bg-white p-3 shadow-lg dark:border-gray-800 dark:bg-gray-900"
+        >
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-              Notifications {unreadCount > 0 && `(${unreadCount})`}
-            </h3>
-            <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between pb-3 mb-3 border-b border-gray-100 dark:border-gray-700">
+            <h5 className="text-base font-semibold text-gray-800 dark:text-gray-200">
+              Notifications
               {unreadCount > 0 && (
-                <button
-                  onClick={markAllAsRead}
-                  className="text-xs text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 font-medium"
-                >
-                  Mark all read
-                </button>
+                <span className="ml-2 inline-flex items-center justify-center px-2 py-0.5 text-xs font-medium rounded-full bg-error-50 text-error-600 dark:bg-error-500/15 dark:text-error-500">
+                  {unreadCount}
+                </span>
               )}
-              {notifications.length > 0 && (
-                <button
-                  onClick={clearAll}
-                  className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-                  title="Clear all"
-                >
-                  <TrashIcon className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                </button>
-              )}
-            </div>
+            </h5>
+            <button
+              onClick={toggleDropdown}
+              className="text-gray-500 transition hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            >
+              <XMarkIcon className="h-5 w-5" />
+            </button>
           </div>
 
           {/* Notifications List */}
-          <div className="max-h-[32rem] overflow-y-auto">
+          <ul className="flex-1 flex flex-col h-auto overflow-y-auto custom-scrollbar">
             {notifications.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 px-4">
+              <li className="flex flex-col items-center justify-center py-12 px-4">
                 <BellIcon className="h-12 w-12 text-gray-300 dark:text-gray-600 mb-3" />
                 <p className="text-sm text-gray-500 dark:text-gray-400 text-center">
                   No notifications yet
@@ -156,84 +137,96 @@ export default function NotificationCenter() {
                 <p className="text-xs text-gray-400 dark:text-gray-500 text-center mt-1">
                   You'll see important updates here
                 </p>
-              </div>
+              </li>
             ) : (
-              <div className="divide-y divide-gray-100 dark:divide-gray-700">
-                {notifications.map((notification) => {
-                  const Icon = notificationIcons[notification.type]
-                  const colorClass = notificationColors[notification.type]
+              notifications.map((notification) => {
+                const Icon = notificationIcons[notification.type]
+                const colorClass = notificationColors[notification.type]
 
-                  return (
-                    <Menu.Item key={notification.id}>
-                      {({ active }) => (
-                        <div
-                          className={clsx(
-                            'relative px-4 py-3 transition-colors',
-                            active && 'bg-gray-50 dark:bg-gray-700/50',
-                            !notification.read && 'bg-primary-50/30 dark:bg-primary-900/10'
-                          )}
-                          onClick={() => handleNotificationClick(notification.id)}
-                        >
-                          {/* Unread indicator */}
-                          {!notification.read && (
-                            <div className="absolute left-2 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-primary-600 dark:bg-primary-400" />
-                          )}
-
-                          <div className="flex gap-3">
-                            {/* Icon */}
-                            <div className={clsx('flex-shrink-0 rounded-lg p-2', colorClass)}>
-                              <Icon className="h-5 w-5" />
-                            </div>
-
-                            {/* Content */}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-gray-900 dark:text-white">
-                                {notification.title}
-                              </p>
-                              <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5 line-clamp-2">
-                                {notification.message}
-                              </p>
-                              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                                {formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}
-                              </p>
-
-                              {/* Action Button */}
-                              {notification.action && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    notification.action?.onClick()
-                                  }}
-                                  className="mt-2 text-xs font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300"
-                                >
-                                  {notification.action.label}
-                                </button>
-                              )}
-                            </div>
-
-                            {/* Delete Button */}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                removeNotification(notification.id)
-                              }}
-                              className="flex-shrink-0 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                              title="Remove"
-                            >
-                              <XMarkIcon className="h-4 w-4 text-gray-400 dark:text-gray-500" />
-                            </button>
-                          </div>
-                        </div>
+                return (
+                  <li key={notification.id}>
+                    <div
+                      onClick={() => handleNotificationClick(notification.id)}
+                      className={clsx(
+                        "relative flex gap-3 rounded-lg border-b border-gray-100 p-3 py-3 hover:bg-gray-100 cursor-pointer dark:border-gray-800 dark:hover:bg-white/5",
+                        !notification.read && 'bg-primary-50/30 dark:bg-primary-900/10'
                       )}
-                    </Menu.Item>
-                  )
-                })}
-              </div>
+                    >
+                      {/* Unread indicator */}
+                      {!notification.read && (
+                        <div className="absolute left-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-primary-600 dark:bg-primary-400" />
+                      )}
+
+                      {/* Icon */}
+                      <span className={clsx('flex items-center justify-center w-10 h-10 rounded-lg flex-shrink-0', colorClass)}>
+                        <Icon className="h-5 w-5" />
+                      </span>
+
+                      {/* Content */}
+                      <span className="flex-1 min-w-0 block">
+                        <span className="mb-1 block text-sm text-gray-800 font-medium dark:text-white/90">
+                          {notification.title}
+                        </span>
+                        <span className="block text-xs text-gray-600 dark:text-gray-400 line-clamp-2">
+                          {notification.message}
+                        </span>
+                        <span className="flex items-center gap-2 mt-1 text-gray-500 text-xs dark:text-gray-400">
+                          <span>{formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}</span>
+                        </span>
+
+                        {/* Action Button */}
+                        {notification.action && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              notification.action?.onClick()
+                            }}
+                            className="mt-2 text-xs font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300"
+                          >
+                            {notification.action.label}
+                          </button>
+                        )}
+                      </span>
+
+                      {/* Delete Button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          removeNotification(notification.id)
+                        }}
+                        className="flex-shrink-0 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors self-start"
+                        title="Remove"
+                      >
+                        <XMarkIcon className="h-4 w-4 text-gray-400 dark:text-gray-500" />
+                      </button>
+                    </div>
+                  </li>
+                )
+              })
             )}
-          </div>
-        </Menu.Items>
-      </Transition>
-    </Menu>
+          </ul>
+
+          {/* Footer Actions */}
+          {notifications.length > 0 && (
+            <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+              {unreadCount > 0 && (
+                <button
+                  onClick={markAllAsRead}
+                  className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
+                >
+                  Mark All Read
+                </button>
+              )}
+              <button
+                onClick={clearAll}
+                className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
+              >
+                Clear All
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
-

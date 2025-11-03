@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
-import { ChevronDownIcon, ServerIcon, CheckIcon, GlobeAltIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
+import { CheckIcon, MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { useClusters } from '@/hooks/useClusters'
 import { useClusterStore } from '@/stores/clusterStore'
-import clsx from 'clsx'
 
 export default function ClusterSelector() {
   const [isOpen, setIsOpen] = useState(false)
@@ -21,10 +20,8 @@ export default function ClusterSelector() {
   // Auto-select first enabled cluster if none selected
   useEffect(() => {
     if (!isLoading && clusters && clusters.length > 0) {
-      // If no cluster is selected (neither in URL nor in store)
       if (!clusterParam && !selectedCluster) {
         const firstCluster = clusters[0]
-        console.log('[ClusterSelector] Auto-selecting first cluster:', firstCluster.name)
         setSelectedCluster(firstCluster.name)
       }
     }
@@ -48,250 +45,208 @@ export default function ClusterSelector() {
 
   // Click outside to close
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node) &&
+        !(event.target as HTMLElement).closest('.cluster-dropdown-toggle')
+      ) {
         setIsOpen(false)
       }
     }
 
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside)
-      return () => document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [isOpen])
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
-  // Filter clusters based on search query
-  const filteredClusters = clusters?.filter((cluster: any) => {
-    const name = cluster.name || ''
-    const version = cluster.version || ''
-    const query = searchQuery.toLowerCase()
-    
-    return name.toLowerCase().includes(query) || version.toLowerCase().includes(query)
-  })
-
-  const handleSelectCluster = (clusterName: string | null) => {
-    setSelectedCluster(clusterName)
-    setIsOpen(false)
-    
-    // Navigate to appropriate route
-    if (clusterName) {
-      // Use React Router's location instead of window.location for better compatibility with Capacitor
-      const currentPath = location.pathname
-      
-      // Check if we're on a custom resource page
-      const customResourceMatch = currentPath.match(/\/customresources\/([^/]+)\/([^/]+)\/([^/]+)/)
-      if (customResourceMatch) {
-        const [, group, version, resource] = customResourceMatch
-        navigate(`/clusters/${clusterName}/customresources/${group}/${version}/${resource}`)
-        return
-      }
-      
-      // Define route mappings for all resource pages
-      const routeMap: Record<string, string> = {
-        '/pods': 'pods',
-        '/deployments': 'deployments',
-        '/daemonsets': 'daemonsets',
-        '/statefulsets': 'statefulsets',
-        '/replicasets': 'replicasets',
-        '/jobs': 'jobs',
-        '/cronjobs': 'cronjobs',
-        '/services': 'services',
-        '/endpoints': 'endpoints',
-        '/ingresses': 'ingresses',
-        '/ingressclasses': 'ingressclasses',
-        '/networkpolicies': 'networkpolicies',
-        '/namespaces': 'namespaces',
-        '/storageclasses': 'storageclasses',
-        '/persistentvolumes': 'persistentvolumes',
-        '/persistentvolumeclaims': 'persistentvolumeclaims',
-        '/configmaps': 'configmaps',
-        '/secrets': 'secrets',
-      '/serviceaccounts': 'serviceaccounts',
-      '/clusterroles': 'clusterroles',
-      '/roles': 'roles',
-      '/clusterrolebindings': 'clusterrolebindings',
-      '/rolebindings': 'rolebindings',
-        '/hpas': 'hpas',
-        '/pdbs': 'pdbs',
-        '/leases': 'leases',
-        '/priorityclasses': 'priorityclasses',
-        '/runtimeclasses': 'runtimeclasses',
-        '/mutatingwebhookconfigurations': 'mutatingwebhookconfigurations',
-        '/validatingwebhookconfigurations': 'validatingwebhookconfigurations',
-        '/customresourcedefinitions': 'customresourcedefinitions',
-        '/nodes': 'nodes',
-        '/events': 'events',
-      }
-      
-      // Find which resource type we're on
-      const resourceType = Object.entries(routeMap).find(([path]) => 
-        currentPath.includes(path)
-      )?.[1]
-      
-      if (resourceType) {
-        navigate(`/clusters/${clusterName}/${resourceType}`)
-      } else {
-        // If not on a recognized resource page, go to dashboard
-        navigate('/dashboard')
-      }
-    } else {
-      // All clusters - go to dashboard
-      navigate('/dashboard')
-    }
+  const toggleDropdown = () => {
+    setIsOpen(!isOpen)
   }
 
-  const selectedClusterData = clusters?.find((c: any) => c.name === selectedCluster)
-  const displayName = selectedClusterData?.name || 'All Clusters'
+  const handleSelectCluster = (clusterName: string) => {
+    setSelectedCluster(clusterName)
+    setIsOpen(false)
+    setSearchQuery('')
+
+    // Capacitor-safe navigation (isNativePlatform check done internally)
+    const path = location.pathname
+    const pathParts = path.split('/')
+    
+    // Check if we're on a page that needs special handling
+    const isClusterManagementPage = path === '/clusters' || path === '/clusters/'
+    const isDashboardPage = path === '/' || path === '/dashboard' || path === '/dashboard/'
+    const isUsersPage = path.includes('/users')
+    const isGroupsPage = path.includes('/groups')
+    const isIntegrationsPage = path.includes('/integrations')
+    
+    // If on non-resource pages (dashboard, clusters, users, groups, integrations), go to dashboard
+    if (isDashboardPage || isClusterManagementPage || isUsersPage || isGroupsPage || isIntegrationsPage) {
+      navigate('/')
+      return
+    }
+    
+    // If on a cluster resource page (pods, deployments, etc.), update the cluster in URL
+    if (pathParts.includes('clusters') && pathParts.length >= 3) {
+      const resourceIndex = pathParts.findIndex((part, idx) => 
+        part === 'clusters' && idx + 2 < pathParts.length
+      )
+      
+      if (resourceIndex !== -1) {
+        pathParts[resourceIndex + 1] = clusterName
+        const newPath = pathParts.join('/')
+        navigate(newPath)
+        return
+      }
+    }
+    
+    // Default: go to dashboard
+    navigate('/')
+  }
+
+  const filteredClusters = (clusters || []).filter((cluster: { name: string }) =>
+    cluster.name.toLowerCase().includes(searchQuery.toLowerCase())
+  )
+
+  // Get connection status for selected cluster
+  const selectedClusterData = (clusters || []).find((c: { name: string }) => c.name === selectedCluster)
+  const isConnected = selectedClusterData?.status === 'connected'
+
+  const displayName = selectedCluster || 'Select Cluster'
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 p-2 sm:px-3 sm:py-1.5 text-sm text-gray-500 dark:text-gray-400">
-        <div className="h-5 w-5 sm:h-4 sm:w-4 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
-        <span className="hidden sm:inline">Loading...</span>
+      <div className="flex items-center gap-2 px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+        <span>Loading...</span>
       </div>
     )
   }
 
+  if (!clusters || clusters.length === 0) {
+    return null
+  }
+
   return (
-    <div className="relative" ref={dropdownRef}>
-      {/* Selector Button */}
+    <div className="relative">
       <button
-        onClick={() => setIsOpen(!isOpen)}
-        className={clsx(
-          "flex items-center gap-2 rounded-lg font-medium transition-all",
-          "bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-700/50",
-          "border border-gray-200 dark:border-gray-700",
-          "text-gray-700 dark:text-gray-300",
-          // Mobile: icon only, Desktop: full selector
-          "p-2 sm:px-3 sm:py-1.5",
-          isOpen && "ring-2 ring-primary-500 border-primary-500"
-        )}
-        aria-label={selectedCluster ? `Cluster: ${displayName}` : 'All Clusters'}
-        title={displayName}
+        onClick={toggleDropdown}
+        className="cluster-dropdown-toggle flex items-center gap-2 text-gray-500 transition-colors bg-white border border-gray-200 rounded-full px-3 lg:px-4 py-2 h-11 hover:text-gray-700 hover:bg-gray-100 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
+        aria-label={`Selected cluster: ${displayName}`}
       >
-        {selectedCluster ? (
-          <ServerIcon className="h-5 w-5 sm:h-4 sm:w-4 text-primary-600 dark:text-primary-400 flex-shrink-0" />
-        ) : (
-          <GlobeAltIcon className="h-5 w-5 sm:h-4 sm:w-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+        {/* Database/Server Icon (better than K8s hexagon for clarity) */}
+        <svg className="h-5 w-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <ellipse cx="12" cy="5" rx="9" ry="3"/>
+          <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/>
+          <path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/>
+        </svg>
+        
+        {/* Connection status indicator - show only when connected */}
+        {isConnected && (
+          <span className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-green-500 border-2 border-white dark:border-gray-900">
+            <span className="absolute inline-flex w-full h-full bg-green-500 rounded-full opacity-75 animate-ping"></span>
+          </span>
         )}
-        {/* Text and chevron - desktop only */}
-        <span className="hidden sm:inline truncate max-w-32 text-sm">{displayName}</span>
-        <ChevronDownIcon className={clsx(
-          "hidden sm:block h-4 w-4 transition-transform flex-shrink-0",
-          isOpen && "rotate-180"
-        )} />
+        
+        {/* Text - hidden on mobile, visible on desktop */}
+        <span className="hidden lg:inline truncate max-w-[150px]">{displayName}</span>
+        
+        {/* Chevron - always visible on desktop */}
+        <svg
+          className={`hidden lg:block h-4 w-4 transition-transform flex-shrink-0 ${
+            isOpen ? 'rotate-180' : ''
+          }`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
       </button>
 
-      {/* Dropdown Menu */}
+      {/* Always show dropdown for all clusters (even if only 1) */}
       {isOpen && (
-        <div className={clsx(
-          "absolute top-full right-0 mt-2 w-64 z-50",
-          "bg-white dark:bg-[#1a1f2e]",
-          "border border-gray-200 dark:border-gray-700",
-          "rounded-lg shadow-xl",
-          "animate-in fade-in-0 zoom-in-95"
-        )}>
-          {/* Search Input */}
-          <div className="p-2 border-b border-gray-200 dark:border-gray-700">
-            <div className="relative">
-              <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search clusters..."
-                className={clsx(
-                  "w-full pl-9 pr-3 py-2 text-sm",
-                  "bg-gray-50 dark:bg-gray-800/50",
-                  "border border-gray-200 dark:border-gray-700",
-                  "rounded-lg",
-                  "text-gray-900 dark:text-gray-100",
-                  "placeholder-gray-500 dark:placeholder-gray-400",
-                  "focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                )}
-              />
-            </div>
+        <div
+          ref={dropdownRef}
+          className="absolute left-0 z-40 mt-2 flex h-auto max-h-[400px] w-[280px] sm:w-[320px] flex-col rounded-2xl border border-gray-200 bg-white p-3 shadow-lg dark:border-gray-800 dark:bg-gray-900"
+        >
+          {/* Header with search */}
+          <div className="flex items-center justify-between pb-3 mb-3 border-b border-gray-100 dark:border-gray-700">
+            <h5 className="text-base font-semibold text-gray-800 dark:text-gray-200">
+              Select Cluster
+            </h5>
+            <button
+              onClick={() => setIsOpen(false)}
+              className="text-gray-500 transition hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            >
+              <XMarkIcon className="h-5 w-5" />
+            </button>
           </div>
 
-          <div className="py-2 max-h-80 overflow-y-auto">
-            {/* All Clusters Option */}
-            <button
-              onClick={() => handleSelectCluster(null)}
-              className={clsx(
-                "w-full px-4 py-2.5 text-left flex items-center gap-3 transition-colors",
-                !selectedCluster
-                  ? "bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300"
-                  : "hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-700 dark:text-gray-300"
-              )}
-            >
-              <GlobeAltIcon className="h-5 w-5 flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <div className="font-medium">All Clusters</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">
-                  View all resources
-                </div>
-              </div>
-              {!selectedCluster && (
-                <CheckIcon className="h-5 w-5 text-primary-600 dark:text-primary-400" />
-              )}
-            </button>
+          {/* Search input */}
+          <div className="relative mb-3">
+            <MagnifyingGlassIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search clusters..."
+              className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-4 text-sm text-gray-900 placeholder-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:placeholder-gray-500 dark:focus:border-primary-600"
+            />
+          </div>
 
-            {/* Divider */}
-            {clusters && clusters.length > 0 && (
-              <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
-            )}
-
-            {/* Cluster Options */}
-            {filteredClusters && filteredClusters.length > 0 ? (
-              filteredClusters.map((cluster: any) => {
+          {/* Cluster list */}
+          <ul className="flex-1 space-y-1 overflow-y-auto custom-scrollbar">
+            {filteredClusters.length === 0 ? (
+              <li className="px-3 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+                No clusters found
+              </li>
+            ) : (
+              filteredClusters.map((cluster: { name: string; status?: string }) => {
                 const isSelected = selectedCluster === cluster.name
-                const statusColor = cluster.status === 'healthy' || cluster.status === 'connected'
-                  ? 'text-green-500'
-                  : cluster.status === 'error' || cluster.status === 'disconnected'
-                  ? 'text-red-500'
-                  : 'text-yellow-500'
-
                 return (
-                  <button
-                    key={cluster.name}
-                    onClick={() => handleSelectCluster(cluster.name)}
-                    className={clsx(
-                      "w-full px-4 py-2.5 text-left flex items-center gap-3 transition-colors",
-                      isSelected
-                        ? "bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300"
-                        : "hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-700 dark:text-gray-300"
-                    )}
-                  >
-                    <ServerIcon className="h-5 w-5 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{cluster.name}</div>
-                      <div className="flex items-center gap-2 text-xs">
-                        <span className={statusColor}>●</span>
-                        <span className="text-gray-500 dark:text-gray-400">
-                          {cluster.version || 'Unknown version'}
-                        </span>
+                  <li key={cluster.name}>
+                    <button
+                      onClick={() => handleSelectCluster(cluster.name)}
+                      className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+                    >
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        {/* Database icon */}
+                        <svg className="h-4 w-4 text-gray-500 dark:text-gray-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <ellipse cx="12" cy="5" rx="9" ry="3"/>
+                          <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/>
+                          <path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/>
+                        </svg>
+                        
+                        <div className="flex-1 min-w-0">
+                          {/* Issue #3: Selected item has different text color (primary blue) */}
+                          <span className={`text-sm truncate block ${
+                            isSelected 
+                              ? 'font-semibold text-primary-600 dark:text-primary-400' 
+                              : 'font-medium text-gray-800 dark:text-white'
+                          }`}>
+                            {cluster.name}
+                          </span>
+                          {/* Issue #2: Connected status is GREEN, not gray */}
+                          <span className={`text-xs truncate block ${
+                            cluster.status === 'connected' 
+                              ? 'text-green-600 dark:text-green-400' 
+                              : 'text-gray-400 dark:text-gray-500'
+                          }`}>
+                            {cluster.status === 'connected' ? '● Connected' : '○ Disconnected'}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                    {isSelected && (
-                      <CheckIcon className="h-5 w-5 text-primary-600 dark:text-primary-400" />
-                    )}
-                  </button>
+                      {isSelected && (
+                        <CheckIcon className="h-5 w-5 text-primary-600 dark:text-primary-500 flex-shrink-0" />
+                      )}
+                    </button>
+                  </li>
                 )
               })
-            ) : searchQuery ? (
-              <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
-                No clusters found matching "{searchQuery}"
-              </div>
-            ) : (
-              <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
-                No clusters available
-              </div>
             )}
-          </div>
+          </ul>
         </div>
       )}
     </div>
   )
 }
-
