@@ -161,7 +161,6 @@ jobs:
             --head "$BRANCH_NAME" \
             --title "Release $NEW_TAG" \
             --body-file pr-body.md \
-            --label "release,version-bump" \
             --reviewer "${{ github.actor }}"
           
           echo "✅ Pull request created"
