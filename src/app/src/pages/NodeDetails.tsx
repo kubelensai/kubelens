@@ -410,8 +410,8 @@ export default function NodeDetails({}: NodeDetailsProps) {
       {/* Breadcrumb */}
       <Breadcrumb
         items={[
-          { name: cluster || 'Cluster', href: `/clusters/${cluster}` },
-          { name: 'Nodes', href: `/clusters/${cluster}/nodes` },
+          { name: cluster || 'Cluster' },
+          { name: 'Nodes' },
           { name: nodeName || 'Node' },
         ]}
       />

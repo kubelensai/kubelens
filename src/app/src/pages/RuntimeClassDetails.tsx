@@ -231,8 +231,8 @@ export default function RuntimeClassDetails() {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: 'Runtime Classes', href: `/clusters/${cluster}/runtimeclasses` },
+          { name: cluster || '' },
+          { name: 'Runtime Classes' },
           { name: runtimeClassName || '' },
         ]}
       />

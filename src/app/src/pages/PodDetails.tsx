@@ -207,8 +207,8 @@ export default function PodDetails({}: PodDetailsProps) {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: namespace || '', href: `/clusters/${cluster}/namespaces/${namespace}/pods` },
+          { name: cluster || '' },
+          { name: namespace || '' },
           { name: podName || '' },
         ]}
       />

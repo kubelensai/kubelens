@@ -232,7 +232,7 @@ export default function MutatingWebhookConfigurations() {
         items={
           cluster
             ? [
-                { name: cluster, href: `/clusters/${cluster}` },
+                { name: cluster },
                 { name: 'Mutating Webhooks' }
               ]
             : [{ name: 'Mutating Webhooks' }]

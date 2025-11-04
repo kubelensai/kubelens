@@ -228,8 +228,8 @@ export default function StorageClassDetails({}: StorageClassDetailsProps) {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: 'Storage Classes', href: `/clusters/${cluster}/storageclasses` },
+          { name: cluster || '' },
+          { name: 'Storage Classes' },
           { name: storageClassName || '' },
         ]}
       />

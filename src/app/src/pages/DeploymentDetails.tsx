@@ -967,9 +967,9 @@ export default function DeploymentDetails({}: DeploymentDetailsProps) {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: namespace || '', href: `/clusters/${cluster}/namespaces/${namespace}/deployments` },
-          { name: 'Deployments', href: `/clusters/${cluster}/namespaces/${namespace}/deployments` },
+          { name: cluster || '' },
+          { name: namespace || '' },
+          { name: 'Deployments' },
           { name: deploymentName || '' },
         ]}
       />

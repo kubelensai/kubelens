@@ -227,9 +227,9 @@ export default function RoleBindingDetails() {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: namespace || '', href: `/clusters/${cluster}/namespaces/${namespace}/rolebindings` },
-          { name: 'Role Bindings', href: `/clusters/${cluster}/namespaces/${namespace}/rolebindings` },
+          { name: cluster || '' },
+          { name: namespace || '' },
+          { name: 'Role Bindings' },
           { name: roleBindingName || '' },
         ]}
       />

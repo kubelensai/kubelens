@@ -222,8 +222,8 @@ export default function MutatingWebhookConfigurationDetails() {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: 'Mutating Webhooks', href: `/clusters/${cluster}/mutatingwebhookconfigurations` },
+          { name: cluster || '' },
+          { name: 'Mutating Webhooks' },
           { name: webhookName || '' },
         ]}
       />

@@ -281,14 +281,14 @@ export default function GenericCRDDetails() {
         items={
           namespace
             ? [
-                { name: cluster || '', href: `/clusters/${cluster}` },
-                { name: namespace, href: `/clusters/${cluster}/namespaces/${namespace}` },
-                { name: resourceKind, href: `/clusters/${cluster}/namespaces/${namespace}/customresources/${group}/${version}/${resource}` },
+                { name: cluster || '' },
+                { name: namespace },
+                { name: resourceKind },
                 { name: resourceName || '' },
               ]
             : [
-                { name: cluster || '', href: `/clusters/${cluster}` },
-                { name: resourceKind, href: `/clusters/${cluster}/customresources/${group}/${version}/${resource}` },
+                { name: cluster || '' },
+                { name: resourceKind },
                 { name: resourceName || '' },
               ]
         }

@@ -223,9 +223,9 @@ export default function PersistentVolumeClaimDetails({}: PersistentVolumeClaimDe
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: namespace || '', href: `/clusters/${cluster}/namespaces/${namespace}/persistentvolumeclaims` },
-          { name: 'Persistent Volume Claims', href: `/clusters/${cluster}/namespaces/${namespace}/persistentvolumeclaims` },
+          { name: cluster || '' },
+          { name: namespace || '' },
+          { name: 'Persistent Volume Claims' },
           { name: pvcName || '' },
         ]}
       />

@@ -297,7 +297,7 @@ export default function CustomResourceDefinitions() {
         items={
           cluster
             ? [
-                { name: cluster, href: `/clusters/${cluster}` },
+                { name: cluster },
                 { name: 'Custom Resource Definitions' }
               ]
             : [{ name: 'Custom Resource Definitions' }]

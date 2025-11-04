@@ -222,8 +222,8 @@ export default function ValidatingWebhookConfigurationDetails() {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: 'Validating Webhooks', href: `/clusters/${cluster}/validatingwebhookconfigurations` },
+          { name: cluster || '' },
+          { name: 'Validating Webhooks' },
           { name: webhookName || '' },
         ]}
       />

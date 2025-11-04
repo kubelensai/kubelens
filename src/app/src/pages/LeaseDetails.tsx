@@ -243,9 +243,9 @@ export default function LeaseDetails() {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: 'Leases', href: `/clusters/${cluster}/leases` },
-          { name: namespace || '', href: `/clusters/${cluster}/leases` },
+          { name: cluster || '' },
+          { name: 'Leases' },
+          { name: namespace || '' },
           { name: leaseName || '' },
         ]}
       />

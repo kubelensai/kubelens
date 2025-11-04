@@ -46,8 +46,13 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     try {
       set({ isLoading: true })
       const response = await api.get('/notifications?limit=100')
+      // Transform API response: map is_read to read
+      const notifications = response.data.map((n: any) => ({
+        ...n,
+        read: n.is_read ?? n.read ?? false
+      }))
       set({ 
-        notifications: response.data,
+        notifications,
         isLoading: false
       })
       // Also update unread count
@@ -79,8 +84,11 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         message: notification.message,
       })
       
-      // Add the created notification to local state
-      const newNotification: Notification = response.data
+      // Transform API response: map is_read to read
+      const newNotification: Notification = {
+        ...response.data,
+        read: response.data.is_read ?? response.data.read ?? false
+      }
       
       set((state) => ({
         notifications: [newNotification, ...state.notifications].slice(0, 100),

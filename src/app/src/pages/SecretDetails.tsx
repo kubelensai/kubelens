@@ -468,9 +468,9 @@ export default function SecretDetails({}: SecretDetailsProps) {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: namespace || '', href: `/clusters/${cluster}/namespaces/${namespace}/secrets` },
-          { name: 'Secrets', href: `/clusters/${cluster}/namespaces/${namespace}/secrets` },
+          { name: cluster || '' },
+          { name: namespace || '' },
+          { name: 'Secrets' },
           { name: secretName || '' },
         ]}
       />

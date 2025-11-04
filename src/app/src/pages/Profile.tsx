@@ -189,7 +189,7 @@ export default function Profile() {
     <div className="space-y-4 sm:space-y-6">
       {/* Breadcrumb */}
       <div>
-        <Breadcrumb items={[{ name: 'Profile', href: '/profile' }]} />
+        <Breadcrumb items={[{ name: 'Profile' }]} />
       </div>
 
       {/* Header */}

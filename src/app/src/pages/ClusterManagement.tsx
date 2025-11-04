@@ -552,23 +552,23 @@ export default function ClusterManagement() {
   }
 
   return (
-    <div className="p-4 md:p-6 lg:p-8">
+    <div className="space-y-4 sm:space-y-6">
       {/* Breadcrumb */}
-      <Breadcrumb items={[{ name: 'Cluster Management' }]} />
+      <div>
+        <Breadcrumb items={[{ name: 'Cluster Management' }]} />
+      </div>
 
-      {/* Page Header */}
-      <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
-            Cluster Management
-          </h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">Cluster Management</h1>
+          <p className="mt-1 sm:mt-2 text-sm text-gray-600 dark:text-gray-400">
             Manage and monitor your Kubernetes clusters
           </p>
         </div>
         <button 
           onClick={() => setIsImportModalOpen(true)}
-          className="btn-primary flex items-center gap-2 justify-center whitespace-nowrap"
+          className="btn-primary inline-flex items-center justify-center gap-2 whitespace-nowrap"
         >
           <ArrowDownTrayIcon className="h-5 w-5" />
           <span>Import Cluster</span>

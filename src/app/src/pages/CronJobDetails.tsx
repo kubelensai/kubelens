@@ -433,9 +433,9 @@ export default function CronJobDetails({}: CronJobDetailsProps) {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: namespace || '', href: `/clusters/${cluster}/namespaces/${namespace}/cronjobs` },
-          { name: 'CRONJOBS', href: `/clusters/${cluster}/namespaces/${namespace}/cronjobs` },
+          { name: cluster || '' },
+          { name: namespace || '' },
+          { name: 'CRONJOBS' },
           { name: cronjobName || '' },
         ]}
       />

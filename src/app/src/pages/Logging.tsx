@@ -251,20 +251,20 @@ const Logging = () => {
   ];
 
   return (
-    <div className="p-4 md:p-6 lg:p-8">
+    <div className="space-y-4 sm:space-y-6">
       {/* Breadcrumb */}
-      <Breadcrumb
-        items={[
-          { name: 'Audit Logs' },
-        ]}
-      />
+      <div>
+        <Breadcrumb items={[{ name: 'Audit Logs' }]} />
+      </div>
 
-      {/* Page Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl sm:text-3xl font-bold gradient-text">Audit Logs</h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          View and analyze system audit logs
-        </p>
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">Audit Logs</h1>
+          <p className="mt-1 sm:mt-2 text-sm text-gray-600 dark:text-gray-400">
+            View and analyze system audit logs
+          </p>
+        </div>
       </div>
 
       {/* Statistics Cards */}

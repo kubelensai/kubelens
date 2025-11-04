@@ -231,8 +231,8 @@ export default function ClusterRoleDetails() {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: 'Cluster Roles', href: `/clusters/${cluster}/clusterroles` },
+          { name: cluster || '' },
+          { name: 'Cluster Roles' },
           { name: clusterRoleName || '' },
         ]}
       />

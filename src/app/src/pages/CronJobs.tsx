@@ -302,7 +302,7 @@ export default function CronJobs() {
           items={
             cluster
               ? [
-                  { name: cluster, href: "/dashboard" },
+                  { name: cluster },
                   { name: 'CRONJOBS' }
                 ]
               : [{ name: 'CRONJOBS' }]

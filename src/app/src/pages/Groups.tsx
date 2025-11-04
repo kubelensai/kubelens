@@ -253,7 +253,7 @@ export default function Groups() {
     <div className="space-y-4 sm:space-y-6">
       {/* Breadcrumb */}
       <div>
-        <Breadcrumb items={[{ name: 'Groups Management', href: '/groups' }]} />
+        <Breadcrumb items={[{ name: 'Groups Management' }]} />
       </div>
 
       {/* Header */}

@@ -263,7 +263,7 @@ export default function ServiceAccounts() {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          ...(cluster ? [{ name: cluster, href: `/clusters/${cluster}` }] : []),
+          ...(cluster ? [{ name: cluster }] : []),
           { name: 'Service Accounts' }
         ]}
       />

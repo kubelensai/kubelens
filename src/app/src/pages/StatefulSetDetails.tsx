@@ -975,9 +975,9 @@ export default function StatefulSetDetails({}: StatefulSetDetailsProps) {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: namespace || '', href: `/clusters/${cluster}/namespaces/${namespace}/statefulsets` },
-          { name: 'StatefulSets', href: `/clusters/${cluster}/namespaces/${namespace}/statefulsets` },
+          { name: cluster || '' },
+          { name: namespace || '' },
+          { name: 'StatefulSets' },
           { name: statefulsetName || '' },
         ]}
       />

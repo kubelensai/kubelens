@@ -229,9 +229,9 @@ export default function ServiceAccountDetails() {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: namespace || '', href: `/clusters/${cluster}/namespaces/${namespace}/serviceaccounts` },
-          { name: 'Service Accounts', href: `/clusters/${cluster}/namespaces/${namespace}/serviceaccounts` },
+          { name: cluster || '' },
+          { name: namespace || '' },
+          { name: 'Service Accounts' },
           { name: serviceAccountName || '' },
         ]}
       />

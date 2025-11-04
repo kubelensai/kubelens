@@ -340,8 +340,8 @@ export default function CRDDetails() {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: 'Custom Resource Definitions', href: `/clusters/${cluster}/customresourcedefinitions` },
+          { name: cluster || '' },
+          { name: 'Custom Resource Definitions' },
           { name: crdName || '' },
         ]}
       />

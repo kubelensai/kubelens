@@ -228,9 +228,9 @@ export default function NetworkPolicyDetails({}: NetworkPolicyDetailsProps) {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: namespace || '', href: `/clusters/${cluster}/namespaces/${namespace}/networkpolicies` },
-          { name: 'Network Policies', href: `/clusters/${cluster}/namespaces/${namespace}/networkpolicies` },
+          { name: cluster || '' },
+          { name: namespace || '' },
+          { name: 'Network Policies' },
           { name: networkPolicyName || '' },
         ]}
       />

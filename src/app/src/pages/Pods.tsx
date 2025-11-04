@@ -729,8 +729,8 @@ export default function Pods() {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          ...(cluster ? [{ name: cluster, href: `/clusters/${cluster}` }] : []),
-          ...(namespace ? [{ name: namespace, href: `/clusters/${cluster}/namespaces/${namespace}` }] : []),
+          ...(cluster ? [{ name: cluster }] : []),
+          ...(namespace ? [{ name: namespace }] : []),
           { name: 'Pods' }
         ]}
       />

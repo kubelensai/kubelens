@@ -255,8 +255,8 @@ export default function PriorityClassDetails() {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: 'Priority Classes', href: `/clusters/${cluster}/priorityclasses` },
+          { name: cluster || '' },
+          { name: 'Priority Classes' },
           { name: priorityClassName || '' },
         ]}
       />

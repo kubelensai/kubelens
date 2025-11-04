@@ -3,6 +3,7 @@ import { loadEnabledModules } from '@/integrations/loader'
 import { moduleRegistry } from '@/integrations/registry'
 import { IntegrationModule } from '@/integrations/types'
 import { Cog6ToothIcon as CogIcon } from '@heroicons/react/24/outline'
+import Breadcrumb from '@/components/shared/Breadcrumb'
 import api from '@/services/api'
 
 export default function IntegrationsPage() {
@@ -47,13 +48,20 @@ export default function IntegrationsPage() {
   }
 
   return (
-    <div className="p-6">
+    <div className="space-y-4 sm:space-y-6">
+      {/* Breadcrumb */}
+      <div>
+        <Breadcrumb items={[{ name: 'Integrations' }]} />
+      </div>
+
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Integrations</h1>
-        <p className="mt-2 text-gray-600 dark:text-gray-400">
-          Connect Kubelens with cloud providers, monitoring tools, and other services
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold gradient-text">Integrations</h1>
+          <p className="mt-1 sm:mt-2 text-sm text-gray-600 dark:text-gray-400">
+            Connect with cloud providers, monitoring tools, and services
+          </p>
+        </div>
       </div>
 
       {/* Modules Grid */}

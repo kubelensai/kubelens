@@ -302,9 +302,9 @@ export default function ServiceDetails({}: ServiceDetailsProps) {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: namespace || '', href: `/clusters/${cluster}/namespaces/${namespace}/services` },
-          { name: 'Services', href: `/clusters/${cluster}/namespaces/${namespace}/services` },
+          { name: cluster || '' },
+          { name: namespace || '' },
+          { name: 'Services' },
           { name: serviceName || '' },
         ]}
       />

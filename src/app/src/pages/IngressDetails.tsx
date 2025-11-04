@@ -252,9 +252,9 @@ export default function IngressDetails({}: IngressDetailsProps) {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: namespace || '', href: `/clusters/${cluster}/namespaces/${namespace}/ingresses` },
-          { name: 'Ingresses', href: `/clusters/${cluster}/namespaces/${namespace}/ingresses` },
+          { name: cluster || '' },
+          { name: namespace || '' },
+          { name: 'Ingresses' },
           { name: ingressName || '' },
         ]}
       />

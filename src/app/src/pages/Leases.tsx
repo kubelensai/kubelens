@@ -298,7 +298,7 @@ export default function Leases() {
         items={
           cluster
             ? [
-                { name: cluster, href: `/clusters/${cluster}` },
+                { name: cluster },
                 { name: 'Leases' }
               ]
             : [{ name: 'Leases' }]

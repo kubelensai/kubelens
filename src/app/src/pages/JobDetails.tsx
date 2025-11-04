@@ -942,9 +942,9 @@ export default function JobDetails({}: JobDetailsProps) {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: namespace || '', href: `/clusters/${cluster}/namespaces/${namespace}/jobs` },
-          { name: 'Jobs', href: `/clusters/${cluster}/namespaces/${namespace}/jobs` },
+          { name: cluster || '' },
+          { name: namespace || '' },
+          { name: 'Jobs' },
           { name: jobName || '' },
         ]}
       />

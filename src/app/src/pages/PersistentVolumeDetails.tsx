@@ -223,8 +223,8 @@ export default function PersistentVolumeDetails({}: PersistentVolumeDetailsProps
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: 'Persistent Volumes', href: `/clusters/${cluster}/persistentvolumes` },
+          { name: cluster || '' },
+          { name: 'Persistent Volumes' },
           { name: pvName || '' },
         ]}
       />

@@ -232,7 +232,7 @@ export default function ValidatingWebhookConfigurations() {
         items={
           cluster
             ? [
-                { name: cluster, href: `/clusters/${cluster}` },
+                { name: cluster },
                 { name: 'Validating Webhooks' }
               ]
             : [{ name: 'Validating Webhooks' }]

@@ -278,9 +278,9 @@ export default function ConfigMapDetails({}: ConfigMapDetailsProps) {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: namespace || '', href: `/clusters/${cluster}/namespaces/${namespace}/configmaps` },
-          { name: 'ConfigMaps', href: `/clusters/${cluster}/namespaces/${namespace}/configmaps` },
+          { name: cluster || '' },
+          { name: namespace || '' },
+          { name: 'ConfigMaps' },
           { name: configMapName || '' },
         ]}
       />

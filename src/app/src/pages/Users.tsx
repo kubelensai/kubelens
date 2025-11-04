@@ -379,7 +379,7 @@ export default function Users() {
     <div className="space-y-4 sm:space-y-6">
       {/* Breadcrumb */}
       <div>
-        <Breadcrumb items={[{ name: 'User Management', href: '/users' }]} />
+        <Breadcrumb items={[{ name: 'User Management' }]} />
       </div>
 
       {/* Header */}

@@ -977,9 +977,9 @@ export default function ReplicaSetDetails({}: ReplicaSetDetailsProps) {
     <div className="space-y-4 md:space-y-6">
       <Breadcrumb
         items={[
-          { name: cluster || '', href: `/clusters/${cluster}` },
-          { name: namespace || '', href: `/clusters/${cluster}/namespaces/${namespace}/replicasets` },
-          { name: 'ReplicaSets', href: `/clusters/${cluster}/namespaces/${namespace}/replicasets` },
+          { name: cluster || '' },
+          { name: namespace || '' },
+          { name: 'ReplicaSets' },
           { name: replicasetName || '' },
         ]}
       />

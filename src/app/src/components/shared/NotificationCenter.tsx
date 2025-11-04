@@ -148,34 +148,57 @@ export default function NotificationCenter() {
                     <div
                       onClick={() => handleNotificationClick(notification.id)}
                       className={clsx(
-                        "relative flex gap-3 rounded-lg border-b border-gray-100 p-3 py-3 hover:bg-gray-100 cursor-pointer dark:border-gray-800 dark:hover:bg-white/5",
-                        !notification.read && 'bg-primary-50/30 dark:bg-primary-900/10'
+                        "relative flex gap-3 rounded-lg border-b border-gray-100 p-3 py-3 cursor-pointer transition-colors dark:border-gray-800",
+                        notification.read 
+                          ? 'hover:bg-gray-50 dark:hover:bg-gray-800/30 opacity-75' 
+                          : 'bg-primary-50/40 hover:bg-primary-50/60 dark:bg-primary-900/10 dark:hover:bg-primary-900/15'
                       )}
                     >
-                      {/* Unread indicator */}
+                      {/* Unread indicator dot - only show when unread */}
                       {!notification.read && (
-                        <div className="absolute left-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-primary-600 dark:bg-primary-400" />
+                        <div className="absolute left-1 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-primary-600 dark:bg-primary-400" />
                       )}
 
                       {/* Icon */}
-                      <span className={clsx('flex items-center justify-center w-10 h-10 rounded-lg flex-shrink-0', colorClass)}>
+                      <span 
+                        className={clsx(
+                          'flex items-center justify-center w-10 h-10 rounded-lg flex-shrink-0',
+                          notification.read 
+                            ? 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-600' 
+                            : colorClass
+                        )}
+                      >
                         <Icon className="h-5 w-5" />
                       </span>
 
                       {/* Content */}
                       <span className="flex-1 min-w-0 block">
-                        <span className="mb-1 block text-sm text-gray-800 font-medium dark:text-white/90">
+                        <span 
+                          className={clsx(
+                            "mb-1 block text-sm font-medium",
+                            notification.read 
+                              ? 'text-gray-600 dark:text-gray-400' 
+                              : 'text-gray-900 dark:text-white'
+                          )}
+                        >
                           {notification.title}
                         </span>
-                        <span className="block text-xs text-gray-600 dark:text-gray-400 line-clamp-2">
+                        <span 
+                          className={clsx(
+                            "block text-xs line-clamp-2",
+                            notification.read 
+                              ? 'text-gray-500 dark:text-gray-500' 
+                              : 'text-gray-700 dark:text-gray-300'
+                          )}
+                        >
                           {notification.message}
                         </span>
-                        <span className="flex items-center gap-2 mt-1 text-gray-500 text-xs dark:text-gray-400">
+                        <span className="flex items-center gap-2 mt-1 text-gray-400 text-xs dark:text-gray-500">
                           <span>{formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}</span>
                         </span>
 
                         {/* Action Button */}
-                        {notification.action && (
+                        {notification.action && !notification.read && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation()

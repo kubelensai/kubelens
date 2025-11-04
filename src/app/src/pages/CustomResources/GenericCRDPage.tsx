@@ -307,11 +307,11 @@ export default function GenericCRDPage() {
           clusterParam
             ? namespaceParam
               ? [
-                  { name: clusterParam, href: `/clusters/${clusterParam}` },
-                  { name: namespaceParam, href: `/clusters/${clusterParam}/namespaces/${namespaceParam}` },
+                  { name: clusterParam },
+                  { name: namespaceParam },
                   { name: resourceKind },
                 ]
-              : [{ name: clusterParam, href: `/clusters/${clusterParam}` }, { name: resourceKind }]
+              : [{ name: clusterParam }, { name: resourceKind }]
             : [{ name: resourceKind }]
         }
       />
