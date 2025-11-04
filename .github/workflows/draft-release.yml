@@ -110,7 +110,7 @@ jobs:
           
           echo "✅ Updated version files"
 
-      - name: Create release branch
+      - name: Create release branch and commit changes
         run: |
           NEW_TAG="${{ steps.version.outputs.new_tag }}"
           BRANCH_NAME="release/$NEW_TAG"
@@ -123,37 +123,48 @@ jobs:
           echo "branch_name=$BRANCH_NAME" >> $GITHUB_ENV
 
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          branch: ${{ env.branch_name }}
-          title: "Release ${{ steps.version.outputs.new_tag }}"
-          body: |
-            ## Release ${{ steps.version.outputs.new_tag }}
-            
-            This PR updates version numbers for the upcoming release.
-            
-            ### Changes
-            - Bump version to `${{ steps.version.outputs.new_version }}`
-            - Update Helm charts
-            - Update package.json
-            
-            ### Checklist
-            - [ ] Review changelog
-            - [ ] Verify version numbers
-            - [ ] Test installation
-            - [ ] Update documentation
-            
-            ### Release Process
-            1. Review and approve this PR
-            2. Merge to main
-            3. Tag the merge commit: `git tag ${{ steps.version.outputs.new_tag }}`
-            4. Push the tag: `git push origin ${{ steps.version.outputs.new_tag }}`
-            5. GitHub Actions will automatically create the release
-          labels: |
-            release
-            version-bump
-          reviewers: ${{ github.actor }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NEW_TAG="${{ steps.version.outputs.new_tag }}"
+          NEW_VERSION="${{ steps.version.outputs.new_version }}"
+          BRANCH_NAME="${{ env.branch_name }}"
+          
+          # Create PR body
+          cat > pr-body.md << 'EOF'
+          ## Release ${{ steps.version.outputs.new_tag }}
+          
+          This PR updates version numbers for the upcoming release.
+          
+          ### Changes
+          - Bump version to `${{ steps.version.outputs.new_version }}`
+          - Update Helm charts
+          - Update package.json
+          
+          ### Checklist
+          - [ ] Review changelog
+          - [ ] Verify version numbers
+          - [ ] Test installation
+          - [ ] Update documentation
+          
+          ### Release Process
+          1. Review and approve this PR
+          2. Merge to main
+          3. Tag the merge commit: `git tag ${{ steps.version.outputs.new_tag }}`
+          4. Push the tag: `git push origin ${{ steps.version.outputs.new_tag }}`
+          5. GitHub Actions will automatically create the release
+          EOF
+          
+          # Create PR using GitHub CLI
+          gh pr create \
+            --base main \
+            --head "$BRANCH_NAME" \
+            --title "Release $NEW_TAG" \
+            --body-file pr-body.md \
+            --label "release,version-bump" \
+            --reviewer "${{ github.actor }}"
+          
+          echo "✅ Pull request created"
 
       - name: Generate release notes preview
         run: |
