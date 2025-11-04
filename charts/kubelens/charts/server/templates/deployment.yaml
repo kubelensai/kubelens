@@ -41,6 +41,101 @@ spec:
           {{- toYaml .Values.readinessProbe | nindent 12 }}
         env:
           {{- toYaml .Values.env | nindent 10 }}
+          {{- if .Values.adminPassword }}
+          - name: KUBELENS_ADMIN_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ include "server.fullname" . }}-admin
+                key: admin-password
+          {{- end }}
+          {{- if .Values.rateLimit }}
+          - name: KUBELENS_GLOBAL_RATE_LIMIT_PER_MIN
+            value: {{ .Values.rateLimit.global | quote }}
+          - name: KUBELENS_LOGIN_RATE_LIMIT_PER_MIN
+            value: {{ .Values.rateLimit.login | quote }}
+          {{- end }}
+          {{- if eq .Values.database.type "sqlite" }}
+          - name: KUBELENS_DATABASE_TYPE
+            value: "sqlite"
+          {{- if .Values.database.sqlite.deploy }}
+          - name: KUBELENS_DATABASE_PATH
+            value: {{ .Values.database.sqlite.builtin.path }}
+          {{- else }}
+          {{- /* External SQLite */}}
+          - name: KUBELENS_DATABASE_PATH
+            value: {{ .Values.database.sqlite.external.path }}
+          {{- end }}
+          {{- else if eq .Values.database.type "postgresql" }}
+          - name: KUBELENS_DATABASE_TYPE
+            value: "postgres"
+          {{- if .Values.database.postgresql.deploy }}
+          - name: KUBELENS_DATABASE_HOST
+            value: "{{ .Release.Name }}-postgresql"
+          - name: KUBELENS_DATABASE_PORT
+            value: "5432"
+          - name: KUBELENS_DATABASE_NAME
+            value: {{ .Values.postgresql.auth.database | quote }}
+          - name: KUBELENS_DATABASE_USER
+            value: {{ .Values.postgresql.auth.username | quote }}
+          - name: KUBELENS_DATABASE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Release.Name }}-postgresql
+                key: password
+          - name: KUBELENS_DATABASE_SSLMODE
+            value: "disable"
+          {{- else }}
+          {{- /* External PostgreSQL */}}
+          - name: KUBELENS_DATABASE_HOST
+            value: {{ .Values.database.postgresql.external.host | quote }}
+          - name: KUBELENS_DATABASE_PORT
+            value: {{ .Values.database.postgresql.external.port | quote }}
+          - name: KUBELENS_DATABASE_NAME
+            value: {{ .Values.database.postgresql.external.database | quote }}
+          - name: KUBELENS_DATABASE_USER
+            value: {{ .Values.database.postgresql.external.user | quote }}
+          - name: KUBELENS_DATABASE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ include "server.fullname" . }}-database
+                key: password
+          - name: KUBELENS_DATABASE_SSLMODE
+            value: {{ .Values.database.postgresql.external.sslmode | quote }}
+          {{- end }}
+          {{- else if eq .Values.database.type "mysql" }}
+          - name: KUBELENS_DATABASE_TYPE
+            value: "mysql"
+          {{- if .Values.database.mysql.deploy }}
+          - name: KUBELENS_DATABASE_HOST
+            value: "{{ .Release.Name }}-mysql"
+          - name: KUBELENS_DATABASE_PORT
+            value: "3306"
+          - name: KUBELENS_DATABASE_NAME
+            value: {{ .Values.mysql.auth.database | quote }}
+          - name: KUBELENS_DATABASE_USER
+            value: {{ .Values.mysql.auth.username | quote }}
+          - name: KUBELENS_DATABASE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Release.Name }}-mysql
+                key: mysql-password
+          {{- else }}
+          {{- /* External MySQL */}}
+          - name: KUBELENS_DATABASE_HOST
+            value: {{ .Values.database.mysql.external.host | quote }}
+          - name: KUBELENS_DATABASE_PORT
+            value: {{ .Values.database.mysql.external.port | quote }}
+          - name: KUBELENS_DATABASE_NAME
+            value: {{ .Values.database.mysql.external.database | quote }}
+          - name: KUBELENS_DATABASE_USER
+            value: {{ .Values.database.mysql.external.user | quote }}
+          - name: KUBELENS_DATABASE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ include "server.fullname" . }}-database
+                key: password
+          {{- end }}
+          {{- end }}
         resources:
           {{- toYaml .Values.resources | nindent 12 }}
         volumeMounts:
@@ -48,7 +143,7 @@ spec:
           mountPath: /data
       volumes:
       - name: data
-        {{- if .Values.persistence.enabled }}
+        {{- if and (eq .Values.database.type "sqlite") .Values.database.sqlite.deploy .Values.database.sqlite.builtin.persistence.enabled }}
         persistentVolumeClaim:
           claimName: {{ include "server.fullname" . }}-data
         {{- else }}

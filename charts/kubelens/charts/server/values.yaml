@@ -1,3 +1,6 @@
+# Kubelens Server Chart Values
+# This chart can be deployed standalone or as part of the parent kubelens chart
+
 replicaCount: 1
 
 image:
@@ -11,24 +14,33 @@ fullnameOverride: ""
 
 # Service Account
 serviceAccount:
-  # Specifies whether a service account should be created
   create: true
-  # Annotations to add to the service account
   annotations: {}
-  # The name of the service account to use.
-  # If not set and create is true, a name is generated using the fullname template
   name: ""
 
 # RBAC Configuration
 rbac:
-  # Specifies whether RBAC resources should be created
   create: true
-  # Additional rules to add to the ClusterRole
-  # additionalRules: []
 
 service:
   type: ClusterIP
   port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: api.kubelens.app
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: kubelens-server-tls
+      hosts:
+        - api.kubelens.app
 
 resources:
   limits:
@@ -38,20 +50,166 @@ resources:
     cpu: 250m
     memory: 256Mi
 
+# Admin password for default admin user
+# If not set, a random password will be generated and printed in logs
+adminPassword: ""
+
+# Rate limiting configuration
+rateLimit:
+  global: 1000  # requests per minute per IP
+  login: 5      # requests per minute per IP for auth endpoints
+
+# Database Configuration
+# Supports SQLite, PostgreSQL, and MySQL
+# 
+# Examples:
+# 
+# 1. SQLite with PVC (default):
+#    database:
+#      type: sqlite
+#      sqlite:
+#        deploy: true
+# 
+# 2. External PostgreSQL:
+#    database:
+#      type: postgresql
+#      postgresql:
+#        deploy: false
+#        external:
+#          host: postgres.example.com
+#          port: 5432
+#          database: kubelens
+#          user: kubelens
+#          password: "your-secure-password"
+#          sslmode: require
+# 
+# 3. Built-in PostgreSQL (Bitnami chart):
+#    database:
+#      type: postgresql
+#      postgresql:
+#        deploy: true
+# 
+# 4. External MySQL:
+#    database:
+#      type: mysql
+#      mysql:
+#        deploy: false
+#        external:
+#          host: mysql.example.com
+#          port: 3306
+#          database: kubelens
+#          user: kubelens
+#          password: "your-secure-password"
+# 
+database:
+  # Database type: sqlite, postgresql, mysql
+  type: sqlite
+  
+  # SQLite Configuration
+  sqlite:
+    # Deploy built-in SQLite (with PVC) or use external
+    deploy: true
+    
+    # Built-in configuration (only used when deploy: true)
+    builtin:
+      path: /data/kubelens.db
+      persistence:
+        enabled: true
+        storageClass: ""
+        accessMode: ReadWriteOnce
+        size: 1Gi
+    
+    # External configuration (only used when deploy: false)
+    # For external SQLite (e.g., mounted network storage)
+    external:
+      path: ""  # e.g., /mnt/shared/kubelens.db
+  
+  # PostgreSQL Configuration
+  postgresql:
+    # Deploy built-in PostgreSQL or use external
+    deploy: false
+    
+    # External configuration (only used when deploy: false)
+    external:
+      host: ""           # e.g., postgres.example.com
+      port: 5432
+      database: kubelens
+      user: kubelens
+      password: ""       # Store in secret
+      sslmode: require   # disable, require, verify-ca, verify-full
+  
+  # MySQL Configuration
+  mysql:
+    # Deploy built-in MySQL or use external
+    deploy: false
+    
+    # External configuration (only used when deploy: false)
+    external:
+      host: ""           # e.g., mysql.example.com
+      port: 3306
+      database: kubelens
+      user: kubelens
+      password: ""       # Store in secret
+
+# PostgreSQL sub-chart configuration (Bitnami)
+# Only used when database.postgresql.deploy: true
+# See: https://github.com/bitnami/charts/tree/main/bitnami/postgresql
+postgresql:
+  auth:
+    database: kubelens
+    username: kubelens
+    password: ""
+    postgresPassword: ""
+  
+  primary:
+    persistence:
+      enabled: true
+      storageClass: ""
+      size: 10Gi
+    
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+  
+  metrics:
+    enabled: false
+
+# MySQL sub-chart configuration (Bitnami)
+# Only used when database.mysql.deploy: true
+# See: https://github.com/bitnami/charts/tree/main/bitnami/mysql
+mysql:
+  auth:
+    database: kubelens
+    username: kubelens
+    password: ""
+    rootPassword: ""
+  
+  primary:
+    persistence:
+      enabled: true
+      storageClass: ""
+      size: 10Gi
+    
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 500m
+        memory: 512Mi
+  
+  metrics:
+    enabled: false
+
 env:
   - name: PORT
     value: "8080"
   - name: LOG_LEVEL
     value: "info"
-  - name: DATABASE_PATH
-    value: "/data/kubelens.db"
-
-persistence:
-  enabled: true
-  storageClass: ""
-  accessMode: ReadWriteOnce
-  size: 1Gi
-  # existingClaim: ""
 
 podAnnotations: {}
 
@@ -62,7 +220,7 @@ securityContext:
   capabilities:
     drop:
     - ALL
-  readOnlyRootFilesystem: true
+  readOnlyRootFilesystem: false
   runAsNonRoot: true
   runAsUser: 1000
 

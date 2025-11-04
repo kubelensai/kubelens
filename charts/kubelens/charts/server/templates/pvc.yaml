@@ -1,4 +1,4 @@
-{{- if .Values.persistence.enabled }}
+{{- if and (eq .Values.database.type "sqlite") .Values.database.sqlite.deploy .Values.database.sqlite.builtin.persistence.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -7,16 +7,16 @@ metadata:
     {{- include "server.labels" . | nindent 4 }}
 spec:
   accessModes:
-    - {{ .Values.persistence.accessMode }}
-  {{- if .Values.persistence.storageClass }}
-  {{- if (eq "-" .Values.persistence.storageClass) }}
+    - {{ .Values.database.sqlite.builtin.persistence.accessMode }}
+  {{- if .Values.database.sqlite.builtin.persistence.storageClass }}
+  {{- if (eq "-" .Values.database.sqlite.builtin.persistence.storageClass) }}
   storageClassName: ""
   {{- else }}
-  storageClassName: {{ .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.database.sqlite.builtin.persistence.storageClass }}
   {{- end }}
   {{- end }}
   resources:
     requests:
-      storage: {{ .Values.persistence.size }}
+      storage: {{ .Values.database.sqlite.builtin.persistence.size }}
 {{- end }}
 

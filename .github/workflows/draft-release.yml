@@ -1,0 +1,207 @@
+name: Draft Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - prerelease
+      prerelease_type:
+        description: 'Pre-release type (alpha, beta, rc)'
+        required: false
+        type: choice
+        options:
+          - 'none'
+          - alpha
+          - beta
+          - rc
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  create-draft:
+    name: Create Draft Release
+    runs-on: ubuntu-24.04
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Calculate new version
+        id: version
+        run: |
+          # Get current version from Chart.yaml
+          CURRENT_VERSION=$(grep '^version:' charts/kubelens/Chart.yaml | awk '{print $2}')
+          echo "Current version: $CURRENT_VERSION"
+          
+          # Parse version components
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
+          PATCH="${PATCH%%-*}"  # Remove any prerelease suffix
+          
+          # Bump version based on input
+          case "${{ github.event.inputs.version_bump }}" in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+            prerelease)
+              # Keep current version
+              ;;
+          esac
+          
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+          
+          # Add prerelease suffix if specified
+          if [[ -n "${{ github.event.inputs.prerelease_type }}" ]]; then
+            # Get current prerelease number
+            PRERELEASE_NUM=1
+            if [[ "$CURRENT_VERSION" =~ -${{ github.event.inputs.prerelease_type }}\.([0-9]+) ]]; then
+              PRERELEASE_NUM=$((BASH_REMATCH[1] + 1))
+            fi
+            NEW_VERSION="$NEW_VERSION-${{ github.event.inputs.prerelease_type }}.$PRERELEASE_NUM"
+          fi
+          
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "new_tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "✅ New version: v$NEW_VERSION"
+
+      - name: Update version files
+        run: |
+          NEW_VERSION="${{ steps.version.outputs.new_version }}"
+          
+          # Update Helm charts
+          sed -i "s/^version:.*/version: $NEW_VERSION/" charts/kubelens/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"$NEW_VERSION\"/" charts/kubelens/Chart.yaml
+          
+          sed -i "s/^version:.*/version: $NEW_VERSION/" charts/kubelens/charts/server/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"$NEW_VERSION\"/" charts/kubelens/charts/server/Chart.yaml
+          
+          sed -i "s/^version:.*/version: $NEW_VERSION/" charts/kubelens/charts/app/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"$NEW_VERSION\"/" charts/kubelens/charts/app/Chart.yaml
+          
+          # Update package.json
+          cd src/app
+          npm version $NEW_VERSION --no-git-tag-version
+          cd ../..
+          
+          echo "✅ Updated version files"
+
+      - name: Create release branch
+        run: |
+          NEW_TAG="${{ steps.version.outputs.new_tag }}"
+          BRANCH_NAME="release/$NEW_TAG"
+          
+          git checkout -b $BRANCH_NAME
+          git add -A
+          git commit -m "chore: bump version to $NEW_TAG"
+          git push origin $BRANCH_NAME
+          
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_ENV
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ env.branch_name }}
+          title: "Release ${{ steps.version.outputs.new_tag }}"
+          body: |
+            ## Release ${{ steps.version.outputs.new_tag }}
+            
+            This PR updates version numbers for the upcoming release.
+            
+            ### Changes
+            - Bump version to `${{ steps.version.outputs.new_version }}`
+            - Update Helm charts
+            - Update package.json
+            
+            ### Checklist
+            - [ ] Review changelog
+            - [ ] Verify version numbers
+            - [ ] Test installation
+            - [ ] Update documentation
+            
+            ### Release Process
+            1. Review and approve this PR
+            2. Merge to main
+            3. Tag the merge commit: `git tag ${{ steps.version.outputs.new_tag }}`
+            4. Push the tag: `git push origin ${{ steps.version.outputs.new_tag }}`
+            5. GitHub Actions will automatically create the release
+          labels: |
+            release
+            version-bump
+          reviewers: ${{ github.actor }}
+
+      - name: Generate release notes preview
+        run: |
+          NEW_TAG="${{ steps.version.outputs.new_tag }}"
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          echo "## 📝 Release Notes Preview for $NEW_TAG" > release-notes.md
+          echo "" >> release-notes.md
+          
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            echo "### Changes since $PREVIOUS_TAG" >> release-notes.md
+            git log $PREVIOUS_TAG..HEAD --pretty=format:"* %s (%h)" --no-merges >> release-notes.md
+          else
+            echo "### All Changes" >> release-notes.md
+            git log --pretty=format:"* %s (%h)" --no-merges >> release-notes.md
+          fi
+          
+          echo "" >> release-notes.md
+          echo "---" >> release-notes.md
+          echo "**Note:** This is a preview. Final release notes will be generated automatically." >> release-notes.md
+          
+          cat release-notes.md
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.new_tag }}
+          name: ${{ steps.version.outputs.new_tag }}
+          draft: true
+          prerelease: ${{ contains(steps.version.outputs.new_version, '-') }}
+          generate_release_notes: true
+          body: |
+            ## 🚧 Draft Release
+            
+            This is a draft release for ${{ steps.version.outputs.new_tag }}.
+            
+            **Status:** Not yet published
+            
+            ### Next Steps
+            1. Merge the release PR
+            2. Tag the merge commit
+            3. Push the tag to trigger the full release workflow
+            
+            The final release will include:
+            - 🐳 Multi-arch Docker images (amd64, arm64)
+            - 📦 Helm chart package
+            - 🔒 Security scan reports
+            - 📋 SBOM (Software Bill of Materials)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

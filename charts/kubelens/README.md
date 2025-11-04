@@ -3,14 +3,14 @@
 A comprehensive Helm chart for deploying Kubelens - a modern, multi-cluster Kubernetes dashboard with real-time monitoring and management capabilities.
 
 **This is a parent chart that orchestrates two independent sub-charts:**
-- 🔧 **Server**: Go-based API server with RBAC
-- 🌐 **App**: React-based web interface with Ingress
+- 🔧 **Server**: Go-based API server with RBAC and optional Ingress
+- 🌐 **App**: React-based web interface with optional Ingress
 
 ## Features
 
 - ✅ **Modular Architecture**: Server and App can be deployed independently
 - ✅ **Auto-configured RBAC**: Server includes comprehensive cluster permissions by default
-- ✅ **Built-in Ingress**: App chart manages ingress for easy external access
+- ✅ **Dual Ingress Support**: Both Server and App can have independent Ingress configurations
 - ✅ **Multi-cluster Support**: Manage multiple Kubernetes clusters from one dashboard
 - ✅ **Real-time Updates**: WebSocket support for live cluster monitoring
 - ✅ **Persistent Storage**: SQLite database with PVC support
@@ -22,13 +22,14 @@ A comprehensive Helm chart for deploying Kubelens - a modern, multi-cluster Kube
 kubelens (parent)
 ├── server (sub-chart) - Independent deployment
 │   ├── Deployment + Service
+│   ├── Ingress (optional)
 │   ├── RBAC (ClusterRole + ClusterRoleBinding)
 │   ├── ServiceAccount
 │   └── PersistentVolumeClaim
 │
 └── app (sub-chart) - Independent deployment
     ├── Deployment + Service
-    └── Ingress
+    └── Ingress (optional)
 ```
 
 **Important**: The parent chart does **not** create any Kubernetes resources directly. It only includes and configures sub-charts.
@@ -44,13 +45,30 @@ helm install kubelens ./kubelens \
   --create-namespace
 ```
 
-### With Ingress
+### With Ingress (App Only)
 
 ```bash
-# Install with ingress enabled
+# Install with app ingress enabled
 helm install kubelens ./kubelens \
   --namespace kubelens \
   --create-namespace \
+  --set app.ingress.enabled=true \
+  --set app.ingress.hosts[0].host=kubelens.example.com \
+  --set app.ingress.hosts[0].paths[0].path=/ \
+  --set app.ingress.hosts[0].paths[0].pathType=Prefix
+```
+
+### With Dual Ingress (Both Server and App)
+
+```bash
+# Install with both server and app ingress enabled
+helm install kubelens ./kubelens \
+  --namespace kubelens \
+  --create-namespace \
+  --set server.ingress.enabled=true \
+  --set server.ingress.hosts[0].host=api.kubelens.example.com \
+  --set server.ingress.hosts[0].paths[0].path=/ \
+  --set server.ingress.hosts[0].paths[0].pathType=Prefix \
   --set app.ingress.enabled=true \
   --set app.ingress.hosts[0].host=kubelens.example.com \
   --set app.ingress.hosts[0].paths[0].path=/ \
@@ -82,10 +100,14 @@ kubectl port-forward -n kubelens svc/kubelens-app 8080:80
 | `server.replicaCount` | Number of server replicas | `1` |
 | `server.image.repository` | Server image | `kubelensai/kubelens-server` |
 | `server.image.tag` | Server image tag | `latest` |
+| `server.ingress.enabled` | Enable ingress for server | `false` |
+| `server.ingress.className` | Ingress class | `""` |
+| `server.ingress.hosts` | Ingress hosts | `[{host: api.kubelens.app, ...}]` |
 | `server.rbac.create` | Create RBAC resources | `true` |
 | `server.serviceAccount.create` | Create ServiceAccount | `true` |
 | `server.persistence.enabled` | Enable persistent storage | `true` |
 | `server.persistence.size` | PVC size | `1Gi` |
+| `server.adminPassword` | Admin password (auto-generated if empty) | `""` |
 
 ### App Configuration
 
@@ -128,7 +150,7 @@ See [app/README.md](charts/app/README.md) for detailed app configuration.
 
 ## Production Examples
 
-### Minimal Production Setup
+### Minimal Production Setup (Single Domain)
 
 ```yaml
 # minimal-prod.yaml
@@ -165,9 +187,81 @@ app:
           - path: /
             pathType: Prefix
     tls:
-      - secretName: kubelens-tls
+      - secretName: kubelens-app-tls
         hosts:
           - kubelens.production.example.com
+```
+
+### Production Setup with Dual Ingress (Separate Domains)
+
+```yaml
+# dual-ingress-prod.yaml
+server:
+  replicaCount: 2
+  persistence:
+    size: 5Gi
+    storageClass: "fast-ssd"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  # Set admin password for production
+  adminPassword: "ChangeThisSecurePassword123!"
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/cors-enable: "true"
+      nginx.ingress.kubernetes.io/cors-allow-origin: "https://kubelens.example.com"
+    hosts:
+      - host: api.kubelens.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: kubelens-server-tls
+        hosts:
+          - api.kubelens.example.com
+
+app:
+  replicaCount: 3
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  env:
+    apiServer: "https://api.kubelens.example.com"
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    hosts:
+      - host: kubelens.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: kubelens-app-tls
+        hosts:
+          - kubelens.example.com
+```
+
+**Deploy:**
+```bash
+helm install kubelens ./kubelens \
+  -f dual-ingress-prod.yaml \
+  --namespace kubelens \
+  --create-namespace
 ```
 
 ```bash
@@ -281,6 +375,51 @@ helm install kubelens ./kubelens \
 
 ## RBAC & Security
 
+### Default Admin Credentials
+
+Kubelens automatically creates an admin user on first startup:
+- **Email**: `admin@kubelens.local`
+- **Username**: `admin`
+- **Password**: 
+  - If `server.adminPassword` is set: uses your password
+  - If not set: **auto-generates a random 10-character password** (printed in logs)
+
+⚠️ **Important**: When using auto-generated passwords, check the server logs on first startup to get the password!
+
+### Configure Admin Password
+
+**Option 1: Via Helm Values (Recommended)**
+```yaml
+# values.yaml
+server:
+  adminPassword: "your-secure-password"
+```
+
+```bash
+helm install kubelens ./kubelens -f values.yaml
+```
+
+**Option 2: Via Command Line**
+```bash
+helm install kubelens ./kubelens \
+  --set server.adminPassword="your-secure-password"
+```
+
+**Option 3: Auto-Generated Password (Default)**
+```bash
+# Install without setting password
+helm install kubelens ./kubelens
+
+# Check logs for auto-generated password
+kubectl logs -n kubelens -l app.kubernetes.io/component=server | grep Password
+```
+
+**How It Works:**
+- Chart creates a Kubernetes Secret with your password
+- Secret is mounted as environment variable `ADMIN_PASSWORD`
+- If no password is set, server generates a random one and prints it to logs
+- Password is only printed when auto-generated (not when explicitly set)
+
 ### Default RBAC
 
 The server chart automatically creates:
@@ -382,14 +521,15 @@ kubectl logs -n kubelens -l app.kubernetes.io/component=app --tail=100 -f
 
 ### Communication Flow
 
+#### Option 1: Single Ingress (App Only)
 ```
 Internet/User
      ↓
-  Ingress (App Chart)
+  Ingress (App)
      ↓
   App Service (Port 80)
      ↓
-  App Pods (Node.js + React)
+  App Pods (React)
      ↓ /api/* proxy
   Server Service (Port 8080)
      ↓
@@ -398,6 +538,27 @@ Internet/User
   Kubernetes API (RBAC)
      ↓
   Cluster Resources
+```
+
+#### Option 2: Dual Ingress (Both Server and App)
+```
+Internet/User
+     ↓
+  ┌─────────────┬─────────────┐
+  ↓             ↓             ↓
+Ingress (App)  Ingress (Server)
+  ↓             ↓
+App Service    Server Service
+(Port 80)      (Port 8080)
+  ↓             ↓
+App Pods       Server Pods
+(React)        (Go API)
+  ↓             ↓
+  └─────────────┴─────────────┘
+                ↓
+         Kubernetes API (RBAC)
+                ↓
+         Cluster Resources
 ```
 
 ### Storage Architecture

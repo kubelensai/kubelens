@@ -1,13 +1,13 @@
 # Kubelens Parent Chart Values
-# This chart only includes sub-charts (server and app)
-# No resources are created directly by this chart
+# This chart includes sub-charts (dex, server, app)
+# All configuration is done via sub-chart value overrides
 
-# Global settings (inherited by sub-charts)
+# Global settings (inherited by all sub-charts)
 global:
   imagePullSecrets: []
 
-# Dex sub-chart configuration (OAuth2 provider)
-# Using official Dex Helm chart from https://github.com/dexidp/helm-charts
+# Dex sub-chart configuration (OAuth2/OIDC provider)
+# See: https://github.com/dexidp/helm-charts
 dex:
   enabled: true
   replicaCount: 1
@@ -17,7 +17,6 @@ dex:
     tag: v2.37.0
     pullPolicy: IfNotPresent
   
-  # Service configuration
   service:
     type: ClusterIP
     ports:
@@ -28,7 +27,6 @@ dex:
       telemetry:
         port: 5558
   
-  # Resources
   resources:
     limits:
       cpu: 200m
@@ -37,15 +35,12 @@ dex:
       cpu: 100m
       memory: 128Mi
   
-  # Environment variables for Google OAuth2 credentials
-  # IMPORTANT: Set these via --set or external secrets in production
   envVars:
     - name: GOOGLE_CLIENT_ID
       value: ""  # Set via: --set dex.envVars[0].value=YOUR_CLIENT_ID
     - name: GOOGLE_CLIENT_SECRET
       value: ""  # Set via: --set dex.envVars[1].value=YOUR_CLIENT_SECRET
   
-  # Dex configuration
   config:
     issuer: http://dex:5556/dex
     
@@ -85,6 +80,7 @@ dex:
             - https://www.googleapis.com/auth/cloud-platform.read-only
 
 # Server sub-chart configuration
+# See: charts/server/values.yaml for full configuration options
 server:
   enabled: true
   replicaCount: 1
@@ -98,6 +94,22 @@ server:
     type: ClusterIP
     port: 8080
   
+  ingress:
+    enabled: false # Set to true to enable ingress
+    className: ""
+    annotations: {}
+      # cert-manager.io/cluster-issuer: letsencrypt-prod
+      # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    hosts:
+      - host: ""
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: {}
+      # - secretName: kubelens-app-secret
+      #   hosts:
+      #     - ""
+  
   serviceAccount:
     create: true
     annotations: {}
@@ -108,28 +120,84 @@ server:
   
   resources:
     limits:
-      cpu: 500m
+      cpu: 200m
       memory: 512Mi
     requests:
-      cpu: 250m
+      cpu: 100m
       memory: 256Mi
+  
+  # Admin password for default admin user
+  adminPassword: ""
+  
+  # Rate limiting
+  rateLimit:
+    global: 1000
+    login: 5
+  
+  # Database configuration (SQLite by default)
+  # For PostgreSQL or MySQL, see examples below
+  database:
+    type: postgresql
+    sqlite:
+      deploy: false
+      builtin:
+        path: /data/kubelens.db
+        persistence:
+          enabled: true
+          storageClass: ""
+          accessMode: ReadWriteOnce
+          size: 1Gi
+      external:
+        path: ""  # e.g., /mnt/shared/kubelens.db
+    postgresql:
+      deploy: true
+      external:
+        host: ""           # e.g., postgres.example.com
+        port: 5432
+        database: kubelens
+        user: kubelens
+        password: ""       # External database password
+        sslmode: require   # disable, require, verify-ca, verify-full
+    mysql:
+      deploy: false
+      external:
+        host: ""           # e.g., mysql.example.com
+        port: 3306
+        database: kubelens
+        user: kubelens
+        password: ""       # External database password
+  
+  # PostgreSQL sub-chart values (only used when database.postgresql.deploy: true)
+  postgresql:
+    auth:
+      database: kubelens
+      username: kubelens
+      password: ""
+      postgresPassword: ""
+    primary:
+      persistence:
+        enabled: true
+        size: 10Gi
+  
+  # MySQL sub-chart values (only used when database.mysql.deploy: true)
+  mysql:
+    auth:
+      database: kubelens
+      username: kubelens
+      password: ""
+      rootPassword: ""
+    primary:
+      persistence:
+        enabled: true
+        size: 10Gi
   
   env:
     - name: PORT
       value: "8080"
     - name: LOG_LEVEL
       value: "info"
-    - name: DATABASE_PATH
-      value: "/data/kubelens.db"
-  
-  persistence:
-    enabled: true
-    storageClass: ""
-    accessMode: ReadWriteOnce
-    size: 1Gi
   
   podAnnotations: {}
-  
   podSecurityContext:
     fsGroup: 2000
   
@@ -145,7 +213,8 @@ server:
   tolerations: []
   affinity: {}
 
-# App sub-chart configuration
+# App sub-chart configuration (Frontend)
+# See: charts/app/values.yaml for full configuration options
 app:
   enabled: true
   replicaCount: 1
@@ -160,20 +229,20 @@ app:
     port: 80
   
   ingress:
-    enabled: false
+    enabled: false # Set to true to enable ingress
     className: ""
     annotations: {}
       # cert-manager.io/cluster-issuer: letsencrypt-prod
       # nginx.ingress.kubernetes.io/ssl-redirect: "true"
     hosts:
-      - host: kubelens.app
+      - host: ""
         paths:
           - path: /
             pathType: Prefix
-    tls:
-      - secretName: kubelens-app-secret
-        hosts:
-          - kubelens.app
+    tls: {}
+      # - secretName: kubelens-app-secret
+      #   hosts:
+      #     - ""
   
   resources:
     limits:
@@ -183,10 +252,9 @@ app:
       cpu: 50m
       memory: 64Mi
   
+  # API Server URL - set to match server ingress
   env:
-    # API Server URL - auto-configured to point to server service
-    apiServer: ""  # Will be set to http://<release-name>-server:8080
-    extra: {}
+    apiServer: ""
   
   # Server service configuration for app to connect
   server:

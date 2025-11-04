@@ -1,208 +1,320 @@
 # Kubelens Server Helm Chart
 
-This chart deploys the Kubelens server component - a Go-based API server that manages multi-cluster Kubernetes connections.
-
-**This chart can be deployed standalone or as part of the parent Kubelens chart.**
+This chart deploys the Kubelens Server, which can be installed **standalone** or as part of the parent Kubelens chart.
 
 ## Features
 
-- ✅ Multi-cluster Kubernetes management
-- ✅ RESTful API for cluster resources
-- ✅ WebSocket support for real-time updates
-- ✅ SQLite database with persistent storage
-- ✅ **Built-in RBAC** (automatically created)
-- ✅ **ServiceAccount** (automatically created)
-- ✅ Comprehensive cluster-wide permissions
+- ✅ **Standalone Deployment** - Can be deployed independently without app or dex
+- ✅ **Multiple Database Support** - SQLite, PostgreSQL, or MySQL
+- ✅ **Built-in or External Databases** - Deploy databases or use external services
+- ✅ **Auto-configured DSN** - Database connection automatically configured
+- ✅ **RBAC Support** - Kubernetes RBAC for cluster access
+- ✅ **Ingress Support** - Optional ingress for external access
 
-## Installation
+## Quick Start
 
-### Standalone Deployment
-
-```bash
-# From the server chart directory
-helm install kubelens-server . \
-  --namespace kubelens \
-  --create-namespace
-```
-
-### As Part of Parent Chart
+### Standalone Installation (SQLite)
 
 ```bash
-# From the parent kubelens chart
-helm install kubelens . \
-  --namespace kubelens \
-  --create-namespace
+helm install kubelens-server ./charts/kubelens/charts/server
 ```
 
-## RBAC Configuration
+### With PostgreSQL (Built-in)
 
-**RBAC resources are created by default** to avoid human errors. The server requires cluster-wide permissions to manage multiple Kubernetes clusters.
+```bash
+helm install kubelens-server ./charts/kubelens/charts/server \
+  --set database.type=postgresql \
+  --set database.postgresql.deploy=true \
+  --set database.postgresql.builtin.auth.password=your-password
+```
 
-### Default Permissions
+### With External MySQL
 
-The server is granted:
-- ✅ **Read access** to all cluster resources
-- ✅ **Write access** to specific resources:
-  - Pod exec and port-forward
-  - Deployments, StatefulSets, ReplicaSets (update, patch, scale)
-  - Jobs and CronJobs (create, delete)
-- ✅ **Metrics access** for monitoring
+```bash
+helm install kubelens-server ./charts/kubelens/charts/server \
+  --set database.type=mysql \
+  --set database.mysql.external.host=mysql.example.com \
+  --set database.mysql.external.password=your-password
+```
 
-### Disable RBAC (Not Recommended)
+## Database Configuration
 
+### SQLite (Default)
+
+**Built-in with PVC:**
 ```yaml
-# values.yaml
-rbac:
-  create: false
-
-serviceAccount:
-  create: false
-  name: "existing-service-account"
+database:
+  type: sqlite
+  sqlite:
+    enabled: true
+    path: /data/kubelens.db
+    persistence:
+      enabled: true
+      size: 1Gi
 ```
 
-⚠️ **Warning**: Disabling RBAC requires you to manually create appropriate permissions.
+**External (e.g., Cloudflare D1):**
+```yaml
+database:
+  type: sqlite
+  sqlite:
+    enabled: false
+    externalDSN: "file:/path/to/db.db?cache=shared&mode=rwc"
+```
+
+### PostgreSQL
+
+**Built-in (Bitnami sub-chart):**
+```yaml
+database:
+  type: postgresql
+  postgresql:
+    deploy: true
+    builtin:
+      auth:
+        password: your-password
+      primary:
+        persistence:
+          size: 10Gi
+```
+
+**External (AWS RDS, Google Cloud SQL, etc.):**
+```yaml
+database:
+  type: postgresql
+  postgresql:
+    deploy: false
+    external:
+      host: postgres.example.com
+      port: 5432
+      database: kubelens
+      username: kubelens
+      password: your-password
+      sslMode: require
+```
+
+**External (Full DSN):**
+```yaml
+database:
+  type: postgresql
+  postgresql:
+    deploy: false
+    external:
+      dsn: "host=postgres.example.com port=5432 user=kubelens password=secret dbname=kubelens sslmode=require"
+```
+
+### MySQL
+
+**Built-in (Bitnami sub-chart):**
+```yaml
+database:
+  type: mysql
+  mysql:
+    deploy: true
+    builtin:
+      auth:
+        password: your-password
+      primary:
+        persistence:
+          size: 10Gi
+```
+
+**External (AWS RDS, Google Cloud SQL, etc.):**
+```yaml
+database:
+  type: mysql
+  mysql:
+    deploy: false
+    external:
+      host: mysql.example.com
+      port: 3306
+      database: kubelens
+      username: kubelens
+      password: your-password
+```
 
 ## Configuration
 
-### Key Parameters
+### Essential Parameters
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `replicaCount` | Number of server replicas | `1` |
+| `replicaCount` | Number of replicas | `1` |
 | `image.repository` | Server image repository | `kubelensai/kubelens-server` |
 | `image.tag` | Server image tag | `""` (uses appVersion) |
-| `service.type` | Kubernetes service type | `ClusterIP` |
-| `service.port` | Server service port | `8080` |
+| `adminPassword` | Admin user password | `""` (auto-generated) |
+| `database.type` | Database type: sqlite, postgresql, mysql | `sqlite` |
+
+### Database Parameters
+
+#### SQLite
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `database.sqlite.enabled` | Use built-in SQLite | `true` |
+| `database.sqlite.path` | Path to database file | `/data/kubelens.db` |
+| `database.sqlite.externalDSN` | External DSN | `""` |
+| `database.sqlite.persistence.enabled` | Enable persistence | `true` |
+| `database.sqlite.persistence.size` | PVC size | `1Gi` |
+
+#### PostgreSQL
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `database.postgresql.deploy` | Deploy PostgreSQL | `false` |
+| `database.postgresql.external.host` | External host | `""` |
+| `database.postgresql.external.password` | Password | `""` |
+| `database.postgresql.builtin.auth.password` | Built-in password | `kubelens123` |
+| `database.postgresql.builtin.primary.persistence.size` | PVC size | `10Gi` |
+
+#### MySQL
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `database.mysql.deploy` | Deploy MySQL | `false` |
+| `database.mysql.external.host` | External host | `""` |
+| `database.mysql.external.password` | Password | `""` |
+| `database.mysql.builtin.auth.password` | Built-in password | `kubelens123` |
+| `database.mysql.builtin.primary.persistence.size` | PVC size | `10Gi` |
+
+### Other Parameters
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `rateLimit.global` | Global rate limit (req/min) | `1000` |
+| `rateLimit.login` | Login rate limit (req/min) | `5` |
+| `ingress.enabled` | Enable ingress | `false` |
+| `ingress.hosts` | Ingress hosts | `[api.kubelens.app]` |
+| `serviceAccount.create` | Create service account | `true` |
 | `rbac.create` | Create RBAC resources | `true` |
-| `serviceAccount.create` | Create ServiceAccount | `true` |
-| `persistence.enabled` | Enable persistent storage | `true` |
-| `persistence.size` | Size of persistent volume | `1Gi` |
-
-### Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PORT` | Server port | `8080` |
-| `LOG_LEVEL` | Logging level | `info` |
-| `DATABASE_PATH` | Database file path | `/data/kubelens.db` |
-
-## Storage
-
-The server requires persistent storage for:
-- Cluster configurations
-- User preferences
-- Application state
-
-By default, a PersistentVolumeClaim is created with 1Gi storage.
-
-## Health Checks
-
-- **Liveness probe**: `/health` endpoint, checked every 10s after 30s initial delay
-- **Readiness probe**: `/health` endpoint, checked every 5s after 5s initial delay
 
 ## Examples
 
-### Minimal Installation
+### Production Setup with PostgreSQL HA
 
 ```bash
-helm install kubelens-server . \
-  --set persistence.size=500Mi \
-  --set resources.requests.cpu=100m \
-  --set resources.requests.memory=128Mi
-```
-
-### Production with Custom Storage Class
-
-```bash
-helm install kubelens-server . \
-  --set replicaCount=2 \
-  --set persistence.size=5Gi \
-  --set persistence.storageClass=fast-ssd \
-  --set resources.requests.cpu=500m \
+helm install kubelens-server ./charts/kubelens/charts/server \
+  --set database.type=postgresql \
+  --set database.postgresql.deploy=true \
+  --set database.postgresql.builtin.auth.password=secure-password \
+  --set database.postgresql.builtin.auth.postgresPassword=admin-password \
+  --set database.postgresql.builtin.primary.persistence.size=50Gi \
+  --set database.postgresql.builtin.primary.resources.requests.memory=1Gi \
+  --set database.postgresql.builtin.primary.resources.requests.cpu=1000m \
+  --set adminPassword=admin-secure-password \
+  --set ingress.enabled=true \
+  --set ingress.hosts[0].host=api.kubelens.example.com \
   --set resources.requests.memory=512Mi \
-  --set resources.limits.cpu=1000m \
-  --set resources.limits.memory=1Gi
+  --set resources.requests.cpu=500m
 ```
 
-### With External Database (Disable Persistence)
+### Development Setup with SQLite
 
 ```bash
-helm install kubelens-server . \
-  --set persistence.enabled=false \
-  --set env[0].name=DATABASE_PATH \
-  --set env[0].value=/tmp/kubelens.db
+helm install kubelens-server-dev ./charts/kubelens/charts/server \
+  --set database.sqlite.persistence.size=500Mi \
+  --set resources.requests.memory=128Mi \
+  --set resources.requests.cpu=100m
 ```
 
-## Security
+### Using External AWS RDS PostgreSQL
 
-### Pod Security Context
+```bash
+helm install kubelens-server ./charts/kubelens/charts/server \
+  --set database.type=postgresql \
+  --set database.postgresql.external.host=mydb.123456.us-east-1.rds.amazonaws.com \
+  --set database.postgresql.external.database=kubelens \
+  --set database.postgresql.external.username=kubelens \
+  --set database.postgresql.external.password=aws-rds-password \
+  --set database.postgresql.external.sslMode=require
+```
 
-By default, the server runs with restricted security settings:
-- ✅ Drops all capabilities
-- ✅ Read-only root filesystem
-- ✅ Runs as non-root user (UID 1000)
-- ✅ FSGroup 2000 for persistent volume access
+### Using External Google Cloud SQL MySQL
 
-### Custom ServiceAccount
-
-```yaml
-# values.yaml
-serviceAccount:
-  create: true
-  annotations:
-    eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT:role/KubelensServerRole
-  name: "kubelens-server-custom"
+```bash
+helm install kubelens-server ./charts/kubelens/charts/server \
+  --set database.type=mysql \
+  --set database.mysql.external.host=10.1.2.3 \
+  --set database.mysql.external.database=kubelens \
+  --set database.mysql.external.username=kubelens \
+  --set database.mysql.external.password=gcp-sql-password
 ```
 
 ## Upgrading
 
+### Update Dependencies
+
 ```bash
-helm upgrade kubelens-server . \
-  --namespace kubelens \
-  --reuse-values
+helm dependency update
+```
+
+### Upgrade Release
+
+```bash
+helm upgrade kubelens-server ./charts/kubelens/charts/server \
+  --reuse-values \
+  --set database.postgresql.builtin.auth.password=new-password
+```
+
+## Troubleshooting
+
+### View Logs
+
+```bash
+kubectl logs -f deployment/kubelens-server
+```
+
+### Check Database Connection
+
+```bash
+kubectl get secret kubelens-server-database -o jsonpath='{.data.dsn}' | base64 -d
+```
+
+### Verify Pod Status
+
+```bash
+kubectl get pods -l app.kubernetes.io/name=server
+kubectl describe pod <pod-name>
+```
+
+### Test Health Endpoint
+
+```bash
+kubectl port-forward svc/kubelens-server 8080:8080
+curl http://localhost:8080/health
+```
+
+### Database Issues
+
+**PostgreSQL:**
+```bash
+kubectl get pods -l app.kubernetes.io/name=postgresql
+kubectl logs -f statefulset/kubelens-server-postgresql
+```
+
+**MySQL:**
+```bash
+kubectl get pods -l app.kubernetes.io/name=mysql
+kubectl logs -f statefulset/kubelens-server-mysql
 ```
 
 ## Uninstalling
 
 ```bash
-helm uninstall kubelens-server --namespace kubelens
+helm uninstall kubelens-server
 ```
 
-⚠️ **Note**: PersistentVolumeClaim will be retained. Delete manually if needed:
+**Note:** This will not delete PVCs. To delete them:
 
 ```bash
-kubectl delete pvc -n kubelens -l app.kubernetes.io/name=server
+kubectl delete pvc -l app.kubernetes.io/name=server
+kubectl delete pvc -l app.kubernetes.io/name=postgresql
+kubectl delete pvc -l app.kubernetes.io/name=mysql
 ```
 
-## Troubleshooting
+## Resources
 
-### Server Can't Access Kubernetes API
-
-Check RBAC permissions:
-```bash
-kubectl auth can-i get pods --as=system:serviceaccount:kubelens:kubelens-server-<release-name>
-```
-
-### Database Permission Issues
-
-Check PVC and pod security context:
-```bash
-kubectl describe pvc -n kubelens
-kubectl logs -n kubelens <pod-name>
-```
-
-## Integration with App Chart
-
-When deployed with the parent chart, the app will automatically connect to the server service:
-
-```yaml
-# Parent chart automatically configures:
-app:
-  env:
-    apiServer: "http://<release-name>-server:8080"
-```
-
-## Support
-
-- GitHub: https://github.com/sonnguyen/kubelens
-- Documentation: https://github.com/sonnguyen/kubelens/tree/main/docs
+- [Parent Kubelens Chart](../../README.md)
+- [Database Configuration Guide](../../DATABASE.md)
+- [Bitnami PostgreSQL Chart](https://github.com/bitnami/charts/tree/main/bitnami/postgresql)
+- [Bitnami MySQL Chart](https://github.com/bitnami/charts/tree/main/bitnami/mysql)

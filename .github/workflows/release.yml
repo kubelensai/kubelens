@@ -1,0 +1,374 @@
+name: Release Kubelens
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.0.0)'
+        required: true
+        type: string
+
+env:
+  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+  SERVER_IMAGE: kubelensai/kubelens-server
+  APP_IMAGE: kubelensai/kubelens-app
+  SHELL_IMAGE: kubelensai/kubelens-shell
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
+
+jobs:
+  validate:
+    name: Validate Release
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.get-version.outputs.version }}
+      is_prerelease: ${{ steps.check-prerelease.outputs.is_prerelease }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from tag or input
+        id: get-version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          
+          # Validate version format (v1.2.3 or v1.2.3-beta.1)
+          if [[ ! $VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+            echo "❌ Invalid version format: $VERSION"
+            echo "Expected format: v1.2.3 or v1.2.3-beta.1"
+            exit 1
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "✅ Release version: $VERSION"
+
+      - name: Check if prerelease
+        id: check-prerelease
+        run: |
+          VERSION="${{ steps.get-version.outputs.version }}"
+          if [[ $VERSION =~ -(alpha|beta|rc) ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+            echo "📦 This is a pre-release"
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "🚀 This is a stable release"
+          fi
+
+      - name: Check if tag already exists
+        run: |
+          VERSION="${{ steps.get-version.outputs.version }}"
+          if git rev-parse "$VERSION" >/dev/null 2>&1; then
+            echo "❌ Tag $VERSION already exists"
+            exit 1
+          fi
+          echo "✅ Tag $VERSION is available"
+
+  build-and-test:
+    name: Build and Test
+    needs: validate
+    runs-on: ubuntu-24.04
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: src/server/go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: src/app/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: src/app
+        run: npm ci
+
+      - name: Run frontend tests
+        working-directory: src/app
+        run: npm test -- --run
+
+      - name: Build frontend
+        working-directory: src/app
+        run: npm run build
+
+      - name: Run backend tests
+        working-directory: src/server
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+  build-docker:
+    name: Build and Push Docker Images
+    needs: [validate, build-and-test]
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        component: [server, app, shell]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env[format('{0}_IMAGE', matrix.component)] }}
+            ghcr.io/${{ github.repository_owner }}/kubelens-${{ matrix.component }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.validate.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.validate.outputs.version }}
+            type=semver,pattern={{major}},value=${{ needs.validate.outputs.version }}
+            type=raw,value=latest,enable=${{ needs.validate.outputs.is_prerelease == 'false' }}
+          labels: |
+            org.opencontainers.image.title=Kubelens ${{ matrix.component }}
+            org.opencontainers.image.description=Multi-Cluster Kubernetes Dashboard
+            org.opencontainers.image.vendor=KubelensAI
+            org.opencontainers.image.version=${{ needs.validate.outputs.version }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.component == 'shell' && './shell' || '.' }}
+          file: ${{ matrix.component == 'shell' && './shell/Dockerfile' || format('./Dockerfile.{0}', matrix.component) }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env[format('{0}_IMAGE', matrix.component)] }}:${{ needs.validate.outputs.version }}
+          format: spdx-json
+          output-file: sbom-${{ matrix.component }}.spdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.component }}
+          path: sbom-${{ matrix.component }}.spdx.json
+          retention-days: 90
+
+  security-scan:
+    name: Security Scan
+    needs: [validate, build-docker]
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        component: [server, app, shell]
+    
+    steps:
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env[format('{0}_IMAGE', matrix.component)] }}:${{ needs.validate.outputs.version }}
+          format: 'sarif'
+          output: 'trivy-results-${{ matrix.component }}.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results-${{ matrix.component }}.sarif'
+        continue-on-error: true
+
+      - name: Generate vulnerability report
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env[format('{0}_IMAGE', matrix.component)] }}:${{ needs.validate.outputs.version }}
+          format: 'json'
+          output: 'trivy-report-${{ matrix.component }}.json'
+
+      - name: Upload vulnerability report
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-report-${{ matrix.component }}
+          path: trivy-report-${{ matrix.component }}.json
+          retention-days: 90
+
+  package-helm:
+    name: Package Helm Chart
+    needs: [validate, build-docker]
+    runs-on: ubuntu-24.04
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.14.0'
+
+      - name: Update Chart versions
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          VERSION_NO_V="${VERSION#v}"
+          
+          # Update main chart
+          sed -i "s/^version:.*/version: $VERSION_NO_V/" charts/kubelens/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"$VERSION_NO_V\"/" charts/kubelens/Chart.yaml
+          
+          # Update subchart versions
+          sed -i "s/^version:.*/version: $VERSION_NO_V/" charts/kubelens/charts/server/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"$VERSION_NO_V\"/" charts/kubelens/charts/server/Chart.yaml
+          
+          sed -i "s/^version:.*/version: $VERSION_NO_V/" charts/kubelens/charts/app/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"$VERSION_NO_V\"/" charts/kubelens/charts/app/Chart.yaml
+
+      - name: Package Helm chart
+        run: |
+          helm package charts/kubelens --destination .
+
+      - name: Upload Helm chart artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart
+          path: kubelens-*.tgz
+          retention-days: 90
+
+  create-release:
+    name: Create GitHub Release
+    needs: [validate, build-docker, security-scan, package-helm]
+    runs-on: ubuntu-24.04
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          
+          # Get previous tag
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          if [[ -z "$PREVIOUS_TAG" ]]; then
+            echo "No previous tag found, using all commits"
+            COMMITS=$(git log --pretty=format:"* %s (%h)" --no-merges)
+          else
+            echo "Generating changelog from $PREVIOUS_TAG to $VERSION"
+            COMMITS=$(git log $PREVIOUS_TAG..HEAD --pretty=format:"* %s (%h)" --no-merges)
+          fi
+          
+          # Create changelog file
+          cat > CHANGELOG.md << EOF
+          ## What's Changed
+          
+          $COMMITS
+          
+          ## Docker Images
+          
+          \`\`\`bash
+          # Server
+          docker pull kubelensai/kubelens-server:$VERSION
+          docker pull ghcr.io/${{ github.repository_owner }}/kubelens-server:$VERSION
+          
+          # App
+          docker pull kubelensai/kubelens-app:$VERSION
+          docker pull ghcr.io/${{ github.repository_owner }}/kubelens-app:$VERSION
+          
+          # Shell
+          docker pull kubelensai/kubelens-shell:$VERSION
+          docker pull ghcr.io/${{ github.repository_owner }}/kubelens-shell:$VERSION
+          \`\`\`
+          
+          ## Helm Installation
+          
+          \`\`\`bash
+          helm install kubelens ./kubelens-${VERSION#v}.tgz
+          \`\`\`
+          
+          ## Verification
+          
+          All images have been scanned for vulnerabilities using Trivy. See attached security reports.
+          EOF
+          
+          echo "changelog_file=CHANGELOG.md" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.validate.outputs.version }}
+          name: Release ${{ needs.validate.outputs.version }}
+          body_path: CHANGELOG.md
+          draft: false
+          prerelease: ${{ needs.validate.outputs.is_prerelease == 'true' }}
+          generate_release_notes: true
+          files: |
+            ./artifacts/helm-chart/kubelens-*.tgz
+            ./artifacts/sbom-*/sbom-*.spdx.json
+            ./artifacts/security-report-*/trivy-report-*.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update release notes with security summary
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          
+          echo "## 🔒 Security Scan Summary" > security-summary.md
+          echo "" >> security-summary.md
+          
+          for component in server app shell; do
+            if [[ -f "./artifacts/security-report-$component/trivy-report-$component.json" ]]; then
+              CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' "./artifacts/security-report-$component/trivy-report-$component.json" || echo "0")
+              HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' "./artifacts/security-report-$component/trivy-report-$component.json" || echo "0")
+              
+              echo "### $component" >> security-summary.md
+              echo "- Critical: $CRITICAL" >> security-summary.md
+              echo "- High: $HIGH" >> security-summary.md
+              echo "" >> security-summary.md
+            fi
+          done
+          
+          cat security-summary.md
