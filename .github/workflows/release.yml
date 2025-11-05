@@ -145,12 +145,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set Docker Hub image name
+        id: dockerhub
+        run: |
+          case "${{ matrix.component }}" in
+            server) echo "image=${{ secrets.DOCKERHUB_USERNAME }}/kubelens-server" >> $GITHUB_OUTPUT ;;
+            app) echo "image=${{ secrets.DOCKERHUB_USERNAME }}/kubelens-app" >> $GITHUB_OUTPUT ;;
+            shell) echo "image=${{ secrets.DOCKERHUB_USERNAME }}/kubelens-shell" >> $GITHUB_OUTPUT ;;
+          esac
+      
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ env[format('{0}_IMAGE', matrix.component)] }}
+            ${{ steps.dockerhub.outputs.image }}
             ghcr.io/${{ github.repository_owner }}/kubelens-${{ matrix.component }}
           tags: |
             type=semver,pattern={{version}},value=${{ needs.validate.outputs.version }}
@@ -180,7 +189,7 @@ jobs:
       - name: Generate SBOM
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ env[format('{0}_IMAGE', matrix.component)] }}:${{ needs.validate.outputs.version }}
+          image: ghcr.io/${{ github.repository_owner }}/kubelens-${{ matrix.component }}:${{ needs.validate.outputs.version }}
           format: spdx-json
           output-file: sbom-${{ matrix.component }}.spdx.json
 
@@ -203,7 +212,7 @@ jobs:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env[format('{0}_IMAGE', matrix.component)] }}:${{ needs.validate.outputs.version }}
+          image-ref: ghcr.io/${{ github.repository_owner }}/kubelens-${{ matrix.component }}:${{ needs.validate.outputs.version }}
           format: 'sarif'
           output: 'trivy-results-${{ matrix.component }}.sarif'
           severity: 'CRITICAL,HIGH'
@@ -217,7 +226,7 @@ jobs:
       - name: Generate vulnerability report
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env[format('{0}_IMAGE', matrix.component)] }}:${{ needs.validate.outputs.version }}
+          image-ref: ghcr.io/${{ github.repository_owner }}/kubelens-${{ matrix.component }}:${{ needs.validate.outputs.version }}
           format: 'json'
           output: 'trivy-report-${{ matrix.component }}.json'
 
