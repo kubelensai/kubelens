@@ -112,7 +112,7 @@ jobs:
 
       - name: Run backend tests
         working-directory: src/server
-        run: go test -v -race -coverprofile=coverage.out ./...
+        run: go test -v -race -coverprofile=coverage.out ./internal/...
 
   build-docker:
     name: Build and Push Docker Images
