@@ -194,6 +194,16 @@ jobs:
         component: [server, app, shell]
     
     steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Pull image for scanning
+        run: docker pull ghcr.io/${{ github.repository_owner }}/kubelens-${{ matrix.component }}:${{ needs.validate.outputs.version }}
+      
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
