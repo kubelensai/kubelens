@@ -297,7 +297,7 @@ jobs:
         run: |
           VERSION_NO_V="${{ needs.validate.outputs.version }}"
           VERSION_NO_V="${VERSION_NO_V#v}"
-          helm push kubelens-${VERSION_NO_V}.tgz oci://${{ secrets.DOCKERHUB_USERNAME }}/charts
+          helm push kubelens-${VERSION_NO_V}.tgz oci://registry-1.docker.io/${{ secrets.DOCKERHUB_USERNAME }}/charts
 
       - name: Checkout gh-pages branch
         uses: actions/checkout@v4
