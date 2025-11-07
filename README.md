@@ -16,6 +16,12 @@
 
 ---
 
+## 📸 Dashboard
+
+![Dashboard - Dark Mode](docs/screenshots/themes/desktop-dark-dashboard.png)
+
+---
+
 ## ✨ Core Features
 
 - 🌐 **Multi-Cluster Management** - Manage multiple Kubernetes clusters from one interface
@@ -26,11 +32,28 @@
 - 🎯 **Custom Resources** - Full CRD support with custom resource management
 - 👥 **User Management** - Users, groups, roles, and permissions with RBAC
 - 📝 **Audit Logging** - Comprehensive audit trails with configurable retention policies
-- 📱 **Responsive UI** - Modern React interface with mobile support and dark mode
+- 📱 **Responsive UI** - Modern React interface with mobile support
+- 🎨 **Theme Support** - Beautiful light and dark modes with seamless switching
 
 ---
 
-## 📸 Screenshots
+## 📸 More Screenshots
+
+### Light & Dark Mode Comparison
+
+Light Mode | Dark Mode
+:---:|:---:
+![Light Mode Dashboard](docs/screenshots/themes/desktop-light-dashboard.png) | ![Dark Mode Dashboard](docs/screenshots/themes/desktop-dark-dashboard.png)
+
+### Authentication
+
+**Login Page**
+
+![Login Page](docs/screenshots/auth/desktop-login.png)
+
+**Multi-Factor Authentication (MFA)**
+
+![MFA Verification](docs/screenshots/auth/desktop-mfa.png)
 
 ### Desktop
 
