@@ -1,0 +1,38 @@
+apiVersion: v1
+entries:
+  kubelens:
+  - apiVersion: v2
+    appVersion: 1.0.0-rc6
+    created: "2025-11-07T07:36:37.440133981Z"
+    dependencies:
+    - condition: dex.enabled
+      name: dex
+      repository: https://charts.dexidp.io
+      version: 0.20.0
+    - condition: server.enabled
+      name: server
+      repository: ""
+      version: 1.0.0
+    - condition: app.enabled
+      name: app
+      repository: ""
+      version: 1.0.0
+    description: A Helm chart for Kubelens - Multi-Cluster Kubernetes Dashboard
+    digest: 9f891af189823568ebef770e66d667a892ec591dfad04a47559cf0e886f2ca0c
+    home: https://github.com/sonnguyen/kubelens
+    keywords:
+    - kubernetes
+    - dashboard
+    - multi-cluster
+    - monitoring
+    maintainers:
+    - email: son@example.com
+      name: Son Nguyen
+    name: kubelens
+    sources:
+    - https://github.com/sonnguyen/kubelens
+    type: application
+    urls:
+    - https://kubelensai.github.io/kubelens/kubelens-1.0.0-rc6.tgz
+    version: 1.0.0-rc6
+generated: "2025-11-07T07:36:37.429112571Z"
