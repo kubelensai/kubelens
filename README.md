@@ -16,10 +16,37 @@
 
 ---
 
-## 📸 Dashboard
+## 📸 Intro
 
 ![Dashboard - Dark Mode](docs/screenshots/themes/desktop-dark-dashboard.png)
 
+<div align="center">
+
+**Full-featured mobile interface with responsive design**
+
+<table>
+<tr>
+<td align="center" width="33%">
+<img src="docs/screenshots/mobile/settings/mobile-09-clusters.png" alt="Mobile Clusters" width="100%" />
+<br />
+<strong>Clusters</strong>
+</td>
+<td align="center" width="33%">
+<img src="docs/screenshots/mobile/main/mobile-02-nodes.png" alt="Mobile Nodes" width="100%" />
+<br />
+<strong>Nodes</strong>
+</td>
+<td align="center" width="33%">
+<img src="docs/screenshots/mobile/main/mobile-03-pods.png" alt="Mobile Pods" width="100%" />
+<br />
+<strong>Pods</strong>
+</td>
+</tr>
+</table>
+
+*Manage your Kubernetes clusters on the go with native mobile support*
+
+</div>
 ---
 
 ## ✨ Core Features
@@ -41,67 +68,36 @@
 
 ### Light & Dark Mode Comparison
 
-Light Mode | Dark Mode
-:---:|:---:
-![Light Mode Dashboard](docs/screenshots/themes/desktop-light-dashboard.png) | ![Dark Mode Dashboard](docs/screenshots/themes/desktop-dark-dashboard.png)
+| Light Mode | Dark Mode |
+|:----------:|:---------:|
+| ![Light Mode Dashboard](docs/screenshots/themes/desktop-light-dashboard.png) | ![Dark Mode Dashboard](docs/screenshots/themes/desktop-dark-dashboard.png) |
 
 ### Authentication
 
-**Login Page**
+| Login Page | MFA Verification |
+|:----------:|:----------------:|
+| ![Login](docs/screenshots/auth/desktop-login.png) | ![MFA](docs/screenshots/auth/desktop-mfa.png) |
 
-![Login Page](docs/screenshots/auth/desktop-login.png)
+### Resource Management
 
-**Multi-Factor Authentication (MFA)**
+| Clusters | Nodes | Pods |
+|:--------:|:-----:|:----:|
+| ![Clusters](docs/screenshots/desktop/settings/desktop-11-clusters.png) | ![Nodes](docs/screenshots/desktop/main/desktop-01-nodes.png) | ![Pods](docs/screenshots/desktop/main/desktop-03-pods.png) |
 
-![MFA Verification](docs/screenshots/auth/desktop-mfa.png)
+| Deployments | Services | ConfigMaps |
+|:-----------:|:--------:|:----------:|
+| ![Deployments](docs/screenshots/desktop/main/desktop-06-deployments.png) | ![Services](docs/screenshots/desktop/main/desktop-07-services.png) | ![ConfigMaps](docs/screenshots/desktop/main/desktop-09-configmaps.png) |
 
-### Desktop
+### Security & Settings
 
-**Cluster Management**
+| Users | Groups | Integrations |
+|:-----:|:------:|:------------:|
+| ![Users](docs/screenshots/desktop/settings/desktop-12-users.png) | ![Groups](docs/screenshots/desktop/settings/desktop-13-groups.png) | ![Integrations](docs/screenshots/desktop/settings/desktop-14-integrations.png) |
 
-![Cluster Management](docs/screenshots/desktop/settings/desktop-11-clusters.png)
+| Logging | Audit Settings | Secrets |
+|:-------:|:--------------:|:-------:|
+| ![Logging](docs/screenshots/desktop/settings/desktop-15-logging.png) | ![Audit Settings](docs/screenshots/desktop/settings/desktop-16-audit-settings.png) | ![Secrets](docs/screenshots/desktop/main/desktop-08-secrets.png) |
 
-**Node Management**
-
-![Node Management](docs/screenshots/desktop/main/desktop-01-nodes.png)
-
-**Pod Management**
-
-![Pod Management](docs/screenshots/desktop/main/desktop-03-pods.png)
-
-**Deployment Management**
-
-![Deployment Management](docs/screenshots/desktop/main/desktop-06-deployments.png)
-
-**User Management**
-
-![User Management](docs/screenshots/desktop/settings/desktop-12-users.png)
-
-**Group Management**
-
-![Group Management](docs/screenshots/desktop/settings/desktop-13-groups.png)
-
-**Audit Logging**
-
-![Audit Logging](docs/screenshots/desktop/settings/desktop-15-logging.png)
-
-**Integrations**
-
-![Integrations](docs/screenshots/desktop/settings/desktop-14-integrations.png)
-
-**Audit Settings**
-
-![Audit Settings](docs/screenshots/desktop/settings/desktop-16-audit-settings.png)
-
-### Mobile
-
-| Clusters | Nodes |
-|----------|-------|
-| ![Clusters](docs/screenshots/mobile/settings/mobile-09-clusters.png) | ![Nodes](docs/screenshots/mobile/main/mobile-02-nodes.png) |
-
-| Pods | Deployments |
-|------|-------------|
-| ![Pods](docs/screenshots/mobile/main/mobile-03-pods.png) | ![Deployments](docs/screenshots/mobile/main/mobile-04-deployments.png) |
 
 ---
 
