@@ -377,10 +377,23 @@ jobs:
       - name: Commit and push to gh-pages
         run: |
           cd gh-pages
+          
+          # Configure git
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Check if we're on the right branch, if not switch/create it
+          CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "none")
+          if [[ "$CURRENT_BRANCH" != "gh-pages" ]]; then
+            echo "Creating and switching to gh-pages branch..."
+            git checkout -B gh-pages
+          fi
+          
+          # Add and commit changes
           git add .
           git commit -m "Update Helm chart repository - ${{ needs.validate.outputs.version }}" || echo "No changes to commit"
+          
+          # Push to gh-pages branch
           git push -f origin gh-pages
 
       - name: Upload Helm chart artifact
