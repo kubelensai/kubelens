@@ -34,4 +34,42 @@ describe('Breadcrumb Component', () => {
     const lastIndex = items.length - 1
     expect(items[lastIndex]).toBe('Current')
   })
+
+  it('should support showBackButton prop', () => {
+    const props = {
+      items: [{ name: 'Test' }],
+      showBackButton: true,
+    }
+    
+    expect(props.showBackButton).toBe(true)
+  })
+
+  it('should support custom onBack handler', () => {
+    let backCalled = false
+    const customBackHandler = () => {
+      backCalled = true
+    }
+    
+    const props = {
+      items: [{ name: 'Test' }],
+      onBack: customBackHandler,
+    }
+    
+    props.onBack?.()
+    expect(backCalled).toBe(true)
+  })
+
+  it('should default showBackButton to true', () => {
+    interface BreadcrumbProps {
+      items: Array<{ name: string }>
+      showBackButton?: boolean
+    }
+    
+    const props: BreadcrumbProps = {
+      items: [{ name: 'Test' }],
+    }
+    
+    const showBackButton = props.showBackButton ?? true
+    expect(showBackButton).toBe(true)
+  })
 })

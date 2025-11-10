@@ -269,6 +269,7 @@ export default function Endpoints() {
       <Breadcrumb
         items={[
           ...(cluster ? [{ name: cluster }] : []),
+          ...(namespace ? [{ name: namespace }] : []),
           { name: 'Endpoints' }
         ]}
       />

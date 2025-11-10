@@ -411,6 +411,7 @@ export default function StatefulSets() {
       <Breadcrumb
         items={[
           ...(cluster ? [{ name: cluster }] : []),
+          ...(namespace ? [{ name: namespace }] : []),
           { name: 'StatefulSets' }
         ]}
       />

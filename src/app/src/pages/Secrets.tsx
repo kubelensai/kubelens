@@ -252,6 +252,7 @@ export default function Secrets() {
       <Breadcrumb
         items={[
           ...(cluster ? [{ name: cluster }] : []),
+          ...(namespace ? [{ name: namespace }] : []),
           { name: 'Secrets' }
         ]}
       />

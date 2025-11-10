@@ -264,6 +264,7 @@ export default function ServiceAccounts() {
       <Breadcrumb
         items={[
           ...(cluster ? [{ name: cluster }] : []),
+          ...(namespace ? [{ name: namespace }] : []),
           { name: 'Service Accounts' }
         ]}
       />

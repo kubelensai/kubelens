@@ -299,14 +299,11 @@ export default function CronJobs() {
     <div className="space-y-4 sm:space-y-6">
       <div>
         <Breadcrumb 
-          items={
-            cluster
-              ? [
-                  { name: cluster },
-                  { name: 'CRONJOBS' }
-                ]
-              : [{ name: 'CRONJOBS' }]
-          }
+          items={[
+            ...(cluster ? [{ name: cluster }] : []),
+            ...(namespace ? [{ name: namespace }] : []),
+            { name: 'CRONJOBS' }
+          ]}
         />
       </div>
       

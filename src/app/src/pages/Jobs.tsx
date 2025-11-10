@@ -370,6 +370,7 @@ export default function Jobs() {
       <Breadcrumb
         items={[
           ...(cluster ? [{ name: cluster }] : []),
+          ...(namespace ? [{ name: namespace }] : []),
           { name: 'Jobs' }
         ]}
       />
