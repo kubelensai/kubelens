@@ -266,6 +266,7 @@ export default function Roles() {
       <Breadcrumb
         items={[
           ...(cluster ? [{ name: cluster }] : []),
+          ...(namespace ? [{ name: namespace }] : []),
           { name: 'Roles' }
         ]}
       />

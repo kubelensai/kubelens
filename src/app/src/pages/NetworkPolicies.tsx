@@ -255,6 +255,7 @@ export default function NetworkPolicies() {
       <Breadcrumb
         items={[
           ...(cluster ? [{ name: cluster }] : []),
+          ...(namespace ? [{ name: namespace }] : []),
           { name: 'Network Policies' }
         ]}
       />

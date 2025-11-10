@@ -331,6 +331,7 @@ export default function PersistentVolumeClaims() {
       <Breadcrumb
         items={[
           ...(cluster ? [{ name: cluster }] : []),
+          ...(namespace ? [{ name: namespace }] : []),
           { name: 'Persistent Volume Claims' }
         ]}
       />

@@ -236,6 +236,7 @@ export default function ConfigMaps() {
       <Breadcrumb
         items={[
           ...(cluster ? [{ name: cluster }] : []),
+          ...(namespace ? [{ name: namespace }] : []),
           { name: 'ConfigMaps' }
         ]}
       />

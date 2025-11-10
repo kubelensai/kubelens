@@ -382,6 +382,7 @@ export default function Services() {
       <Breadcrumb
         items={[
           ...(cluster ? [{ name: cluster }] : []),
+          ...(namespace ? [{ name: namespace }] : []),
           { name: 'Services' }
         ]}
       />

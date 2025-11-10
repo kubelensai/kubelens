@@ -437,6 +437,7 @@ export default function Deployments() {
       <Breadcrumb
         items={[
           ...(cluster ? [{ name: cluster }] : []),
+          ...(namespace ? [{ name: namespace }] : []),
           { name: 'Deployments' }
         ]}
       />

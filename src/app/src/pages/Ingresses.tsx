@@ -326,6 +326,7 @@ export default function Ingresses() {
       <Breadcrumb
         items={[
           ...(cluster ? [{ name: cluster }] : []),
+          ...(namespace ? [{ name: namespace }] : []),
           { name: 'Ingresses' }
         ]}
       />

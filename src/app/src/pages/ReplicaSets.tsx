@@ -383,6 +383,7 @@ export default function ReplicaSets() {
       <Breadcrumb
         items={[
           ...(cluster ? [{ name: cluster }] : []),
+          ...(namespace ? [{ name: namespace }] : []),
           { name: 'ReplicaSets' }
         ]}
       />

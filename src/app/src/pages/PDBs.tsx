@@ -343,6 +343,7 @@ export default function PDBs() {
       <Breadcrumb
         items={[
           ...(cluster ? [{ name: cluster }] : []),
+          ...(namespace ? [{ name: namespace }] : []),
           { name: 'PDBs' }
         ]}
       />

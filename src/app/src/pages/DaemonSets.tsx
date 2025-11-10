@@ -379,6 +379,7 @@ export default function DaemonSets() {
       <Breadcrumb
         items={[
           ...(cluster ? [{ name: cluster }] : []),
+          ...(namespace ? [{ name: namespace }] : []),
           { name: 'DaemonSets' }
         ]}
       />

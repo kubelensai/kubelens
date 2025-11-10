@@ -394,6 +394,7 @@ export default function HPAs() {
       <Breadcrumb
         items={[
           ...(cluster ? [{ name: cluster }] : []),
+          ...(namespace ? [{ name: namespace }] : []),
           { name: 'HPAs' }
         ]}
       />
