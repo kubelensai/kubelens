@@ -19,11 +19,11 @@ export default defineConfig(({ mode }) => {
       drop: isProduction ? ['console', 'debugger'] : [],
     },
     server: {
-      port: 5173,
+      port: 3030,
       // Only use proxy for web development
       proxy: !isMobile ? {
         '/api': {
-          target: 'http://localhost:8080',
+          target: 'http://localhost:9090',
           changeOrigin: true,
           ws: true, // Enable WebSocket proxying
         },

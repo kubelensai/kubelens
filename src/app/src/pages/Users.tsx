@@ -623,37 +623,38 @@ export default function Users() {
                         >
                           <PencilSquareIcon className="h-4 w-4" />
                         </button>
+                        {/* Reset password - only for local users */}
                         {user.auth_provider === 'local' && (
-                          <>
-                            <button
-                              onClick={(e) => handleResetPassword(user, e)}
-                              className="p-1.5 text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
-                              title="Reset password"
-                            >
-                              <KeyIcon className="h-4 w-4" />
-                            </button>
-                            {user.mfa_enabled && (
-                              <button
-                                onClick={(e) => handleResetMFA(user, e)}
-                                className="p-1.5 text-purple-600 hover:text-purple-900 dark:text-purple-400 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
-                                title="Reset MFA"
-                              >
-                                <ShieldCheckIcon className="h-4 w-4" />
-                              </button>
-                            )}
-                            <button
-                              onClick={(e) => handleToggleActive(user, e)}
-                              className={`p-1.5 ${
-                                user.is_active
-                                  ? 'text-orange-600 hover:text-orange-900 dark:text-orange-400 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20'
-                                  : 'text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/20'
-                              } rounded transition-colors`}
-                              title={user.is_active ? 'Disable user' : 'Enable user'}
-                            >
-                              <PowerIcon className="h-4 w-4" />
-                            </button>
-                          </>
+                          <button
+                            onClick={(e) => handleResetPassword(user, e)}
+                            className="p-1.5 text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                            title="Reset password"
+                          >
+                            <KeyIcon className="h-4 w-4" />
+                          </button>
                         )}
+                        {/* Reset MFA - only for local users with MFA enabled */}
+                        {user.auth_provider === 'local' && user.mfa_enabled && (
+                          <button
+                            onClick={(e) => handleResetMFA(user, e)}
+                            className="p-1.5 text-purple-600 hover:text-purple-900 dark:text-purple-400 dark:hover:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
+                            title="Reset MFA"
+                          >
+                            <ShieldCheckIcon className="h-4 w-4" />
+                          </button>
+                        )}
+                        {/* Disable/Enable - for all users */}
+                        <button
+                          onClick={(e) => handleToggleActive(user, e)}
+                          className={`p-1.5 ${
+                            user.is_active
+                              ? 'text-orange-600 hover:text-orange-900 dark:text-orange-400 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20'
+                              : 'text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/20'
+                          } rounded transition-colors`}
+                          title={user.is_active ? 'Disable user' : 'Enable user'}
+                        >
+                          <PowerIcon className="h-4 w-4" />
+                        </button>
                         <button
                           onClick={(e) => handleDelete(user, e)}
                           className="p-1.5 text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"

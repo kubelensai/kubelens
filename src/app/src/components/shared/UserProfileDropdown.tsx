@@ -1,4 +1,4 @@
-import { Fragment } from 'react'
+import { Fragment, useState } from 'react'
 import { Menu, Transition } from '@headlessui/react'
 import { 
   ArrowRightOnRectangleIcon,
@@ -6,10 +6,12 @@ import {
 } from '@heroicons/react/24/outline'
 import { useAuthStore } from '@/stores/authStore'
 import { Link, useLocation } from 'react-router-dom'
+import { getUserAvatarUrl } from '@/services/api'
 
 export default function UserProfileDropdown() {
   const { user, logout } = useAuthStore()
   const location = useLocation()
+  const [avatarError, setAvatarError] = useState(false)
 
   if (!user) return null
 
@@ -35,15 +37,19 @@ export default function UserProfileDropdown() {
     return user.email.charAt(0).toUpperCase()
   }
 
+  // Get avatar URL from our backend (cached avatar)
+  const avatarUrl = getUserAvatarUrl(user.id)
+
   return (
     <Menu as="div" className="relative inline-block text-left">
       <div>
         <Menu.Button className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 transition-colors">
-          {user.avatar_url ? (
+          {avatarUrl && !avatarError ? (
             <img
-              src={user.avatar_url}
+              src={avatarUrl}
               alt={user.full_name || user.username}
-              className="h-8 w-8 rounded-full"
+              className="h-8 w-8 rounded-full object-cover"
+              onError={() => setAvatarError(true)}
             />
           ) : (
             <div className="h-8 w-8 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center">

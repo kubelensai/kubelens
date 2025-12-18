@@ -3,6 +3,7 @@ import { Capacitor } from '@capacitor/core';
 
 import App from "../App";
 import ProtectedRoute from "../components/auth/ProtectedRoute";
+import PermissionRoute from "../components/auth/PermissionRoute";
 import RequireEnabledCluster from "../components/shared/RequireEnabledCluster";
 import LoadingScreen from "../pages/LoadingScreen";
 import ClusterManagement from "../pages/ClusterManagement";
@@ -26,13 +27,14 @@ import DeploymentDetails from "../pages/DeploymentDetails";
 import Endpoints from "../pages/Endpoints";
 import EndpointDetails from "../pages/EndpointDetails";
 import Events from "../pages/Events";
+import ExtensionsPage from "../extensions/Extensions";
+import ExtensionDetailPage from "../extensions/ExtensionDetail";
 import HPAs from "../pages/HPAs";
 import HPADetails from "../pages/HPADetails";
-import IngressClasses from "../pages/IngressClasses";
-import IngressClassDetails from "../pages/IngressClassDetails";
 import Ingresses from "../pages/Ingresses";
 import IngressDetails from "../pages/IngressDetails";
-import Integrations from "../pages/Integrations";
+import IngressClasses from "../pages/IngressClasses";
+import IngressClassDetails from "../pages/IngressClassDetails";
 import Jobs from "../pages/Jobs";
 import JobDetails from "../pages/JobDetails";
 import Leases from "../pages/Leases";
@@ -188,37 +190,64 @@ const routes = [
       {
         element: <App />,
         children: [
+          // Common routes (all authenticated users)
           {
             path: "/dashboard",
             element: <Dashboard />,
           },
           {
-            path: "/clusters",
-            element: <ClusterManagement />,
-          },
-          {
-            path: "/integrations",
-            element: <Integrations />,
-          },
-          {
-            path: "/users",
-            element: <Users />,
-          },
-          {
-            path: "/groups",
-            element: <Groups />,
-          },
-          {
-            path: "/logging",
-            element: <Logging />,
-          },
-          {
-            path: "/audit-settings",
-            element: <AuditSettings />,
-          },
-          {
             path: "/profile",
             element: <Profile />,
+          },
+          
+          // Permission-protected admin routes
+          // Cluster management - requires "clusters" permission with manage action
+          {
+            element: <PermissionRoute resource="clusters" action="manage" />,
+            children: [
+              { path: "/clusters", element: <ClusterManagement /> },
+            ],
+          },
+          
+          // Extension management - requires "extensions" permission
+          {
+            element: <PermissionRoute resource="extensions" action="read" />,
+            children: [
+              { path: "/extensions", element: <ExtensionsPage /> },
+              { path: "/extensions/:name", element: <ExtensionDetailPage /> },
+            ],
+          },
+          
+          // User management - requires "users" permission
+          {
+            element: <PermissionRoute resource="users" action="read" />,
+            children: [
+              { path: "/users", element: <Users /> },
+            ],
+          },
+          
+          // Group management - requires "groups" permission
+          {
+            element: <PermissionRoute resource="groups" action="read" />,
+            children: [
+              { path: "/groups", element: <Groups /> },
+            ],
+          },
+          
+          // Logging - requires "logging" permission
+          {
+            element: <PermissionRoute resource="logging" action="read" />,
+            children: [
+              { path: "/logging", element: <Logging /> },
+            ],
+          },
+          
+          // Audit settings - requires "audit" permission
+          {
+            element: <PermissionRoute resource="audit" action="read" />,
+            children: [
+              { path: "/audit-settings", element: <AuditSettings /> },
+            ],
           },
       // Generate routes for all resource types
       ...Object.values(resourceTypes).flatMap(generateResourceRoutes),

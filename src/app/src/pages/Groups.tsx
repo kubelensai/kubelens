@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, Fragment } from 'react'
 import api from '@/services/api'
 import {
   MagnifyingGlassIcon,
@@ -7,6 +7,8 @@ import {
   PencilSquareIcon,
   TrashIcon,
   UserGroupIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
 } from '@heroicons/react/24/outline'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import ResizableTableHeader from '@/components/shared/ResizableTableHeader'
@@ -53,6 +55,20 @@ export default function Groups() {
     permissions: [],
   })
   const [error, setError] = useState<string>('')
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
+
+  // Toggle row expansion
+  const toggleRowExpansion = (groupId: number) => {
+    setExpandedRows(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(groupId)) {
+        newSet.delete(groupId)
+      } else {
+        newSet.add(groupId)
+      }
+      return newSet
+    })
+  }
 
   // Resizable columns
   const { columnWidths, handleMouseDown } = useResizableColumns({
@@ -244,9 +260,38 @@ export default function Groups() {
     })
   }
 
-  const formatPermissions = (permissions: Permission[]) => {
-    if (!permissions || permissions.length === 0) return 'No permissions'
-    return permissions.map(p => `${p.resource}: ${p.actions.join(", ")}`).join("; ")
+  // Format permissions for display - returns summary
+  const getPermissionsSummary = (permissions: Permission[]) => {
+    if (!permissions || permissions.length === 0) return { count: 0, preview: 'No permissions' }
+    
+    // Special case for admin (all permissions)
+    if (permissions.length === 1 && permissions[0].resource === '*' && permissions[0].actions.includes('*')) {
+      return { count: 1, preview: 'Full access to all resources' }
+    }
+    
+    const count = permissions.length
+    const preview = permissions.slice(0, 2).map(p => p.resource).join(', ')
+    return { count, preview: count > 2 ? `${preview}...` : preview }
+  }
+
+  // Get action badge color
+  const getActionBadgeColor = (action: string) => {
+    switch (action) {
+      case 'read':
+        return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+      case 'create':
+        return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+      case 'update':
+        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+      case 'delete':
+        return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+      case 'manage':
+        return 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400'
+      case '*':
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+      default:
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+    }
   }
 
   return (
@@ -288,7 +333,7 @@ export default function Groups() {
       {/* Table */}
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full table-fixed">
             <thead className="bg-gray-50 dark:bg-gray-800">
               <tr>
                 <ResizableTableHeader
@@ -364,75 +409,159 @@ export default function Groups() {
                   </td>
                 </tr>
               ) : (
-                paginatedGroups.map((group: Group) => (
-                  <tr key={group.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                    {/* Name */}
-                    <td className="px-6 py-4" style={{ width: columnWidths.name }}>
-                      <div className="flex items-center gap-2">
-                        <UserGroupIcon className="h-5 w-5 text-gray-400" />
-                        <span className="text-sm font-medium text-gray-900 dark:text-white">
-                          {group.name}
-                        </span>
-                      </div>
-                    </td>
+                paginatedGroups.map((group: Group) => {
+                  const isExpanded = expandedRows.has(group.id)
+                  const permSummary = getPermissionsSummary(group.permissions)
+                  
+                  return (
+                    <Fragment key={group.id}>
+                      <tr className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                        {/* Name */}
+                        <td className="px-6 py-4" style={{ width: columnWidths.name, maxWidth: columnWidths.name }}>
+                          <div className="flex items-center gap-2">
+                            <UserGroupIcon className="h-5 w-5 text-gray-400 flex-shrink-0" />
+                            <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                              {group.name}
+                            </span>
+                          </div>
+                        </td>
 
-                    {/* Description */}
-                    <td className="px-6 py-4" style={{ width: columnWidths.description }}>
-                      <span className="text-sm text-gray-500 dark:text-gray-400">
-                        {group.description || '-'}
-                      </span>
-                    </td>
+                        {/* Description */}
+                        <td className="px-6 py-4" style={{ width: columnWidths.description, maxWidth: columnWidths.description }}>
+                          <span className="text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
+                            {group.description || '-'}
+                          </span>
+                        </td>
 
-                    {/* Permissions */}
-                    <td className="px-6 py-4" style={{ width: columnWidths.permissions }}>
-                      <div className="text-sm text-gray-500 dark:text-gray-400 truncate" title={formatPermissions(group.permissions)}>
-                        {formatPermissions(group.permissions)}
-                      </div>
-                    </td>
-
-                    {/* System */}
-                    <td className="px-6 py-4" style={{ width: columnWidths.system }}>
-                      {group.is_system ? (
-                        <span className="inline-flex rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                          System
-                        </span>
-                      ) : (
-                        <span className="inline-flex rounded-full bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-800 dark:bg-gray-700 dark:text-gray-200">
-                          Custom
-                        </span>
-                      )}
-                    </td>
-
-                    {/* Created */}
-                    <td className="px-6 py-4" style={{ width: columnWidths.created_at }}>
-                      <span className="text-sm text-gray-500 dark:text-gray-400">
-                        {new Date(group.created_at).toLocaleDateString()}
-                      </span>
-                    </td>
-
-                    {/* Actions */}
-                    <td className="px-6 py-4" style={{ width: columnWidths.actions }}>
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => handleEditGroup(group)}
-                          className="p-1.5 text-yellow-600 hover:text-yellow-900 dark:text-yellow-400 dark:hover:text-yellow-300 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded transition-colors"
-                          title="Edit group"
-                        >
-                          <PencilSquareIcon className="h-4 w-4" />
-                        </button>
-                        {!group.is_system && (
+                        {/* Permissions - Clickable summary with expand */}
+                        <td className="px-6 py-4" style={{ width: columnWidths.permissions, maxWidth: columnWidths.permissions }}>
                           <button
-                            onClick={(e) => handleDeleteGroup(group, e)}
-                            className="p-1.5 text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
-                            title="Delete group"
+                            onClick={() => toggleRowExpansion(group.id)}
+                            className="flex items-center gap-2 text-left w-full group"
                           >
-                            <TrashIcon className="h-4 w-4" />
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-800 dark:bg-primary-900/30 dark:text-primary-400">
+                                {permSummary.count}
+                              </span>
+                              <span className="text-sm text-gray-500 dark:text-gray-400 truncate">
+                                {permSummary.preview}
+                              </span>
+                            </div>
+                            {permSummary.count > 0 && (
+                              isExpanded ? (
+                                <ChevronUpIcon className="h-4 w-4 text-gray-400 flex-shrink-0 group-hover:text-primary-500" />
+                              ) : (
+                                <ChevronDownIcon className="h-4 w-4 text-gray-400 flex-shrink-0 group-hover:text-primary-500" />
+                              )
+                            )}
                           </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                        </td>
+
+                        {/* System */}
+                        <td className="px-6 py-4" style={{ width: columnWidths.system }}>
+                          {group.is_system ? (
+                            <span className="inline-flex rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-800 dark:bg-blue-900/30 dark:text-blue-200">
+                              System
+                            </span>
+                          ) : (
+                            <span className="inline-flex rounded-full bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-800 dark:bg-gray-700 dark:text-gray-200">
+                              Custom
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Created */}
+                        <td className="px-6 py-4" style={{ width: columnWidths.created_at }}>
+                          <span className="text-sm text-gray-500 dark:text-gray-400">
+                            {new Date(group.created_at).toLocaleDateString()}
+                          </span>
+                        </td>
+
+                        {/* Actions */}
+                        <td className="px-6 py-4" style={{ width: columnWidths.actions }}>
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => handleEditGroup(group)}
+                              className="p-1.5 text-yellow-600 hover:text-yellow-900 dark:text-yellow-400 dark:hover:text-yellow-300 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded transition-colors"
+                              title="Edit group"
+                            >
+                              <PencilSquareIcon className="h-4 w-4" />
+                            </button>
+                            {!group.is_system && (
+                              <button
+                                onClick={(e) => handleDeleteGroup(group, e)}
+                                className="p-1.5 text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                                title="Delete group"
+                              >
+                                <TrashIcon className="h-4 w-4" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                      
+                      {/* Expanded Permissions Row */}
+                      {isExpanded && group.permissions && group.permissions.length > 0 && (
+                        <tr className="bg-gray-50 dark:bg-gray-800/50">
+                          <td colSpan={6} className="px-6 py-4">
+                            <div className="space-y-3">
+                              <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                Permissions Details
+                              </h4>
+                              <div className="grid gap-2">
+                                {group.permissions.map((perm, idx) => (
+                                  <div
+                                    key={idx}
+                                    className="flex flex-wrap items-center gap-2 p-3 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700"
+                                  >
+                                    {/* Resource */}
+                                    <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200">
+                                      {perm.resource === '*' ? 'All Resources' : perm.resource}
+                                    </span>
+                                    
+                                    <span className="text-gray-400 dark:text-gray-500">→</span>
+                                    
+                                    {/* Actions */}
+                                    <div className="flex flex-wrap gap-1">
+                                      {perm.actions.map((action, actionIdx) => (
+                                        <span
+                                          key={actionIdx}
+                                          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getActionBadgeColor(action)}`}
+                                        >
+                                          {action === '*' ? 'all' : action}
+                                        </span>
+                                      ))}
+                                    </div>
+                                    
+                                    {/* Clusters (if specified) */}
+                                    {perm.clusters && perm.clusters.length > 0 && perm.clusters[0] !== '*' && (
+                                      <>
+                                        <span className="text-gray-400 dark:text-gray-500 text-xs">|</span>
+                                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                                          Clusters: {perm.clusters.join(', ')}
+                                        </span>
+                                      </>
+                                    )}
+                                    
+                                    {/* Namespaces (if specified) */}
+                                    {perm.namespaces && perm.namespaces.length > 0 && perm.namespaces[0] !== '*' && (
+                                      <>
+                                        <span className="text-gray-400 dark:text-gray-500 text-xs">|</span>
+                                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                                          Namespaces: {perm.namespaces.join(', ')}
+                                        </span>
+                                      </>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  )
+                })
               )}
             </tbody>
           </table>

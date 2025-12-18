@@ -112,9 +112,6 @@ type (
 	
 	// LegacyNotification represents the old Notification type
 	LegacyNotification = Notification
-	
-	// LegacyIntegration represents the old Integration type
-	LegacyIntegration = Integration
 )
 
 // =============================================================================

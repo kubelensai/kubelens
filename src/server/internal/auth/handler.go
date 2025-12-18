@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -311,6 +312,13 @@ func (h *Handler) Signin(c *gin.Context) {
 		true,
 	)
 
+	// Get user permissions for frontend
+	permissions, permErr := h.db.GetUserPermissions(user.ID)
+	if permErr != nil {
+		log.Warnf("Failed to get permissions for user %s: %v", user.Email, permErr)
+		permissions = []db.Permission{}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"token": token,
 		"user": gin.H{
@@ -322,6 +330,7 @@ func (h *Handler) Signin(c *gin.Context) {
 			"auth_provider": user.AuthProvider,
 			"is_admin":      user.IsAdmin,
 			"mfa_enabled":   user.MFAEnabled,
+			"permissions":   permissions,
 		},
 	})
 }
@@ -482,5 +491,67 @@ func (h *Handler) Logout(c *gin.Context) {
 	// In a JWT-based system, logout is primarily handled client-side by removing the token
 	// However, we can log the event and potentially invalidate refresh tokens if implemented
 	c.JSON(http.StatusOK, gin.H{"message": "logged out successfully"})
+}
+
+// GetUserAvatar serves the cached avatar for a user
+func (h *Handler) GetUserAvatar(c *gin.Context) {
+	userIDStr := c.Param("id")
+	if userIDStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "user id required"})
+		return
+	}
+
+	// Parse user ID
+	var userID uint
+	if _, err := fmt.Sscanf(userIDStr, "%d", &userID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
+		return
+	}
+
+	// Get user
+	user, err := h.db.GetUserByID(userID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+
+	// Check if we have cached avatar data
+	if len(user.AvatarData) > 0 && user.AvatarMimeType != "" {
+		// Serve cached avatar with caching headers
+		c.Header("Cache-Control", "public, max-age=86400") // Cache for 24 hours
+		c.Header("Content-Type", user.AvatarMimeType)
+		c.Data(http.StatusOK, user.AvatarMimeType, user.AvatarData)
+		return
+	}
+
+	// No cached avatar - return 404 or redirect to default
+	c.JSON(http.StatusNotFound, gin.H{"error": "no avatar available"})
+}
+
+// GetCurrentUserAvatar serves the cached avatar for the current authenticated user
+func (h *Handler) GetCurrentUserAvatar(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+
+	user, err := h.db.GetUserByID(uint(userID.(int)))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+
+	// Check if we have cached avatar data
+	if len(user.AvatarData) > 0 && user.AvatarMimeType != "" {
+		// Serve cached avatar with caching headers
+		c.Header("Cache-Control", "public, max-age=86400") // Cache for 24 hours
+		c.Header("Content-Type", user.AvatarMimeType)
+		c.Data(http.StatusOK, user.AvatarMimeType, user.AvatarData)
+		return
+	}
+
+	// No cached avatar - return 404
+	c.JSON(http.StatusNotFound, gin.H{"error": "no avatar available"})
 }
 

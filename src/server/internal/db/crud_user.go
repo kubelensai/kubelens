@@ -206,6 +206,15 @@ func (db *GormDB) DeactivateUser(userID uint) error {
 		Update("is_active", false).Error
 }
 
+// RevokeUserTokens invalidates all existing tokens for a user
+// by setting TokenRevokedAt to current time
+func (db *GormDB) RevokeUserTokens(userID uint) error {
+	now := time.Now()
+	return db.Model(&User{}).
+		Where("id = ?", userID).
+		Update("token_revoked_at", now).Error
+}
+
 // DeleteUser deletes a user (soft delete if GORM soft delete is enabled)
 func (db *GormDB) DeleteUser(userID uint) error {
 	return db.Delete(&User{}, userID).Error

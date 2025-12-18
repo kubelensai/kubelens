@@ -3,6 +3,7 @@ package db
 import (
 	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"math/big"
 	"os"
@@ -151,10 +152,9 @@ func (db *GormDB) autoMigrate() error {
 		&AuditLog{},
 		&AuditSettings{},
 		&MFASecret{},
-		&Integration{},
-		&IntegrationCluster{},
-		&OAuth2Token{},
 		&ClusterMetadata{},
+		&ExtensionConfig{},
+		&SystemConfig{},
 	)
 	
 	if err != nil {
@@ -195,25 +195,60 @@ func (db *GormDB) seedDefaultData() error {
 	result = db.Where("name = ?", "admin").First(&adminGroup)
 	
 	if result.Error == gorm.ErrRecordNotFound {
-		log.Info("🌱 Seeding default groups...")
+		log.Info("🌱 Seeding default groups with RBAC permissions...")
+		
+		// Admin group has full access to all resources
+		adminPermissions := `[{"resource": "*", "actions": ["*"], "clusters": ["*"], "namespaces": ["*"]}]`
+		
+		// Editor group has read-write access to k8s resources but no admin access
+		editorPermissions := `[
+			{"resource": "clusters", "actions": ["read"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "namespaces", "actions": ["read"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "nodes", "actions": ["read"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "pods", "actions": ["read", "create", "update", "delete"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "deployments", "actions": ["read", "create", "update", "delete"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "services", "actions": ["read", "create", "update", "delete"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "configmaps", "actions": ["read", "create", "update", "delete"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "secrets", "actions": ["read", "create", "update", "delete"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "ingresses", "actions": ["read", "create", "update", "delete"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "statefulsets", "actions": ["read", "create", "update", "delete"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "daemonsets", "actions": ["read", "create", "update", "delete"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "jobs", "actions": ["read", "create", "update", "delete"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "cronjobs", "actions": ["read", "create", "update", "delete"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "events", "actions": ["read"], "clusters": ["*"], "namespaces": ["*"]}
+		]`
+		
+		// Viewer group has read-only access to k8s resources
+		viewerPermissions := `[
+			{"resource": "clusters", "actions": ["read"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "namespaces", "actions": ["read"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "nodes", "actions": ["read"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "pods", "actions": ["read"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "deployments", "actions": ["read"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "services", "actions": ["read"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "configmaps", "actions": ["read"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "secrets", "actions": ["read"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "ingresses", "actions": ["read"], "clusters": ["*"], "namespaces": ["*"]},
+			{"resource": "events", "actions": ["read"], "clusters": ["*"], "namespaces": ["*"]}
+		]`
 		
 		groups := []Group{
 			{
 				Name:        "admin",
-				Description: "Administrators with full access",
-				Permissions: JSON(`["*"]`),
+				Description: "Administrators with full access to all resources",
+				Permissions: JSON(adminPermissions),
 				IsSystem:    true,
 			},
 			{
 				Name:        "editor",
-				Description: "Editors with read-write access",
-				Permissions: JSON(`["read","write"]`),
+				Description: "Editors with read-write access to Kubernetes resources",
+				Permissions: JSON(editorPermissions),
 				IsSystem:    true,
 			},
 			{
 				Name:        "viewer",
-				Description: "Viewers with read-only access",
-				Permissions: JSON(`["read"]`),
+				Description: "Viewers with read-only access to Kubernetes resources",
+				Permissions: JSON(viewerPermissions),
 				IsSystem:    true,
 			},
 		}
@@ -222,7 +257,7 @@ func (db *GormDB) seedDefaultData() error {
 			return fmt.Errorf("failed to create groups: %w", err)
 		}
 		
-		log.Info("✅ Default groups created successfully")
+		log.Info("✅ Default groups with RBAC permissions created successfully")
 	}
 	
 	return nil
@@ -314,4 +349,96 @@ func (db *GormDB) Close() error {
 		return err
 	}
 	return sqlDB.Close()
+}
+
+// =============================================================================
+// Extension Configuration Methods
+// =============================================================================
+
+// SaveExtensionConfig saves or updates encrypted extension config
+func (db *GormDB) SaveExtensionConfig(extensionName string, encryptedConfig string) error {
+	config := ExtensionConfig{
+		ExtensionName: extensionName,
+		ConfigData:    encryptedConfig,
+	}
+	
+	// Upsert: update if exists, create if not
+	return db.Where("extension_name = ?", extensionName).
+		Assign(ExtensionConfig{ConfigData: encryptedConfig}).
+		FirstOrCreate(&config).Error
+}
+
+// GetExtensionConfig retrieves encrypted config for an extension
+func (db *GormDB) GetExtensionConfig(extensionName string) (string, error) {
+	var config ExtensionConfig
+	err := db.Where("extension_name = ?", extensionName).First(&config).Error
+	if err != nil {
+		return "", err
+	}
+	return config.ConfigData, nil
+}
+
+// DeleteExtensionConfig removes config for an extension
+func (db *GormDB) DeleteExtensionConfig(extensionName string) error {
+	return db.Where("extension_name = ?", extensionName).Delete(&ExtensionConfig{}).Error
+}
+
+// GetAllExtensionConfigs retrieves all extension configs
+func (db *GormDB) GetAllExtensionConfigs() ([]ExtensionConfig, error) {
+	var configs []ExtensionConfig
+	err := db.Find(&configs).Error
+	return configs, err
+}
+
+// =============================================================================
+// System Configuration Methods
+// =============================================================================
+
+// GetSystemConfig retrieves a system config value by key
+func (db *GormDB) GetSystemConfig(key string) (string, error) {
+	var config SystemConfig
+	err := db.Where("key = ?", key).First(&config).Error
+	if err != nil {
+		return "", err
+	}
+	return config.Value, nil
+}
+
+// SetSystemConfig creates or updates a system config value
+func (db *GormDB) SetSystemConfig(key, value string) error {
+	config := SystemConfig{Key: key, Value: value}
+	return db.Where("key = ?", key).
+		Assign(SystemConfig{Value: value}).
+		FirstOrCreate(&config).Error
+}
+
+// GetOrCreateEncryptionKey retrieves existing key or auto-generates a new one on first install
+func (db *GormDB) GetOrCreateEncryptionKey() ([]byte, error) {
+	const keyName = "encryption_key"
+	
+	// Try to get existing key
+	keyB64, err := db.GetSystemConfig(keyName)
+	if err == nil && keyB64 != "" {
+		// Decode existing key
+		key, decodeErr := base64.StdEncoding.DecodeString(keyB64)
+		if decodeErr == nil && len(key) == 32 {
+			log.Info("🔑 Using existing encryption key from database")
+			return key, nil
+		}
+	}
+	
+	// Generate new 32-byte key (first install)
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return nil, fmt.Errorf("failed to generate encryption key: %w", err)
+	}
+	
+	// Save to database (base64 encoded)
+	keyB64 = base64.StdEncoding.EncodeToString(key)
+	if err := db.SetSystemConfig(keyName, keyB64); err != nil {
+		return nil, fmt.Errorf("failed to save encryption key: %w", err)
+	}
+	
+	log.Info("🔑 Generated and saved new encryption key to database (first install)")
+	return key, nil
 }

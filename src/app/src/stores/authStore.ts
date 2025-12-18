@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import api from '@/services/api'
 import { createRedirectUrl } from '@/utils/navigation'
+import { usePermissionStore, Permission } from '@/stores/permissionStore'
 
 interface User {
   id: number
@@ -10,6 +11,7 @@ interface User {
   avatar_url?: string
   auth_provider: string
   is_admin: boolean
+  permissions?: Permission[]
 }
 
 interface ValidationResult {
@@ -43,6 +45,11 @@ export const useAuthStore = create<AuthState>((set) => ({
       try {
         const user = JSON.parse(userStr)
         set({ token, user, isAuthenticated: true })
+        
+        // Restore permissions from user object
+        if (user.permissions) {
+          usePermissionStore.getState().setPermissions(user.permissions)
+        }
       } catch (error) {
         console.error('Failed to parse user from localStorage:', error)
         localStorage.removeItem('token')
@@ -56,6 +63,11 @@ export const useAuthStore = create<AuthState>((set) => ({
     localStorage.setItem('token', token)
     localStorage.setItem('user', JSON.stringify(user))
     set({ token, user, isAuthenticated: true })
+    
+    // Set permissions in permission store
+    if (user.permissions) {
+      usePermissionStore.getState().setPermissions(user.permissions)
+    }
   },
 
   // Logout
@@ -73,6 +85,9 @@ export const useAuthStore = create<AuthState>((set) => ({
       
       // Clear state
       set({ token: null, user: null, isAuthenticated: false })
+      
+      // Clear permissions
+      usePermissionStore.getState().clearPermissions()
       
       // Redirect to login with current path (if meaningful)
       if (currentPath && currentPath !== '/' && currentPath !== '/login' && currentPath !== '/logout') {
@@ -129,28 +144,46 @@ export const useAuthStore = create<AuthState>((set) => ({
     // Validate with backend API
     try {
       console.log('[AuthStore] Validating token with API...')
-      const response = await api.get('/auth/me')
-      const user = response.data
+      
+      // Fetch user info and permissions in parallel
+      const [userResponse, permissionsResponse] = await Promise.all([
+        api.get('/auth/me'),
+        api.get('/permissions').catch((err) => {
+          console.warn('[AuthStore] Failed to fetch permissions:', err)
+          return { data: { permissions: [] } }
+        })
+      ])
+      
+      const user = userResponse.data
+      const permissions = permissionsResponse.data?.permissions || []
 
       console.log('[AuthStore] ✅ Session valid, user:', user.email)
+      console.log('[AuthStore] ✅ Permissions loaded:', permissions.length)
+      
+      // Build user object with permissions
+      const userWithPermissions = {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        full_name: user.full_name,
+        avatar_url: user.avatar_url,
+        auth_provider: user.auth_provider,
+        is_admin: user.is_admin,
+        permissions: permissions,
+      }
       
       // Update state with fresh user data
       set({ 
         isAuthenticated: true, 
-        user: {
-          id: user.id,
-          email: user.email,
-          username: user.username,
-          full_name: user.full_name,
-          avatar_url: user.avatar_url,
-          auth_provider: user.auth_provider,
-          is_admin: user.is_admin,
-        }, 
+        user: userWithPermissions, 
         token 
       })
       
-      // Update localStorage with fresh user data
-      localStorage.setItem('user', JSON.stringify(user))
+      // Update localStorage with fresh user data (including permissions)
+      localStorage.setItem('user', JSON.stringify(userWithPermissions))
+      
+      // Update permission store with fresh permissions
+      usePermissionStore.getState().setPermissions(permissions)
       
       return { authenticated: true, expired: false }
     } catch (error: any) {

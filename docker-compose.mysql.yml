@@ -38,10 +38,15 @@ services:
     environment:
       - PORT=8080
       - LOG_LEVEL=info
-      - DATABASE_URL=mysql://kubelens:kubelens123@tcp(mysql:3306)/kubelens?charset=utf8mb4&parseTime=True&loc=Local
+      - KUBELENS_DATABASE_TYPE=mysql
+      - KUBELENS_DATABASE_HOST=mysql
+      - KUBELENS_DATABASE_PORT=3306
+      - KUBELENS_DATABASE_NAME=kubelens
+      - KUBELENS_DATABASE_USER=kubelens
+      - KUBELENS_DATABASE_PASSWORD=kubelens123
       - KUBELENS_ADMIN_PASSWORD=admin123
-      - GLOBAL_RATE_LIMIT=1000
-      - LOGIN_RATE_LIMIT=5
+      - KUBELENS_GLOBAL_RATE_LIMIT_PER_MIN=1000
+      - KUBELENS_LOGIN_RATE_LIMIT_PER_MIN=5
     depends_on:
       mysql:
         condition: service_healthy

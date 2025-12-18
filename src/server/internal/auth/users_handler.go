@@ -166,6 +166,9 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 		return
 	}
 
+	// Track if user is being disabled
+	wasActive := user.IsActive
+	
 	// Update fields if provided
 	if req.Email != "" {
 		user.Email = req.Email
@@ -181,6 +184,16 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 	}
 	if req.IsAdmin != nil {
 		user.IsAdmin = *req.IsAdmin
+	}
+	
+	// If user is being disabled, revoke all their tokens
+	if wasActive && !user.IsActive {
+		if err := h.db.RevokeUserTokens(uint(id)); err != nil {
+			log.Errorf("Failed to revoke tokens for disabled user: %v", err)
+			// Don't fail the request, just log the error
+		} else {
+			log.Infof("Revoked tokens for disabled user: %s", user.Email)
+		}
 	}
 
 	// Update groups if provided
@@ -274,6 +287,12 @@ func (h *Handler) DeleteUser(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return
+	}
+
+	// Revoke all tokens before deleting user (so active sessions are immediately invalidated)
+	if err := h.db.RevokeUserTokens(uint(id)); err != nil {
+		log.Errorf("Failed to revoke tokens before user deletion: %v", err)
+		// Continue with deletion anyway
 	}
 
 	if err := h.db.DeleteUser(uint(id)); err != nil {

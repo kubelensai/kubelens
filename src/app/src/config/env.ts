@@ -41,6 +41,26 @@ export const getWsBaseUrl = (): string => {
   return `${protocol}//${window.location.host}/api/v1/ws`
 }
 
+/**
+ * Get backend server URL for OAuth redirects
+ * 
+ * Unlike API calls which use Vite proxy, OAuth redirects need the actual backend URL
+ * because browser navigation (window.location.href) doesn't go through the proxy.
+ * 
+ * @returns The backend server URL (e.g., "http://localhost:9090")
+ */
+export const getBackendUrl = (): string => {
+  // Mobile app - use runtime configured API server URL
+  if (isCapacitor()) {
+    return getApiServerUrl()
+  }
+  
+  // Web app - check for runtime config first, then env variable
+  // In production, this comes from window.env.API_SERVER
+  // In development, this comes from VITE_API_SERVER_URL or defaults to localhost:8080
+  return getApiServerUrl()
+}
+
 // Platform detection
 export const platform = {
   isWeb: () => !isCapacitor(),
@@ -53,6 +73,7 @@ export const platform = {
 export const appConfig = {
   apiBaseUrl: getApiBaseUrl(),
   wsBaseUrl: getWsBaseUrl(),
+  backendUrl: getBackendUrl(),
   platform: platform,
   version: import.meta.env.VITE_APP_VERSION || '1.0.0',
   buildMode: import.meta.env.MODE,

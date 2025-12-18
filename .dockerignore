@@ -1,0 +1,75 @@
+# Git
+.git
+.gitignore
+
+# IDE and editor files
+.vscode/
+.idea/
+.cursor/
+*.swp
+*.swo
+*~
+
+# Node modules (will be installed fresh in container)
+**/node_modules/
+src/app/node_modules/
+
+# Build artifacts
+src/app/dist/
+src/app/build/
+src/app/android/
+src/app/ios/
+
+# Go build artifacts
+src/server/bin/
+src/server/main
+src/server/server
+src/server/kubelens
+
+# Vendor (Go deps will be fetched in container)
+src/server/vendor/
+
+# Database files
+*.db
+data/*.db
+src/server/data/*.db
+
+# Logs
+*.log
+logs/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+tmp/
+temp/
+
+# Test artifacts
+*.test
+*.out
+coverage/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# CI/CD
+.github/
+
+# Charts (not needed for build)
+charts/
+
+# Shell helper files
+shell/
+
+# Dex config (not needed in app/server image)
+dex/

@@ -1204,6 +1204,38 @@ export const createRoleBinding = async (clusterName: string, namespace: string, 
   return data
 }
 
+// ==================== Extension APIs ====================
+
+/**
+ * Upload and install an extension from a .tar.gz file
+ * @param file The extension package file (.tar.gz or .tgz)
+ * @param onProgress Optional callback for upload progress (0-100)
+ */
+export const uploadExtension = async (
+  file: File,
+  onProgress?: (percent: number) => void
+) => {
+  const formData = new FormData()
+  formData.append('extension', file)
+
+  const { data } = await api.post('/extensions/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: (progressEvent) => {
+      if (onProgress && progressEvent.total) {
+        const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+        onProgress(percent)
+      }
+    },
+  })
+  return data
+}
+
+// Get avatar URL for a user (uses cached avatar from backend - public endpoint)
+export const getUserAvatarUrl = (userId?: number): string | null => {
+  if (!userId) return null
+  return `${getApiBaseUrl()}/avatars/${userId}`
+}
+
 export default api
 
 
