@@ -52,8 +52,9 @@
 ## ✨ Core Features
 
 - 🌐 **Multi-Cluster Management** - Manage multiple Kubernetes clusters from one interface
-- 🔐 **Enterprise Security** - JWT authentication, MFA/TOTP, RBAC, OAuth2 (Google)
-- 📊 **Real-time Monitoring** - Live metrics, resource usage, and health status
+- 🔐 **Enterprise Security** - JWT authentication, MFA/TOTP, RBAC, built-in OAuth2/SSO
+- 🧩 **Extension System** - Plugin architecture with go-plugin for extensibility
+- 📊 **Real-time Monitoring** - Live metrics, resource usage, and health status via WebSocket
 - 🚀 **Complete Workload Management** - Manage Pods, Deployments, StatefulSets, DaemonSets, Jobs, and CronJobs with shell access and YAML editing
 - 🔧 **Resource Management** - Services, Ingresses, ConfigMaps, Secrets, PersistentVolumes, and StorageClasses
 - 🎯 **Custom Resources** - Full CRD support with custom resource management
@@ -61,6 +62,7 @@
 - 📝 **Audit Logging** - Comprehensive audit trails with configurable retention policies
 - 📱 **Responsive UI** - Modern React interface with mobile support
 - 🎨 **Theme Support** - Beautiful light and dark modes with seamless switching
+- 🗄️ **Multiple Databases** - SQLite, PostgreSQL, or MySQL support
 
 ---
 
@@ -128,26 +130,43 @@ Access at `http://localhost:3000`
 helm repo add kubelens https://kubelensai.github.io/kubelens/
 helm repo update
 
-# Install
+# Install with SQLite (simple setup)
+helm install kubelens kubelens/kubelens \
+  --namespace kubelens \
+  --create-namespace
+
+# Install with PostgreSQL (production)
 helm install kubelens kubelens/kubelens \
   --namespace kubelens \
   --create-namespace \
-  --set ingress.enabled=true \
-  --set ingress.host=kubelens.yourdomain.com
+  --set server.database.type=postgresql \
+  --set server.database.postgresql.deploy=true \
+  --set server.postgresql.auth.password=your-secure-password
+
+# Install with Ingress
+helm install kubelens kubelens/kubelens \
+  --namespace kubelens \
+  --create-namespace \
+  --set app.ingress.enabled=true \
+  --set app.ingress.hosts[0].host=kubelens.yourdomain.com
 ```
 
 ### Docker Images
 
 ```bash
-# Docker Hub
-docker pull kubelensai/kubelens-app:latest
-docker pull kubelensai/kubelens-server:latest
-docker pull kubelensai/kubelens-shell:latest
+# Docker Hub (v1.0.0)
+docker pull kubelensai/kubelens-app:1.0.0
+docker pull kubelensai/kubelens-server:1.0.0
+docker pull kubelensai/kubelens-shell:1.0.0
 
 # GitHub Container Registry
-docker pull ghcr.io/kubelensai/kubelens-app:latest
-docker pull ghcr.io/kubelensai/kubelens-server:latest
-docker pull ghcr.io/kubelensai/kubelens-shell:latest
+docker pull ghcr.io/kubelensai/kubelens-app:1.0.0
+docker pull ghcr.io/kubelensai/kubelens-server:1.0.0
+docker pull ghcr.io/kubelensai/kubelens-shell:1.0.0
+
+# Latest (follows latest stable release)
+docker pull kubelensai/kubelens-app:latest
+docker pull kubelensai/kubelens-server:latest
 ```
 
 ---
@@ -198,35 +217,35 @@ RELEASE_MODE=false
 
 # Authentication
 JWT_SECRET=your-secret-key-here
-JWT_EXPIRATION=24h
-DEFAULT_ADMIN_PASSWORD=admin123
+KUBELENS_ADMIN_PASSWORD=admin123
 
-# Database (SQLite)
-DB_TYPE=sqlite
-DB_PATH=/data/kubelens.db
+# Database (SQLite - default)
+KUBELENS_DATABASE_TYPE=sqlite
+KUBELENS_DATABASE_PATH=/data/kubelens.db
 
 # Database (PostgreSQL)
-DB_TYPE=postgres
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=kubelens
-DB_USER=kubelens
-DB_PASSWORD=secret
+KUBELENS_DATABASE_TYPE=postgres
+KUBELENS_DATABASE_HOST=localhost
+KUBELENS_DATABASE_PORT=5432
+KUBELENS_DATABASE_NAME=kubelens
+KUBELENS_DATABASE_USER=kubelens
+KUBELENS_DATABASE_PASSWORD=secret
+KUBELENS_DATABASE_SSLMODE=disable
 
 # Database (MySQL)
-DB_TYPE=mysql
-DB_HOST=localhost
-DB_PORT=3306
-DB_NAME=kubelens
-DB_USER=kubelens
-DB_PASSWORD=secret
+KUBELENS_DATABASE_TYPE=mysql
+KUBELENS_DATABASE_HOST=localhost
+KUBELENS_DATABASE_PORT=3306
+KUBELENS_DATABASE_NAME=kubelens
+KUBELENS_DATABASE_USER=kubelens
+KUBELENS_DATABASE_PASSWORD=secret
 
 # Rate Limiting
-GLOBAL_RATE_LIMIT_PER_MIN=1000
-LOGIN_RATE_LIMIT_PER_MIN=10
+KUBELENS_GLOBAL_RATE_LIMIT_PER_MIN=1000
+KUBELENS_LOGIN_RATE_LIMIT_PER_MIN=5
 
-# CORS
-CORS_ORIGINS=http://localhost:3000,https://kubelens.app
+# Extensions
+KUBELENS_EXTENSIONS_DIR=/app/extensions
 ```
 
 **Frontend (React)**
@@ -234,6 +253,50 @@ CORS_ORIGINS=http://localhost:3000,https://kubelens.app
 VITE_API_URL=http://localhost:8080
 VITE_WS_URL=ws://localhost:8080
 ```
+
+---
+
+## 🧩 Extension System
+
+Kubelens v1.0.0 introduces a powerful **plugin architecture** using [HashiCorp go-plugin](https://github.com/hashicorp/go-plugin):
+
+### Built-in Extensions
+
+| Extension | Version | Description |
+|-----------|---------|-------------|
+| **kubelens-oauth2** | 0.2.0 | OAuth2/OIDC SSO with Google, GitHub, GitLab, Microsoft support |
+
+### Extension Features
+
+- **Hot-reload configuration** - Update settings without restart
+- **Isolated processes** - Extensions run as separate processes for stability
+- **HTTP proxy integration** - Extensions can expose HTTP endpoints (e.g., `/dex` for OAuth2)
+- **UI integration** - Extensions can provide custom UI components
+- **Encrypted config storage** - Sensitive configuration stored encrypted in database
+
+### Managing Extensions
+
+Extensions are managed via the UI: **Settings > Integrations > Extensions**
+
+Or via API:
+```bash
+# List extensions
+curl -X GET http://localhost:8080/api/v1/extensions
+
+# Get extension config
+curl -X GET http://localhost:8080/api/v1/extensions/kubelens-oauth2/config
+
+# Update extension config
+curl -X PUT http://localhost:8080/api/v1/extensions/kubelens-oauth2/config \
+  -H "Content-Type: application/json" \
+  -d '{"providers": "[...]"}'
+```
+
+### Extension Registry
+
+Extensions can be installed from:
+- **GitHub Registry**: `kubelensai/kubelens-extensions`
+- **Manual upload**: Upload `.tar.gz` packages via UI
 
 ---
 
@@ -252,6 +315,7 @@ VITE_WS_URL=ws://localhost:8080
 - GORM (ORM)
 - JWT + TOTP/MFA
 - Kubernetes Client-Go
+- HashiCorp go-plugin (Extensions)
 
 **Database**
 - SQLite (Development)
@@ -311,11 +375,64 @@ See [charts/INSTALL.md](charts/INSTALL.md) for detailed instructions.
 
 ---
 
+## 🔐 OAuth2/SSO Setup
+
+Kubelens includes built-in OAuth2/OIDC support via the `kubelens-oauth2` extension:
+
+1. **Access Extension Settings**: Navigate to Settings > Extensions
+2. **Configure Providers**: Add your OAuth2 providers (Google, GitHub, GitLab, Microsoft)
+3. **Set Credentials**: Enter Client ID and Client Secret from your identity provider
+
+**Supported Providers:**
+- Google (Google Workspace)
+- GitHub (including GitHub Enterprise)
+- GitLab (including self-hosted)
+- Microsoft Azure AD
+- Generic OIDC providers
+
+No external Dex deployment required - the OIDC server runs as a built-in extension!
+
+### Google OAuth2 Setup
+
+1. **Create Google Cloud Project**
+   - Go to [Google Cloud Console](https://console.cloud.google.com/)
+   - Create a new project or select existing one
+
+2. **Enable OAuth2 API**
+   - Navigate to **APIs & Services > Library**
+   - Search and enable **Google+ API** (or **Google Identity**)
+
+3. **Create OAuth2 Credentials**
+   - Go to **APIs & Services > Credentials**
+   - Click **Create Credentials > OAuth client ID**
+   - Select **Web application**
+   - Add authorized redirect URIs:
+     ```
+     https://your-kubelens-domain.com/dex/callback
+     http://localhost:8080/dex/callback  # for local development
+     ```
+
+4. **Provider Config Fields**
+   | Field | Required | Description |
+   |-------|----------|-------------|
+   | `id` | Yes | Unique identifier (e.g., `google`, `github-corp`) |
+   | `type` | Yes | Provider type: `google`, `github`, `gitlab`, `microsoft`, `oidc` |
+   | `name` | No | Display name on login page (default: "Login with {type}") |
+   | `client_id` | Yes | OAuth2 Client ID from provider |
+   | `client_secret` | Yes | OAuth2 Client Secret from provider |
+   | `allowed_domain` | No | Restrict to Google Workspace domain or Azure AD tenant |
+   | `allowed_org` | No | Restrict to GitHub/GitLab organization members |
+   | `base_url` | No | GitLab self-hosted URL |
+   | `tenant` | No | Microsoft Azure AD tenant |
+   | `issuer_url` | No | Required for generic OIDC providers |
+
+---
+
 ## 📚 Documentation
 
-- [Installation Guide](charts/INSTALL.md)
-- [API Reference](docs/api.md)
-- [Contributing Guide](CONTRIBUTING.md)
+- [Helm Chart Guide](charts/kubelens/README.md)
+- [Server Configuration](charts/kubelens/charts/server/README.md)
+- [App Configuration](charts/kubelens/charts/app/README.md)
 
 ---
 
