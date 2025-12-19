@@ -73,7 +73,7 @@ func NewManager(rootDir string, database *db.DB, auditLogger *audit.Logger) (*Ma
 
 	// Initialize encryptor with auto-generated key from database
 	var encryptor *crypto.Encryptor
-	if database != nil {
+	if database != nil && database.GormDB != nil {
 		key, err := database.GetOrCreateEncryptionKey()
 		if err != nil {
 			log.Warnf("Failed to get encryption key: %v. Config will not be persisted.", err)
@@ -106,7 +106,7 @@ func (m *Manager) LoadExtensions() error {
 	defer m.mu.Unlock()
 
 	// Load persisted configs from database first
-	if m.db != nil && m.encryptor != nil {
+	if m.db != nil && m.db.GormDB != nil && m.encryptor != nil {
 		configs, err := m.db.GetAllExtensionConfigs()
 		if err != nil {
 			log.Warnf("Failed to load extension configs from database: %v", err)
@@ -402,7 +402,7 @@ func (m *Manager) UpdateConfig(name string, config map[string]string) error {
 	m.configs[name] = config
 
 	// Persist encrypted config to database
-	if m.db != nil && m.encryptor != nil {
+	if m.db != nil && m.db.GormDB != nil && m.encryptor != nil {
 		configJSON, err := json.Marshal(config)
 		if err != nil {
 			log.Warnf("Failed to marshal config for persistence: %v", err)
