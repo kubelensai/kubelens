@@ -121,6 +121,22 @@ server:
         enabled: true
         size: 10Gi
   
+  # Init Container Configuration
+  # Used to wait for database to be ready before starting server
+  initContainer:
+    enabled: true
+    image:
+      repository: busybox
+      tag: "1.36"
+      pullPolicy: IfNotPresent
+    resources:
+      limits:
+        cpu: 50m
+        memory: 32Mi
+      requests:
+        cpu: 10m
+        memory: 16Mi
+  
   env:
     - name: PORT
       value: "8080"

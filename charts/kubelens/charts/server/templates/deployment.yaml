@@ -25,6 +25,32 @@ spec:
       serviceAccountName: {{ include "server.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if and .Values.initContainer.enabled (ne .Values.database.type "sqlite") }}
+      initContainers:
+      {{- if eq .Values.database.type "postgresql" }}
+      - name: wait-for-postgres
+        image: "{{ .Values.initContainer.image.repository }}:{{ .Values.initContainer.image.tag }}"
+        imagePullPolicy: {{ .Values.initContainer.image.pullPolicy }}
+        {{- if .Values.database.postgresql.deploy }}
+        command: ['sh', '-c', 'until nc -zv {{ .Release.Name }}-postgresql 5432; do echo "Waiting for PostgreSQL..."; sleep 2; done']
+        {{- else }}
+        command: ['sh', '-c', 'until nc -zv {{ .Values.database.postgresql.external.host }} {{ .Values.database.postgresql.external.port }}; do echo "Waiting for PostgreSQL..."; sleep 2; done']
+        {{- end }}
+        resources:
+          {{- toYaml .Values.initContainer.resources | nindent 10 }}
+      {{- else if eq .Values.database.type "mysql" }}
+      - name: wait-for-mysql
+        image: "{{ .Values.initContainer.image.repository }}:{{ .Values.initContainer.image.tag }}"
+        imagePullPolicy: {{ .Values.initContainer.image.pullPolicy }}
+        {{- if .Values.database.mysql.deploy }}
+        command: ['sh', '-c', 'until nc -zv {{ .Release.Name }}-mysql 3306; do echo "Waiting for MySQL..."; sleep 2; done']
+        {{- else }}
+        command: ['sh', '-c', 'until nc -zv {{ .Values.database.mysql.external.host }} {{ .Values.database.mysql.external.port }}; do echo "Waiting for MySQL..."; sleep 2; done']
+        {{- end }}
+        resources:
+          {{- toYaml .Values.initContainer.resources | nindent 10 }}
+      {{- end }}
+      {{- end }}
       containers:
       - name: server
         securityContext:
