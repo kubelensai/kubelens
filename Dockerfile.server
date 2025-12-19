@@ -60,8 +60,8 @@ USER kubelens
 # Environment variables with defaults
 ENV KUBELENS_DATABASE_PATH="/data/kubelens.db" \
     KUBELENS_ADMIN_PASSWORD="" \
-    GLOBAL_RATE_LIMIT="1000" \
-    LOGIN_RATE_LIMIT="5"
+    KUBELENS_GLOBAL_RATE_LIMIT_PER_MIN="1000" \
+    KUBELENS_LOGIN_RATE_LIMIT_PER_MIN="5"
 
 # Expose port
 EXPOSE 8080
