@@ -2,8 +2,38 @@ apiVersion: v1
 entries:
   kubelens:
   - apiVersion: v2
+    appVersion: 1.0.1
+    created: "2025-12-19T05:16:05.747658902Z"
+    dependencies:
+    - condition: server.enabled
+      name: server
+      repository: ""
+      version: 1.0.0
+    - condition: app.enabled
+      name: app
+      repository: ""
+      version: 1.0.0
+    description: A Helm chart for Kubelens - Multi-Cluster Kubernetes Dashboard
+    digest: c8d9371043cc163674d842faa052871148eb342d1105df2e43edd702692d9eb8
+    home: https://github.com/kubelensai/kubelens
+    keywords:
+    - kubernetes
+    - dashboard
+    - multi-cluster
+    - monitoring
+    maintainers:
+    - email: son@example.com
+      name: Son Nguyen
+    name: kubelens
+    sources:
+    - https://github.com/kubelensai/kubelens
+    type: application
+    urls:
+    - https://kubelensai.github.io/kubelens/kubelens-1.0.1.tgz
+    version: 1.0.1
+  - apiVersion: v2
     appVersion: 1.0.0
-    created: "2025-12-19T04:22:34.787717198Z"
+    created: "2025-12-19T05:16:05.737984516Z"
     dependencies:
     - condition: server.enabled
       name: server
@@ -33,7 +63,7 @@ entries:
     version: 1.0.0
   - apiVersion: v2
     appVersion: 1.0.0-rc6
-    created: "2025-12-19T04:22:34.777670659Z"
+    created: "2025-12-19T05:16:05.727830388Z"
     dependencies:
     - condition: dex.enabled
       name: dex
@@ -67,7 +97,7 @@ entries:
     version: 1.0.0-rc6
   - apiVersion: v2
     appVersion: 1.0.0-alpha.1
-    created: "2025-12-19T04:22:34.766023696Z"
+    created: "2025-12-19T05:16:05.716274223Z"
     dependencies:
     - condition: dex.enabled
       name: dex
@@ -99,4 +129,4 @@ entries:
     urls:
     - https://kubelensai.github.io/kubelens/kubelens-1.0.0-alpha.1.tgz
     version: 1.0.0-alpha.1
-generated: "2025-12-19T04:22:34.754853923Z"
+generated: "2025-12-19T05:16:05.704659074Z"
