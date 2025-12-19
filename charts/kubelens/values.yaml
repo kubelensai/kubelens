@@ -1,83 +1,13 @@
 # Kubelens Parent Chart Values
-# This chart includes sub-charts (dex, server, app)
+# This chart includes sub-charts (server, app)
 # All configuration is done via sub-chart value overrides
+#
+# Note: OAuth2/OIDC is now handled by the built-in kubelens-oauth2 extension.
+# Configure SSO providers via UI: Settings > Integrations > Extensions
 
 # Global settings (inherited by all sub-charts)
 global:
   imagePullSecrets: []
-
-# Dex sub-chart configuration (OAuth2/OIDC provider)
-# See: https://github.com/dexidp/helm-charts
-dex:
-  enabled: true
-  replicaCount: 1
-  
-  image:
-    repository: ghcr.io/dexidp/dex
-    tag: v2.37.0
-    pullPolicy: IfNotPresent
-  
-  service:
-    type: ClusterIP
-    ports:
-      http:
-        port: 5556
-      grpc:
-        port: 5557
-      telemetry:
-        port: 5558
-  
-  resources:
-    limits:
-      cpu: 200m
-      memory: 256Mi
-    requests:
-      cpu: 100m
-      memory: 128Mi
-  
-  envVars:
-    - name: GOOGLE_CLIENT_ID
-      value: ""  # Set via: --set dex.envVars[0].value=YOUR_CLIENT_ID
-    - name: GOOGLE_CLIENT_SECRET
-      value: ""  # Set via: --set dex.envVars[1].value=YOUR_CLIENT_SECRET
-  
-  config:
-    issuer: http://dex:5556/dex
-    
-    storage:
-      type: kubernetes
-      config:
-        inCluster: true
-    
-    web:
-      http: 0.0.0.0:5556
-    
-    grpc:
-      addr: 0.0.0.0:5557
-    
-    telemetry:
-      http: 0.0.0.0:5558
-    
-    staticClients:
-      - id: kubelens
-        redirectURIs:
-          - 'http://localhost/auth/callback'
-        name: 'Kubelens'
-        secret: kubelens-secret-change-in-production
-    
-    connectors:
-      - type: google
-        id: google
-        name: Google
-        config:
-          clientID: $GOOGLE_CLIENT_ID
-          clientSecret: $GOOGLE_CLIENT_SECRET
-          redirectURI: http://dex:5556/dex/callback
-          scopes:
-            - profile
-            - email
-            - openid
-            - https://www.googleapis.com/auth/cloud-platform.read-only
 
 # Server sub-chart configuration
 # See: charts/server/values.yaml for full configuration options
@@ -87,8 +17,8 @@ server:
   
   image:
     repository: kubelensai/kubelens-server
-    pullPolicy: Always
-    tag: "latest"
+    pullPolicy: IfNotPresent
+    tag: "1.0.0"
   
   service:
     type: ClusterIP
@@ -221,8 +151,8 @@ app:
   
   image:
     repository: kubelensai/kubelens-app
-    pullPolicy: Always
-    tag: "latest"
+    pullPolicy: IfNotPresent
+    tag: "1.0.0"
   
   service:
     type: ClusterIP

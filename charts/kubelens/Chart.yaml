@@ -9,18 +9,14 @@ keywords:
   - dashboard
   - multi-cluster
   - monitoring
-home: https://github.com/sonnguyen/kubelens
+home: https://github.com/kubelensai/kubelens
 sources:
-  - https://github.com/sonnguyen/kubelens
+  - https://github.com/kubelensai/kubelens
 maintainers:
   - name: Son Nguyen
     email: son@example.com
 
 dependencies:
-  - name: dex
-    version: "0.20.0"
-    repository: https://charts.dexidp.io
-    condition: dex.enabled
   - name: server
     version: "1.0.0"
     condition: server.enabled

@@ -8,9 +8,9 @@ keywords:
   - kubernetes
   - server
   - api
-home: https://github.com/sonnguyen/kubelens
+home: https://github.com/kubelensai/kubelens
 sources:
-  - https://github.com/sonnguyen/kubelens
+  - https://github.com/kubelensai/kubelens
 maintainers:
   - name: Son Nguyen
     email: son@example.com

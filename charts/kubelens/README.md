@@ -13,7 +13,8 @@ A comprehensive Helm chart for deploying Kubelens - a modern, multi-cluster Kube
 - ✅ **Dual Ingress Support**: Both Server and App can have independent Ingress configurations
 - ✅ **Multi-cluster Support**: Manage multiple Kubernetes clusters from one dashboard
 - ✅ **Real-time Updates**: WebSocket support for live cluster monitoring
-- ✅ **Persistent Storage**: SQLite database with PVC support
+- ✅ **Multiple Database Support**: SQLite, PostgreSQL, or MySQL
+- ✅ **Built-in OAuth2/SSO**: Extension-based SSO with Google, GitHub, GitLab, Microsoft support
 - ✅ **Production Ready**: Security hardening, resource limits, health checks
 
 ## Chart Architecture
@@ -99,7 +100,7 @@ kubectl port-forward -n kubelens svc/kubelens-app 8080:80
 | `server.enabled` | Enable server sub-chart | `true` |
 | `server.replicaCount` | Number of server replicas | `1` |
 | `server.image.repository` | Server image | `kubelensai/kubelens-server` |
-| `server.image.tag` | Server image tag | `latest` |
+| `server.image.tag` | Server image tag | `1.0.0` |
 | `server.ingress.enabled` | Enable ingress for server | `false` |
 | `server.ingress.className` | Ingress class | `""` |
 | `server.ingress.hosts` | Ingress hosts | `[{host: api.kubelens.app, ...}]` |
@@ -116,7 +117,7 @@ kubectl port-forward -n kubelens svc/kubelens-app 8080:80
 | `app.enabled` | Enable app sub-chart | `true` |
 | `app.replicaCount` | Number of app replicas | `1` |
 | `app.image.repository` | App image | `kubelensai/kubelens-app` |
-| `app.image.tag` | App image tag | `latest` |
+| `app.image.tag` | App image tag | `1.0.0` |
 | `app.ingress.enabled` | Enable ingress | `false` |
 | `app.ingress.className` | Ingress class | `nginx` |
 
@@ -583,11 +584,27 @@ See [values.yaml](values.yaml) for complete configuration options.
 - **Server**: [charts/server/README.md](charts/server/README.md)
 - **App**: [charts/app/README.md](charts/app/README.md)
 
+## OAuth2/SSO Configuration
+
+Kubelens includes a built-in OAuth2 extension (`kubelens-oauth2`) that provides SSO support for:
+- Google
+- GitHub
+- GitLab
+- Microsoft Azure AD
+- Generic OIDC providers
+
+**Configuration is done via the UI** after deployment:
+1. Navigate to Settings > Integrations > Extensions
+2. Configure the `kubelens-oauth2` extension
+3. Add your identity provider credentials
+
+No additional Helm configuration is required for OAuth2/SSO.
+
 ## Support & Contributing
 
-- **GitHub**: https://github.com/sonnguyen/kubelens
+- **GitHub**: https://github.com/kubelensai/kubelens
 - **Documentation**: [docs/](../../docs/)
-- **Issues**: https://github.com/sonnguyen/kubelens/issues
+- **Issues**: https://github.com/kubelensai/kubelens/issues
 
 ## License
 
