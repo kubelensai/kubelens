@@ -48,7 +48,7 @@ type User struct {
 	PasswordHash    string     `gorm:"column:password_hash" json:"-"`
 	FullName        string     `gorm:"column:full_name" json:"full_name,omitempty"`
 	AvatarURL       string     `gorm:"column:avatar_url" json:"avatar_url,omitempty"`           // Original URL from provider (for reference)
-	AvatarData      []byte     `gorm:"column:avatar_data;type:blob" json:"-"`                   // Cached avatar binary data
+	AvatarData      []byte     `gorm:"column:avatar_data" json:"-"`                              // Cached avatar binary data
 	AvatarMimeType  string     `gorm:"column:avatar_mime_type;type:varchar(50)" json:"-"`       // MIME type of cached avatar
 	AuthProvider    string     `gorm:"default:'local';column:auth_provider" json:"auth_provider"`
 	ProviderUserID  string     `gorm:"column:provider_user_id" json:"provider_user_id,omitempty"`
