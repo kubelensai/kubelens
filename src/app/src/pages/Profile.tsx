@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import api from '@/services/api'
+import api, { getUserAvatarUrl } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import { 
@@ -289,29 +289,51 @@ export default function Profile() {
               />
             </div>
 
-            {/* Avatar URL */}
+            {/* Avatar */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Avatar URL
+                Avatar
               </label>
-              <input
-                type="url"
-                value={formData.avatar_url}
-                onChange={(e) => setFormData({ ...formData, avatar_url: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                placeholder="https://example.com/avatar.jpg"
-              />
-              {formData.avatar_url && (
-                <div className="mt-2">
-                  <img
-                    src={formData.avatar_url}
-                    alt="Avatar preview"
-                    className="h-16 w-16 rounded-full object-cover border-2 border-gray-200 dark:border-gray-700"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none'
-                    }}
-                  />
+              {currentUser?.auth_provider !== 'local' ? (
+                // OAuth users have their avatar synced from provider
+                <div className="flex items-center gap-4">
+                  {currentUser?.id && (
+                    <img
+                      src={getUserAvatarUrl(currentUser.id) || undefined}
+                      alt="Avatar"
+                      className="h-16 w-16 rounded-full object-cover border-2 border-gray-200 dark:border-gray-700"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none'
+                      }}
+                    />
+                  )}
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Your avatar is synced from your {currentUser?.auth_provider} account
+                  </p>
                 </div>
+              ) : (
+                // Local users can set custom avatar URL
+                <>
+                  <input
+                    type="url"
+                    value={formData.avatar_url}
+                    onChange={(e) => setFormData({ ...formData, avatar_url: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    placeholder="https://example.com/avatar.jpg"
+                  />
+                  {formData.avatar_url && (
+                    <div className="mt-2">
+                      <img
+                        src={formData.avatar_url}
+                        alt="Avatar preview"
+                        className="h-16 w-16 rounded-full object-cover border-2 border-gray-200 dark:border-gray-700"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none'
+                        }}
+                      />
+                    </div>
+                  )}
+                </>
               )}
             </div>
 

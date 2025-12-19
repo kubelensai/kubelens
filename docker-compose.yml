@@ -21,7 +21,7 @@ services:
       - KUBELENS_GLOBAL_RATE_LIMIT_PER_MIN=1000  # Global: 1000 requests/min
       - KUBELENS_LOGIN_RATE_LIMIT_PER_MIN=5      # Login: 5 requests/min
     volumes:
-      - data:/data
+      - ./data:/data
     restart: unless-stopped
     networks:
       - kubelens
@@ -40,32 +40,32 @@ services:
       - NODE_ENV=production
     depends_on:
       - server
-      - dex
+      # - dex
     restart: unless-stopped
     networks:
       - kubelens
 
-  dex:
-    image: ghcr.io/dexidp/dex:v2.37.0
-    container_name: kubelens-dex
-    ports:
-      - "5556:5556"
-      - "5558:5558"
-    environment:
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-your-google-client-id}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-your-google-client-secret}
-    volumes:
-      - ./dex/config.yaml:/etc/dex/config.yaml:ro
-      - dex-data:/var/dex
-    command: ["dex", "serve", "/etc/dex/config.yaml"]
-    restart: unless-stopped
-    networks:
-      - kubelens
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:5556/dex/.well-known/openid-configuration"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+  # dex:
+  #   image: ghcr.io/dexidp/dex:v2.37.0
+  #   container_name: kubelens-dex
+  #   ports:
+  #     - "5556:5556"
+  #     - "5558:5558"
+  #   environment:
+  #     - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-your-google-client-id}
+  #     - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-your-google-client-secret}
+  #   volumes:
+  #     - ./dex/config.yaml:/etc/dex/config.yaml:ro
+  #     - dex-data:/var/dex
+  #   command: ["dex", "serve", "/etc/dex/config.yaml"]
+  #   restart: unless-stopped
+  #   networks:
+  #     - kubelens
+  #   healthcheck:
+  #     test: ["CMD", "wget", "--spider", "-q", "http://localhost:5556/dex/.well-known/openid-configuration"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
 
 networks:
   kubelens:

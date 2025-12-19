@@ -20,15 +20,11 @@ import (
 	"github.com/sonnguyen/kubelens/internal/middleware"
 	"github.com/sonnguyen/kubelens/internal/config"
 	"github.com/sonnguyen/kubelens/internal/db"
-	"github.com/sonnguyen/kubelens/internal/modules"
-	oauth2handler "github.com/sonnguyen/kubelens/internal/oauth2"
+	"github.com/sonnguyen/kubelens/internal/extension"
 	"github.com/sonnguyen/kubelens/internal/ws"
 
 	// Import all client-go auth plugins
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
-
-	// Import integration modules (conditionally compiled via build tags)
-	_ "github.com/sonnguyen/kubelens/internal/integrations/gcp"
 )
 
 func main() {
@@ -143,34 +139,25 @@ func main() {
 		})
 	})
 
-	// OAuth2 handler (initialize before modules)
-	oauth2Handler := oauth2handler.NewHandler(
-		database,
-		os.Getenv("DEX_ISSUER"),
-		os.Getenv("DEX_CLIENT_ID"),
-		os.Getenv("DEX_CLIENT_SECRET"),
-		os.Getenv("KUBELENS_URL")+"/auth/callback",
-	)
-
-	// Initialize module registry
-	moduleRegistry := modules.DefaultRegistry
-	log.Infof("📦 Module registry initialized with %d module(s)", moduleRegistry.Count())
-
-	// Initialize all registered modules
-	if moduleRegistry.Count() > 0 {
-		moduleDeps := &modules.ModuleDependencies{
-			DB:             database,
-			ClusterManager: clusterManager,
-			OAuth2Handler:  oauth2Handler,
-			Logger:         log.StandardLogger(),
-			Config:         map[string]interface{}{},
-		}
-
-		if err := moduleRegistry.InitializeAll(context.Background(), moduleDeps); err != nil {
-			log.Fatalf("Failed to initialize modules: %v", err)
-		}
+	// Initialize extension manager
+	// Use KUBELENS_EXTENSIONS_DIR or default to /app/extensions (bundled extensions)
+	extensionDir := os.Getenv("KUBELENS_EXTENSIONS_DIR")
+	if extensionDir == "" {
+		extensionDir = "/app/extensions"
+	}
+	extensionManager, err := extension.NewManager(extensionDir, database, auditLogger)
+	if err != nil {
+		log.Warnf("Failed to initialize extension manager: %v", err)
 	} else {
-		log.Info("ℹ️  No modules registered (build with -tags=\"gcp aws azure\" to enable integrations)")
+		// Load extensions
+		if err := extensionManager.LoadExtensions(); err != nil {
+			log.Warnf("Failed to load extensions: %v", err)
+		} else {
+			log.Infof("🧩 Extension manager initialized")
+		}
+
+		// Register extension HTTP proxies (e.g., /dex for OAuth2)
+		extensionManager.RegisterHTTPProxies(router)
 	}
 
 	// Initialize auth handler
@@ -180,6 +167,9 @@ func main() {
 		log.Warn("⚠️  JWT_SECRET not set, using default (not secure for production!)")
 	}
 	authHandler := auth.NewHandler(database, jwtSecret, auditLogger)
+	
+	// Set database for auth middleware (for user status checking)
+	auth.SetMiddlewareDB(database)
 
 	// API routes
 	apiHandler := api.NewHandler(clusterManager, database, wsHub)
@@ -203,7 +193,13 @@ func main() {
 			// Signup disabled
 			// authRoutes.POST("/signup", authHandler.Signup)
 			authRoutes.POST("/signin", loginRateLimiter.Middleware(), authHandler.Signin)
+			
+			// SSO providers endpoint (public - no auth required for login page)
+			if extensionManager != nil {
+				extensionManager.RegisterPublicRoutes(v1)
+			}
 			authRoutes.GET("/me", auth.AuthMiddleware(jwtSecret), authHandler.GetCurrentUser)
+			authRoutes.GET("/me/avatar", auth.AuthMiddleware(jwtSecret), authHandler.GetCurrentUserAvatar)
 			authRoutes.PATCH("/profile", auth.AuthMiddleware(jwtSecret), authHandler.UpdateProfile)
 			authRoutes.POST("/change-password", auth.AuthMiddleware(jwtSecret), authHandler.ChangePassword)
 			authRoutes.POST("/logout", auth.AuthMiddleware(jwtSecret), authHandler.Logout)
@@ -220,40 +216,48 @@ func main() {
 				mfaRoutes.POST("/regenerate-codes", mfaHandler.RegenerateBackupCodes)
 			}
 		}
+		
+		// Public avatar endpoint (no auth required - avatars are not sensitive)
+		v1.GET("/avatars/:id", authHandler.GetUserAvatar)
 
-		// User management routes (admin only)
+		// User management routes - requires "users" permission
 		userRoutes := v1.Group("/users")
-		userRoutes.Use(auth.AuthMiddleware(jwtSecret), auth.AdminOnly())
+		userRoutes.Use(auth.AuthMiddleware(jwtSecret), authHandler.PermissionChecker("users", "read"))
 		{
 			userRoutes.GET("", authHandler.ListUsers)
-			userRoutes.POST("", authHandler.CreateUser)
 			userRoutes.GET("/:id", authHandler.GetUser)
-			userRoutes.PATCH("/:id", authHandler.UpdateUser)
-			userRoutes.DELETE("/:id", authHandler.DeleteUser)
+			userRoutes.GET("/:id/avatar", authHandler.GetUserAvatar) // Serve cached avatar
 			userRoutes.GET("/:id/groups", authHandler.GetUserGroups)
-			userRoutes.PUT("/:id/groups", authHandler.UpdateUserGroups)
-			userRoutes.POST("/:id/reset-password", authHandler.ResetUserPassword)
 			
-			// MFA admin routes
+			// Write operations require specific permissions
+			userRoutes.POST("", authHandler.PermissionChecker("users", "create"), authHandler.CreateUser)
+			userRoutes.PATCH("/:id", authHandler.PermissionChecker("users", "update"), authHandler.UpdateUser)
+			userRoutes.DELETE("/:id", authHandler.PermissionChecker("users", "delete"), authHandler.DeleteUser)
+			userRoutes.PUT("/:id/groups", authHandler.PermissionChecker("users", "update"), authHandler.UpdateUserGroups)
+			userRoutes.POST("/:id/reset-password", authHandler.PermissionChecker("users", "update"), authHandler.ResetUserPassword)
+			
+			// MFA admin routes - manage permission
 			mfaHandler := auth.NewMFAHandler(database)
-			userRoutes.POST("/:id/reset-mfa", mfaHandler.AdminResetMFA)
+			userRoutes.POST("/:id/reset-mfa", authHandler.PermissionChecker("users", "manage"), mfaHandler.AdminResetMFA)
 		}
 
-		// Permission options route (admin only)
-		v1.GET("/permissions/options", auth.AuthMiddleware(jwtSecret), auth.AdminOnly(), authHandler.GetPermissionOptions)
+		// Permission options route - requires settings permission
+		v1.GET("/permissions/options", auth.AuthMiddleware(jwtSecret), authHandler.PermissionChecker("settings", "read"), authHandler.GetPermissionOptions)
 
-		// Group management routes (admin only)
+		// Group management routes - requires "groups" permission
 		groupRoutes := v1.Group("/groups")
-		groupRoutes.Use(auth.AuthMiddleware(jwtSecret), auth.AdminOnly())
+		groupRoutes.Use(auth.AuthMiddleware(jwtSecret), authHandler.PermissionChecker("groups", "read"))
 		{
 			groupRoutes.GET("", authHandler.ListGroups)
-			groupRoutes.POST("", authHandler.CreateGroup)
 			groupRoutes.GET("/:id", authHandler.GetGroup)
-			groupRoutes.PUT("/:id", authHandler.UpdateGroupHandler)
-			groupRoutes.DELETE("/:id", authHandler.DeleteGroup)
 			groupRoutes.GET("/:id/users", authHandler.ListGroupUsers)
-			groupRoutes.POST("/:id/users", authHandler.AddUserToGroupHandler)
-			groupRoutes.DELETE("/:id/users/:user_id", authHandler.RemoveUserFromGroupHandler)
+			
+			// Write operations require specific permissions
+			groupRoutes.POST("", authHandler.PermissionChecker("groups", "create"), authHandler.CreateGroup)
+			groupRoutes.PUT("/:id", authHandler.PermissionChecker("groups", "update"), authHandler.UpdateGroupHandler)
+			groupRoutes.DELETE("/:id", authHandler.PermissionChecker("groups", "delete"), authHandler.DeleteGroup)
+			groupRoutes.POST("/:id/users", authHandler.PermissionChecker("groups", "update"), authHandler.AddUserToGroupHandler)
+			groupRoutes.DELETE("/:id/users/:user_id", authHandler.PermissionChecker("groups", "update"), authHandler.RemoveUserFromGroupHandler)
 		}
 
 		// User session routes (authenticated users)
@@ -281,67 +285,59 @@ func main() {
 		// User permissions route (authenticated users)
 		v1.GET("/permissions", auth.AuthMiddleware(jwtSecret), authHandler.GetUserPermissionsHandler)
 
-		// Audit routes (admin only)
+		// Audit routes - requires "audit" permission
 		auditHandler := audit.NewHandler(database, auditLogger, retentionManager)
 		auditRoutes := v1.Group("/audit")
-		auditRoutes.Use(auth.AuthMiddleware(jwtSecret), auth.AdminOnly())
+		auditRoutes.Use(auth.AuthMiddleware(jwtSecret), authHandler.PermissionChecker("audit", "read"))
 		{
-			// Audit logs
+			// Audit logs - read operations
 			auditRoutes.GET("/logs", auditHandler.ListAuditLogs)
 			auditRoutes.GET("/logs/:id", auditHandler.GetAuditLog)
 			auditRoutes.GET("/logs/stats", auditHandler.GetAuditStats)
 			auditRoutes.POST("/export", auditHandler.ExportAuditLogs)
 
-			// Audit settings
+			// Audit settings - read operations
 			auditRoutes.GET("/settings", auditHandler.GetAuditSettings)
-			auditRoutes.PUT("/settings", auditHandler.UpdateAuditSettings)
 			auditRoutes.GET("/settings/presets", auditHandler.GetAuditPresets)
-			auditRoutes.POST("/settings/preset/:name", auditHandler.ApplyAuditPreset)
 			auditRoutes.GET("/settings/impact", auditHandler.GetStorageImpact)
+			
+			// Audit settings - write operations require update permission
+			auditRoutes.PUT("/settings", authHandler.PermissionChecker("audit", "update"), auditHandler.UpdateAuditSettings)
+			auditRoutes.POST("/settings/preset/:name", authHandler.PermissionChecker("audit", "update"), auditHandler.ApplyAuditPreset)
 
-			// Retention management
+			// Retention management - read operations
 			auditRoutes.GET("/retention/stats", auditHandler.GetRetentionStats)
-			auditRoutes.POST("/retention/archive", auditHandler.TriggerArchive)
-			auditRoutes.POST("/retention/cleanup", auditHandler.TriggerCleanup)
 			auditRoutes.GET("/retention/policy", auditHandler.GetRetentionPolicy)
-			auditRoutes.PUT("/retention/policy", auditHandler.UpdateRetentionPolicy)
+			
+			// Retention management - write operations require manage permission
+			auditRoutes.POST("/retention/archive", authHandler.PermissionChecker("audit", "manage"), auditHandler.TriggerArchive)
+			auditRoutes.POST("/retention/cleanup", authHandler.PermissionChecker("audit", "manage"), auditHandler.TriggerCleanup)
+			auditRoutes.PUT("/retention/policy", authHandler.PermissionChecker("audit", "update"), auditHandler.UpdateRetentionPolicy)
 		}
 
 	// Protected routes - require authentication
 	protected := v1.Group("")
 	protected.Use(auth.AuthMiddleware(jwtSecret))
 	{
-		// Module management API
-		protected.GET("/modules", func(c *gin.Context) {
-			metadata := moduleRegistry.GetUIMetadataAll()
-			c.JSON(http.StatusOK, gin.H{
-				"modules": metadata,
-				"count":   len(metadata),
-			})
-		})
-
-		// Integrations management
-		protected.GET("/integrations", apiHandler.ListIntegrations)
-		protected.POST("/integrations", apiHandler.CreateIntegration)
-		protected.PATCH("/integrations/:id", apiHandler.UpdateIntegration)
-		
-		// OAuth2 routes
-		protected.GET("/integrations/:id/oauth/start", oauth2Handler.StartOAuth2Flow)
-		protected.GET("/integrations/:id/oauth/revoke", oauth2Handler.RevokeToken)
-		protected.GET("/integrations/:id/oauth/tokens", oauth2Handler.GetTokenInfo)
+		// Extension management routes with RBAC
+		if extensionManager != nil {
+			extensionManager.RegisterRoutesWithRBAC(protected, authHandler.PermissionChecker)
+		}
 
 		// Global search across all resources
 		protected.GET("/search", apiHandler.Search)
 
-		// Cluster management
+		// Cluster management - read operations available to all authenticated users
 		protected.GET("/clusters", apiHandler.ListClusters)
-		protected.POST("/clusters", apiHandler.AddCluster)
-		protected.PUT("/clusters/:name", apiHandler.UpdateCluster)
-		protected.PATCH("/clusters/:name/enabled", apiHandler.UpdateClusterEnabled)
-		protected.DELETE("/clusters/:name", apiHandler.RemoveCluster)
 		protected.GET("/clusters/:name/status", apiHandler.GetClusterStatus)
 		protected.GET("/clusters/:name/metrics", apiHandler.GetClusterMetrics)
 		protected.GET("/clusters/:name/resources-summary", apiHandler.GetClusterResourcesSummary)
+		
+		// Cluster management - write operations require clusters permission
+		protected.POST("/clusters", authHandler.PermissionChecker("clusters", "create"), apiHandler.AddCluster)
+		protected.PUT("/clusters/:name", authHandler.PermissionChecker("clusters", "update"), apiHandler.UpdateCluster)
+		protected.PATCH("/clusters/:name/enabled", authHandler.PermissionChecker("clusters", "update"), apiHandler.UpdateClusterEnabled)
+		protected.DELETE("/clusters/:name", authHandler.PermissionChecker("clusters", "delete"), apiHandler.RemoveCluster)
 
 		// Namespaces (cluster-scoped)
 		protected.GET("/clusters/:name/namespaces", apiHandler.ListNamespaces)
@@ -596,20 +592,14 @@ func main() {
 	}
 	}
 
-	// OAuth2 callback route (outside /api/v1)
-	router.GET("/auth/callback", oauth2Handler.HandleCallback)
+	// OAuth2 routes (outside /api/v1)
+	router.GET("/auth/callback", authHandler.HandleOIDCCallback)
 
-	// Register module-specific routes
-	if moduleRegistry.Count() > 0 {
-		modulesGroup := v1.Group("/modules")
-		for _, module := range moduleRegistry.List() {
-			if err := module.RegisterRoutes(modulesGroup); err != nil {
-				log.Warnf("Failed to register routes for module %s: %v", module.Name(), err)
-			} else {
-				log.Infof("✅ Registered routes for module: %s", module.Name())
-			}
-		}
-	}
+	// OIDC sync endpoint (for OAuth2 extension)
+	router.POST("/api/auth/oidc/sync", authHandler.HandleOIDCSync)
+
+	// OAuth2 PKCE exchange endpoint
+	v1.POST("/auth/oauth/exchange", authHandler.HandleOAuthExchange)
 
 	// Create HTTP server
 	srv := &http.Server{
@@ -639,12 +629,10 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Shutdown modules first
-	if moduleRegistry.Count() > 0 {
-		log.Info("Shutting down modules...")
-		if err := moduleRegistry.ShutdownAll(ctx); err != nil {
-			log.Errorf("Error shutting down modules: %v", err)
-		}
+	// Shutdown extensions
+	if extensionManager != nil {
+		log.Info("Shutting down extensions...")
+		extensionManager.Shutdown()
 	}
 
 	if err := srv.Shutdown(ctx); err != nil {

@@ -1,21 +1,33 @@
-# Build stage
+# Build stage for server
 FROM golang:1.24-alpine AS builder
 
-WORKDIR /app
+WORKDIR /build
 
 # Build arguments for enabling modules
 ARG BUILD_TAGS="gcp"
 
-# Copy go mod files
-COPY src/server/go.mod src/server/go.sum ./
-RUN go mod download
+# Copy server go mod files first for caching
+COPY src/server/go.mod src/server/go.sum ./server/
+RUN cd server && go mod download
 
-# Copy source code
-COPY src/server/ ./
+# Copy server source code
+COPY src/server/ ./server/
 
-# Build the application (Pure Go - no CGO needed)
-# Modules are conditionally compiled based on BUILD_TAGS
-RUN CGO_ENABLED=0 GOOS=linux go build -a -tags="${BUILD_TAGS}" -ldflags='-w -s' -o server ./cmd/server
+# Build the main server application
+RUN cd server && CGO_ENABLED=0 GOOS=linux go build -a -tags="${BUILD_TAGS}" -ldflags='-w -s' -o /out/server ./cmd/server
+
+# Build extensions
+# Copy extensions source (they depend on server via replace directive)
+COPY src/extensions/ ./extensions/
+
+# Build kubelens-oauth2 extension for native architecture (same as server)
+# Uses Go's native arch detection - no cross-compilation needed for bundled extensions
+RUN GOARCH=$(go env GOARCH) && \
+    cd extensions/kubelens-oauth2 && \
+    CGO_ENABLED=0 GOOS=linux go build -a -ldflags='-w -s' -o /out/extensions/kubelens-oauth2/bin/kubelens-oauth2-linux-${GOARCH} .
+
+# Copy extension manifest
+RUN cp extensions/kubelens-oauth2/manifest.json /out/extensions/kubelens-oauth2/
 
 # Final stage
 FROM alpine:latest
@@ -28,13 +40,19 @@ RUN addgroup -g 1000 kubelens && \
 
 WORKDIR /app
 
-# Copy the binary from builder
-COPY --from=builder /app/server .
+# Copy the server binary from builder
+COPY --from=builder /out/server .
 
-# Create data directory with correct permissions
+# Create data directory for user data (DB, etc.)
 RUN mkdir -p /data && \
     chown -R kubelens:kubelens /app /data && \
     chmod +x /app/server
+
+# Copy built extensions to /app/extensions (NOT /data to avoid volume override)
+COPY --from=builder --chown=kubelens:kubelens /out/extensions/ /app/extensions/
+
+# Ensure extension binaries are executable
+RUN find /app/extensions -type f -path "*/bin/*" -exec chmod +x {} \;
 
 # Switch to non-root user
 USER kubelens

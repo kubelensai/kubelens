@@ -1,5 +1,6 @@
 import { useCRDGroups } from "@/hooks/useCRDGroups";
 import { useClusters } from "@/hooks/useClusters";
+import { usePermission } from "@/hooks/usePermission";
 import { useClusterStore } from "@/stores/clusterStore";
 import { useNamespaceStore } from "@/stores/namespaceStore";
 import { useThemeStore } from "@/stores/themeStore";
@@ -545,24 +546,43 @@ function AppContent() {
     {
       label: "SETTINGS",
       items: [
-        { name: "Clusters", href: "/clusters", icon: ServerIcon },
-        { name: "Users", href: "/users", icon: IdentificationIcon },
-        { name: "Groups", href: "/groups", icon: UserGroupIcon },
-        { name: "Integrations", href: "/integrations", icon: PuzzlePieceIcon },
-        { name: "Logging", href: "/logging", icon: DocumentTextIcon },
-        { name: "Audit Settings", href: "/audit-settings", icon: AdjustmentsHorizontalIcon },
+        { name: "Clusters", href: "/clusters", icon: ServerIcon, permission: { resource: "clusters", action: "manage" } },
+        { name: "Users", href: "/users", icon: IdentificationIcon, permission: { resource: "users", action: "read" } },
+        { name: "Groups", href: "/groups", icon: UserGroupIcon, permission: { resource: "groups", action: "read" } },
+        { name: "Extensions", href: "/extensions", icon: PuzzlePieceIcon, permission: { resource: "extensions", action: "read" } },
+        { name: "Logging", href: "/logging", icon: DocumentTextIcon, permission: { resource: "logging", action: "read" } },
+        { name: "Audit Settings", href: "/audit-settings", icon: AdjustmentsHorizontalIcon, permission: { resource: "audit", action: "read" } },
       ],
     },
   ];
 
-  // Filter navigation by enabled clusters and search query
-  const filterNavigation = (items: any[], query: string): any[] => {
-    // First, filter by enabled clusters
-    let filteredItems = items;
+  // Get permission checker
+  const { can } = usePermission();
 
+  // Filter navigation by enabled clusters, permissions, and search query
+  const filterNavigation = (items: any[], query: string): any[] => {
+    // First, filter by permissions
+    let filteredItems = items.filter((item) => {
+      // If item has permission requirement, check it
+      if (item.permission) {
+        return can(item.permission.resource, item.permission.action);
+      }
+      // No permission requirement means accessible to all authenticated users
+      return true;
+    });
+
+    // Then filter by enabled clusters
     if (!hasEnabledClusters) {
-      // When no enabled clusters, only show Dashboard, Clusters, Integrations, Users, Groups, Logging, and Audit Settings
-      filteredItems = items.filter((item) => item.name === "Dashboard" || item.name === "Clusters" || item.name === "Integrations" || item.name === "Users" || item.name === "Groups" || item.name === "Logging" || item.name === "Audit Settings");
+      // When no enabled clusters, only show Dashboard and SETTINGS items
+      filteredItems = filteredItems.filter((item) => 
+        item.name === "Dashboard" || 
+        item.name === "Clusters" || 
+        item.name === "Users" || 
+        item.name === "Groups" || 
+        item.name === "Extensions" || 
+        item.name === "Logging" || 
+        item.name === "Audit Settings"
+      );
     }
 
     // Then filter by search query

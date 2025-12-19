@@ -5,7 +5,22 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sonnguyen/kubelens/internal/db"
 )
+
+// userStatusChecker is an interface for checking user status
+// This allows the middleware to be used with different database implementations
+type userStatusChecker interface {
+	GetUserByID(id uint) (*db.User, error)
+}
+
+// Global database reference for middleware (set during initialization)
+var middlewareDB userStatusChecker
+
+// SetMiddlewareDB sets the database for middleware to use
+func SetMiddlewareDB(database userStatusChecker) {
+	middlewareDB = database
+}
 
 // AuthMiddleware validates JWT tokens and sets user context
 // Supports both Authorization header (for HTTP) and token query parameter (for WebSocket)
@@ -39,6 +54,35 @@ func AuthMiddleware(secret string) gin.HandlerFunc {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
 			c.Abort()
 			return
+		}
+
+		// Check if user is still active and token not revoked
+		if middlewareDB != nil {
+			user, err := middlewareDB.GetUserByID(uint(claims.UserID))
+			if err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found"})
+				c.Abort()
+				return
+			}
+
+			// Check if user is active
+			if !user.IsActive {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "account is disabled"})
+				c.Abort()
+				return
+			}
+
+			// Check if token was issued before revocation time
+			if user.TokenRevokedAt != nil && claims.IssuedAt != nil {
+				if claims.IssuedAt.Time.Before(*user.TokenRevokedAt) {
+					c.JSON(http.StatusUnauthorized, gin.H{"error": "session expired, please login again"})
+					c.Abort()
+					return
+				}
+			}
+
+			// Set the full user object for handlers that need it
+			c.Set("user", user)
 		}
 
 		// Set user context
@@ -82,13 +126,38 @@ func OptionalAuth(secret string) gin.HandlerFunc {
 		}
 
 		claims, err := ValidateToken(tokenString, secret)
-		if err == nil {
-			// Valid token, set user context
-			c.Set("user_id", claims.UserID)
-			c.Set("email", claims.Email)
-			c.Set("username", claims.Username)
-			c.Set("is_admin", claims.IsAdmin)
+		if err != nil {
+			// Invalid token, continue without user context
+			c.Next()
+			return
 		}
+
+		// Check if user is still active and token not revoked
+		if middlewareDB != nil {
+			user, err := middlewareDB.GetUserByID(uint(claims.UserID))
+			if err != nil || !user.IsActive {
+				// User not found or disabled, continue without user context
+				c.Next()
+				return
+			}
+
+			// Check if token was issued before revocation time
+			if user.TokenRevokedAt != nil && claims.IssuedAt != nil {
+				if claims.IssuedAt.Time.Before(*user.TokenRevokedAt) {
+					// Token revoked, continue without user context
+					c.Next()
+					return
+				}
+			}
+
+			c.Set("user", user)
+		}
+
+		// Valid token and user is active, set user context
+		c.Set("user_id", claims.UserID)
+		c.Set("email", claims.Email)
+		c.Set("username", claims.Username)
+		c.Set("is_admin", claims.IsAdmin)
 
 		c.Next()
 	}

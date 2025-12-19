@@ -42,26 +42,29 @@ func (Cluster) TableName() string {
 
 // User represents a user account
 type User struct {
-	ID             uint       `gorm:"primaryKey" json:"id"`
-	Email          string     `gorm:"type:varchar(255);uniqueIndex;not null" json:"email"`
-	Username       string     `gorm:"type:varchar(255);uniqueIndex;not null" json:"username"`
-	PasswordHash   string     `gorm:"column:password_hash" json:"-"`
-	FullName       string     `gorm:"column:full_name" json:"full_name,omitempty"`
-	AvatarURL      string     `gorm:"column:avatar_url" json:"avatar_url,omitempty"`
-	AuthProvider   string     `gorm:"default:'local';column:auth_provider" json:"auth_provider"`
-	ProviderUserID string     `gorm:"column:provider_user_id" json:"provider_user_id,omitempty"`
-	IsActive       bool       `gorm:"default:true;column:is_active" json:"is_active"`
-	IsAdmin        bool       `gorm:"default:false;column:is_admin" json:"is_admin"`
-	MFAEnabled     bool       `gorm:"default:false;column:mfa_enabled" json:"mfa_enabled"`
-	MFAEnforcedAt  *time.Time `gorm:"column:mfa_enforced_at" json:"mfa_enforced_at,omitempty"`
-	LastLogin      *time.Time `gorm:"column:last_login" json:"last_login,omitempty"`
-	CreatedAt      time.Time  `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt      time.Time  `gorm:"autoUpdateTime" json:"updated_at"`
+	ID              uint       `gorm:"primaryKey" json:"id"`
+	Email           string     `gorm:"type:varchar(255);uniqueIndex;not null" json:"email"`
+	Username        string     `gorm:"type:varchar(255);uniqueIndex;not null" json:"username"`
+	PasswordHash    string     `gorm:"column:password_hash" json:"-"`
+	FullName        string     `gorm:"column:full_name" json:"full_name,omitempty"`
+	AvatarURL       string     `gorm:"column:avatar_url" json:"avatar_url,omitempty"`           // Original URL from provider (for reference)
+	AvatarData      []byte     `gorm:"column:avatar_data;type:blob" json:"-"`                   // Cached avatar binary data
+	AvatarMimeType  string     `gorm:"column:avatar_mime_type;type:varchar(50)" json:"-"`       // MIME type of cached avatar
+	AuthProvider    string     `gorm:"default:'local';column:auth_provider" json:"auth_provider"`
+	ProviderUserID  string     `gorm:"column:provider_user_id" json:"provider_user_id,omitempty"`
+	IsActive        bool       `gorm:"default:true;column:is_active" json:"is_active"`
+	IsAdmin         bool       `gorm:"default:false;column:is_admin" json:"is_admin"`
+	MFAEnabled      bool       `gorm:"default:false;column:mfa_enabled" json:"mfa_enabled"`
+	MFAEnforcedAt   *time.Time `gorm:"column:mfa_enforced_at" json:"mfa_enforced_at,omitempty"`
+	TokenRevokedAt  *time.Time `gorm:"column:token_revoked_at" json:"-"`                        // All tokens issued before this time are invalid
+	LastLogin       *time.Time `gorm:"column:last_login" json:"last_login,omitempty"`
+	CreatedAt       time.Time  `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt       time.Time  `gorm:"autoUpdateTime" json:"updated_at"`
 
 	// Relationships
-	Groups   []Group       `gorm:"many2many:user_groups;" json:"groups,omitempty"`
-	Sessions []Session     `gorm:"foreignKey:UserID" json:"-"`
-	MFASecret *MFASecret   `gorm:"foreignKey:UserID" json:"-"`
+	Groups    []Group    `gorm:"many2many:user_groups;" json:"groups,omitempty"`
+	Sessions  []Session  `gorm:"foreignKey:UserID" json:"-"`
+	MFASecret *MFASecret `gorm:"foreignKey:UserID" json:"-"`
 }
 
 // TableName overrides the table name used by User to `users`
@@ -401,67 +404,7 @@ func (MFASecret) TableName() string {
 	return "mfa_secrets"
 }
 
-// Integration represents a cloud provider integration
-type Integration struct {
-	ID           uint      `gorm:"primaryKey" json:"id"`
-	Name         string    `gorm:"type:varchar(255);uniqueIndex;not null" json:"name"`
-	Type         string    `gorm:"type:varchar(50);not null" json:"type"` // gcp, aws, azure, prometheus, datadog
-	Config       string    `gorm:"type:text" json:"config,omitempty"`     // JSON blob
-	AuthMethod   string    `gorm:"type:varchar(50);column:auth_method" json:"auth_method,omitempty"` // oauth2, service_account, api_key
-	IsConfigured bool      `gorm:"default:false;column:is_configured" json:"is_configured"`
-	Enabled      bool      `gorm:"default:false" json:"enabled"`
-	CreatedAt    time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt    time.Time `gorm:"autoUpdateTime" json:"updated_at"`
-}
-
-// TableName overrides the table name
-func (Integration) TableName() string {
-	return "integrations"
-}
-
-// IntegrationCluster represents a cluster discovered from an integration
-type IntegrationCluster struct {
-	ID            uint      `gorm:"primaryKey" json:"id"`
-	IntegrationID uint      `gorm:"not null;index;column:integration_id" json:"integration_id"`
-	ClusterName   string    `gorm:"type:varchar(255);not null;column:cluster_name" json:"cluster_name"`
-	Kubeconfig    string    `gorm:"type:text;not null" json:"kubeconfig"`
-	Context       string    `gorm:"type:varchar(255)" json:"context,omitempty"`
-	Status        string    `gorm:"type:varchar(50)" json:"status"` // discovered, imported, error
-	LastSynced    *time.Time `gorm:"column:last_synced" json:"last_synced,omitempty"`
-	CreatedAt     time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt     time.Time `gorm:"autoUpdateTime" json:"updated_at"`
-
-	// Relationships
-	Integration Integration `gorm:"foreignKey:IntegrationID" json:"-"`
-}
-
-// TableName overrides the table name
-func (IntegrationCluster) TableName() string {
-	return "integration_clusters"
-}
-
-// OAuth2Token represents stored OAuth2 tokens for an integration
-type OAuth2Token struct {
-	ID            uint       `gorm:"primaryKey" json:"id"`
-	IntegrationID uint       `gorm:"not null;index;column:integration_id" json:"integration_id"`
-	Provider      string     `gorm:"type:varchar(50);not null" json:"provider"` // google, microsoft, github
-	AccessToken   string     `gorm:"type:text;not null;column:access_token" json:"access_token"`
-	RefreshToken  string     `gorm:"type:text;column:refresh_token" json:"refresh_token,omitempty"`
-	TokenType     string     `gorm:"type:varchar(50);column:token_type" json:"token_type"` // Bearer
-	Expiry        *time.Time `gorm:"column:expiry" json:"expiry,omitempty"`
-	IDToken       string     `gorm:"type:text;column:id_token" json:"id_token,omitempty"`
-	Scopes        string     `gorm:"type:text" json:"scopes,omitempty"` // Comma-separated
-	CreatedAt     time.Time  `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt     time.Time  `gorm:"autoUpdateTime" json:"updated_at"`
-
-	// Relationships
-	Integration Integration `gorm:"foreignKey:IntegrationID" json:"-"`
-}
-
-// TableName overrides the table name
-func (OAuth2Token) TableName() string {
-	return "oauth2_tokens"
-}
+// [Removed Integration structs]
 
 // ClusterMetadata stores cluster metadata and statistics
 type ClusterMetadata struct {
@@ -563,5 +506,38 @@ type AuditLogFilters struct {
 	EndDate   time.Time
 	Page      int
 	PageSize  int
+}
+
+// =============================================================================
+// Extension and System Configuration Models
+// =============================================================================
+
+// ExtensionConfig stores encrypted extension configuration
+type ExtensionConfig struct {
+	ID            uint      `gorm:"primaryKey" json:"id"`
+	ExtensionName string    `gorm:"type:varchar(255);uniqueIndex;not null" json:"extension_name"`
+	ConfigData    string    `gorm:"type:text;not null" json:"-"` // Encrypted JSON, hidden from API
+	CreatedAt     time.Time `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt     time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+}
+
+// TableName overrides the table name
+func (ExtensionConfig) TableName() string {
+	return "extension_configs"
+}
+
+// SystemConfig stores system-wide configuration (like encryption key)
+// Key is auto-generated on first install and stored securely in database
+type SystemConfig struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Key       string    `gorm:"type:varchar(255);uniqueIndex;not null" json:"key"`
+	Value     string    `gorm:"type:text;not null" json:"-"` // Hidden from API
+	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+}
+
+// TableName overrides the table name
+func (SystemConfig) TableName() string {
+	return "system_configs"
 }
 

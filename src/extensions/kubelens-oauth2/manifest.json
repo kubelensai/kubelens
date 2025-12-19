@@ -1,0 +1,8 @@
+{
+  "name": "kubelens-oauth2",
+  "version": "0.2.0",
+  "description": "OAuth2/OIDC Provider - enables SSO login with GitHub, Google, GitLab, Microsoft, LDAP, and more",
+  "author": "Kubelens Team",
+  "min_server_version": "1.0.0",
+  "permissions": ["manage_auth", "manage_users"]
+}

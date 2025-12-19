@@ -21,9 +21,10 @@ func (db *DB) GetPermissionOptions() (*PermissionOptions, error) {
 		clusterNames = append(clusterNames, cluster.Name)
 	}
 
-	// Define available resources (Kubernetes resource types)
+	// Define available resources (Kubernetes resource types + system resources)
 	resources := []string{
 		"*",
+		// Kubernetes resources
 		"clusters",
 		"namespaces",
 		"nodes",
@@ -52,15 +53,23 @@ func (db *DB) GetPermissionOptions() (*PermissionOptions, error) {
 		"leases",
 		"mutatingwebhookconfigurations",
 		"validatingwebhookconfigurations",
+		// System resources
+		"extensions", // Extension management
+		"users",      // User management
+		"groups",     // Group management
+		"audit",      // Audit logs and settings
+		"logging",    // System logging
+		"settings",   // System settings
 	}
 
-	// Define available actions (CRUD operations)
+	// Define available actions (CRUD operations + extension management)
 	actions := []string{
 		"*",
 		"read",
 		"create",
 		"update",
 		"delete",
+		"manage", // For extension lifecycle (install, uninstall, configure)
 	}
 
 	// Define available namespaces (we'll get these dynamically from clusters)
