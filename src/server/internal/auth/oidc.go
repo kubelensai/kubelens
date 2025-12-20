@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -438,27 +439,48 @@ func (h *Handler) HandleOAuthExchange(c *gin.Context) {
 		return
 	}
 
-	// Get internal OAuth2 extension address (from environment or default)
-	// The issuer must include /api/v1/auth/oauth path as that's how the OAuth2 extension is configured
-	dexIssuer := getEnvOrDefault("DEX_INTERNAL_ISSUER", "http://127.0.0.1:5556/api/v1/auth/oauth")
+	// Get internal OAuth2 extension address for token exchange
+	// This is where the OAuth2 extension is running internally
+	dexInternalURL := getEnvOrDefault("DEX_INTERNAL_ISSUER", "http://127.0.0.1:5556/api/v1/auth/oauth")
 
 	ctx := context.Background()
 
-	// Create OIDC provider pointing to internal Dex
-	provider, err := oidc.NewProvider(ctx, dexIssuer)
+	// Fetch OIDC discovery to get endpoints
+	// Note: Discovery may return a different issuer (public URL) than what we're connecting to (internal URL)
+	// This is expected in deployments where internal and external URLs differ
+	discoveryURL := strings.TrimSuffix(dexInternalURL, "/") + "/.well-known/openid-configuration"
+	resp, err := http.Get(discoveryURL)
 	if err != nil {
-		log.Errorf("Failed to create OIDC provider: %v", err)
+		log.Errorf("Failed to fetch OIDC discovery: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to connect to identity provider"})
 		return
 	}
+	defer resp.Body.Close()
 
-	// Configure OAuth2 with PKCE
+	var discovery struct {
+		Issuer        string `json:"issuer"`
+		TokenEndpoint string `json:"token_endpoint"`
+		JWKSURI       string `json:"jwks_uri"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&discovery); err != nil {
+		log.Errorf("Failed to parse OIDC discovery: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse identity provider config"})
+		return
+	}
+
+	// Build internal token endpoint URL (use internal host, same path as discovery)
+	// This allows us to call the token endpoint internally while accepting tokens issued with public issuer
+	internalTokenEndpoint := dexInternalURL + "/token"
+
+	// Configure OAuth2 for token exchange
 	oauth2Config := oauth2.Config{
 		ClientID:     "kubelens",
 		ClientSecret: "kubelens-secret",
 		RedirectURL:  req.RedirectURI,
-		Endpoint:     provider.Endpoint(),
-		Scopes:       []string{oidc.ScopeOpenID, "profile", "email", "groups"},
+		Endpoint: oauth2.Endpoint{
+			TokenURL: internalTokenEndpoint,
+		},
+		Scopes: []string{oidc.ScopeOpenID, "profile", "email", "groups"},
 	}
 
 	// Exchange code with PKCE verifier
@@ -471,14 +493,25 @@ func (h *Handler) HandleOAuthExchange(c *gin.Context) {
 		return
 	}
 
-	// Extract and verify ID token
+	// Extract ID token
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "no id_token in response"})
 		return
 	}
 
-	verifier := provider.Verifier(&oidc.Config{ClientID: "kubelens"})
+	// Create OIDC key set for signature verification using internal JWKS endpoint
+	internalJWKSURL := dexInternalURL + "/keys"
+	keySet := oidc.NewRemoteKeySet(ctx, internalJWKSURL)
+
+	// Create verifier that accepts the public issuer (from discovery) but uses internal JWKS
+	// This is the key: we trust tokens issued with the public issuer because:
+	// 1. We fetched the public issuer from our trusted internal OAuth2 extension
+	// 2. We verify signatures using keys from our trusted internal JWKS endpoint
+	verifier := oidc.NewVerifier(discovery.Issuer, keySet, &oidc.Config{
+		ClientID: "kubelens",
+	})
+
 	idToken, err := verifier.Verify(ctx, rawIDToken)
 	if err != nil {
 		log.Errorf("Failed to verify ID token: %v", err)
