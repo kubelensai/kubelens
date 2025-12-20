@@ -270,7 +270,7 @@ Kubelens v1.0.0 introduces a powerful **plugin architecture** using [HashiCorp g
 
 - **Hot-reload configuration** - Update settings without restart
 - **Isolated processes** - Extensions run as separate processes for stability
-- **HTTP proxy integration** - Extensions can expose HTTP endpoints (e.g., `/dex` for OAuth2)
+- **HTTP proxy integration** - Extensions can expose HTTP endpoints (e.g., `/api/v1/auth/oauth` for OAuth2)
 - **UI integration** - Extensions can provide custom UI components
 - **Encrypted config storage** - Sensitive configuration stored encrypted in database
 
@@ -408,8 +408,8 @@ No external Dex deployment required - the OIDC server runs as a built-in extensi
    - Select **Web application**
    - Add authorized redirect URIs:
      ```
-     https://your-kubelens-domain.com/dex/callback
-     http://localhost:8080/dex/callback  # for local development
+     https://your-kubelens-domain.com/api/v1/auth/oauth/callback
+     http://localhost:8080/api/v1/auth/oauth/callback  # for local development
      ```
 
 4. **Provider Config Fields**

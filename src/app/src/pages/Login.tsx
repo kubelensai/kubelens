@@ -259,18 +259,18 @@ export default function Login() {
         state: state,
       })
 
-      // 4. Redirect to Dex on backend server
+      // 4. Redirect to OAuth2 server on backend
       // If providerId is specified, redirect directly to the provider's auth endpoint
-      // Otherwise, Dex will show the provider selection page
+      // Otherwise, OAuth2 server will show the provider selection page
       const backendUrl = getBackendUrl()
       console.log('[Login] Starting SSO with PKCE flow, backend:', backendUrl, 'provider:', providerId)
       
       if (providerId) {
         // Redirect directly to specific provider
-        window.location.href = `${backendUrl}/dex/auth/${providerId}?${params.toString()}`
+        window.location.href = `${backendUrl}/api/v1/auth/oauth/auth/${providerId}?${params.toString()}`
       } else {
-        // Let Dex show provider selection
-        window.location.href = `${backendUrl}/dex/auth?${params.toString()}`
+        // Let OAuth2 server show provider selection
+        window.location.href = `${backendUrl}/api/v1/auth/oauth/auth?${params.toString()}`
       }
     } catch (error) {
       console.error('Failed to start SSO sign-in:', error)

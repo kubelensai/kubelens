@@ -19,7 +19,7 @@ func TestManager_Lifecycle(t *testing.T) {
 	// NewManager handles nil database gracefully by skipping encryption key initialization
 	auditLogger := &audit.Logger{}
 
-	manager, err := NewManager(tempDir, nil, auditLogger)
+	manager, err := NewManager(tempDir, nil, auditLogger, "http://localhost:8080")
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
 	}

@@ -203,7 +203,9 @@ func (e *OAuth2Extension) Start() error {
 	}
 
 	// Create and start real Dex server
-	dexServer, err := dex.NewRealDexServer(dexConfig, e.logHandler)
+	// Pass public_url from config for OAuth2 redirect URIs
+	publicURL := e.config["public_url"]
+	dexServer, err := dex.NewRealDexServer(dexConfig, e.logHandler, publicURL)
 	if err != nil {
 		e.logHandler(dex.LogEntry{Level: dex.LogError, Message: fmt.Sprintf("Failed to create Dex server: %v", err)})
 		return fmt.Errorf("failed to create Dex server: %w", err)

@@ -29,6 +29,7 @@ type Config struct {
 	AdminPassword           string   `mapstructure:"admin_password"`
 	GlobalRateLimitPerMin   int      `mapstructure:"global_rate_limit_per_min"`
 	LoginRateLimitPerMin    int      `mapstructure:"login_rate_limit_per_min"`
+	PublicURL               string   `mapstructure:"public_url"`        // Public URL for OAuth2 callbacks (e.g., https://api.kubelens.example.com)
 	Clusters                []ClusterConfig `mapstructure:"clusters"`
 }
 
@@ -52,6 +53,7 @@ func Load() (*Config, error) {
 	v.SetDefault("release_mode", false)
 	v.SetDefault("global_rate_limit_per_min", 1000)  // Default: 1000 requests per minute
 	v.SetDefault("login_rate_limit_per_min", 5)      // Default: 5 requests per minute
+	v.SetDefault("public_url", "http://localhost:8080") // Default for local development
 	// admin_password is optional - will be auto-generated if not set
 
 	// Get kubeconfig from environment or default location
@@ -93,6 +95,7 @@ func Load() (*Config, error) {
 	v.BindEnv("database_password")
 	v.BindEnv("database_sslmode")
 	v.BindEnv("database_path")
+	v.BindEnv("public_url")
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {

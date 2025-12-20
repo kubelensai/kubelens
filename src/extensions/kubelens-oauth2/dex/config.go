@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -196,8 +197,8 @@ func (g *ConfigGenerator) GetConfigPath() string {
 
 // Default values - auto-configured, no user input needed
 const (
-	// Public URL (through Kubelens proxy) - Dex is accessible via /dex path
-	DefaultIssuerURL = "http://localhost:8080/dex"
+	// Public URL (through Kubelens proxy) - OAuth2 is accessible via /api/v1/auth/oauth path
+	DefaultIssuerURL = "http://localhost:8080/api/v1/auth/oauth"
 	// Frontend callback URL - redirects to /login page which handles OAuth callback
 	DefaultRedirectURI = "http://localhost:8080/login"
 	// Static client for Kubelens
@@ -214,7 +215,15 @@ func (g *ConfigGenerator) Generate(extConfig map[string]string) (*Config, error)
 	clientSecret := DefaultClientSecret
 	redirectURI := DefaultRedirectURI
 
-	// Allow override via environment or advanced config if needed
+	// Priority 1: Use public_url if provided (injected by extension manager)
+	if publicURL := extConfig["public_url"]; publicURL != "" {
+		// Trim trailing slash for consistency
+		publicURL = strings.TrimSuffix(publicURL, "/")
+		issuerURL = publicURL + "/api/v1/auth/oauth"
+		redirectURI = publicURL + "/login"
+	}
+
+	// Priority 2: Allow explicit override via issuer_url/redirect_uri if needed
 	if val := extConfig["issuer_url"]; val != "" {
 		issuerURL = val
 	}
