@@ -596,7 +596,10 @@ func main() {
 	router.POST("/api/auth/oidc/sync", authHandler.HandleOIDCSync)
 
 	// OAuth2 PKCE exchange endpoint
-	v1.POST("/auth/oauth/exchange", authHandler.HandleOAuthExchange)
+	// Note: This is registered BEFORE extension proxies to avoid conflict with wildcard routes
+	// The extension proxy mounts at /api/v1/auth/oauth/* but we need this specific endpoint
+	// handled by the main server for token exchange
+	v1.POST("/auth/exchange", authHandler.HandleOAuthExchange)
 
 	// Create HTTP server
 	srv := &http.Server{

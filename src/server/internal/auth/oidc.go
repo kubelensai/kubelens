@@ -430,7 +430,7 @@ type OAuthExchangeResponse struct {
 }
 
 // HandleOAuthExchange handles the OAuth2 code exchange with PKCE
-// POST /api/v1/auth/oauth/exchange
+// POST /api/v1/auth/exchange
 func (h *Handler) HandleOAuthExchange(c *gin.Context) {
 	var req OAuthExchangeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

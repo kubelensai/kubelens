@@ -121,7 +121,7 @@ export default function Login() {
     try {
       // 4. Exchange code for token
       console.log('[Login] Exchanging OAuth code for token...')
-      const response = await api.post('/auth/oauth/exchange', {
+      const response = await api.post('/auth/exchange', {
         code,
         code_verifier: codeVerifier,
         redirect_uri: window.location.origin + '/login',

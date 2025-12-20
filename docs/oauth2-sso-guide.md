@@ -65,7 +65,7 @@ Kubelens uses an internal OAuth2 extension that acts as an OIDC provider, proxyi
    │◀──────────────────│◀───────────────────│                   │
    │                   │                    │                   │
    │ POST /api/v1/auth │                    │                   │
-   │ /oauth/exchange   │                    │                   │
+   │ /exchange         │                    │                   │
    │──────────────────▶│ Verify & sync user │                   │
    │                   │───────────────────▶│                   │
    │                   │                    │                   │
@@ -105,7 +105,7 @@ Kubelens uses PKCE (Proof Key for Code Exchange) for enhanced security:
 | `/api/v1/auth/oauth/auth` | GET | No | Start OAuth flow (shows provider selection) |
 | `/api/v1/auth/oauth/auth/{provider}` | GET | No | Start OAuth flow for specific provider |
 | `/api/v1/auth/oauth/callback` | GET | No | OAuth callback from identity provider |
-| `/api/v1/auth/oauth/exchange` | POST | No | Exchange authorization code for JWT |
+| `/api/v1/auth/exchange` | POST | No | Exchange authorization code for JWT |
 
 ### OIDC Discovery Endpoints
 
@@ -141,7 +141,7 @@ curl -X GET https://kubelens.example.com/api/v1/auth/sso/providers
 
 **Request:**
 ```bash
-curl -X POST https://kubelens.example.com/api/v1/auth/oauth/exchange \
+curl -X POST https://kubelens.example.com/api/v1/auth/exchange \
   -H "Content-Type: application/json" \
   -d '{
     "code": "authorization_code_from_callback",
