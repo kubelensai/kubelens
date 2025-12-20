@@ -54,6 +54,12 @@ resources:
 # If not set, a random password will be generated and printed in logs
 adminPassword: ""
 
+# Public URL Configuration (REQUIRED for production OAuth2/SSO)
+# This is the externally accessible URL of your Kubelens API server
+# Used for OAuth2 redirect URIs and OIDC issuer configuration
+# Example: https://api-kubelens.example.com
+publicURL: ""
+
 # Rate limiting configuration
 rateLimit:
   global: 1000  # requests per minute per IP

@@ -70,143 +70,14 @@ type OIDCSyncResponse struct {
 	ExpiresAt    int64    `json:"expires_at"`
 }
 
-// GetOIDCConfig returns the OIDC configuration
-func (h *Handler) GetOIDCConfig() OIDCConfig {
-	// Load config from environment or database
+// getOIDCConfig returns the OIDC configuration for user sync
+// This is used internally by HandleOIDCSync and HandleOAuthExchange
+func (h *Handler) getOIDCConfig() OIDCConfig {
 	return OIDCConfig{
-		IssuerURL:       getEnvOrDefault("OIDC_ISSUER_URL", "http://localhost:5556"),
-		ClientID:        getEnvOrDefault("OIDC_CLIENT_ID", "kubelens"),
-		ClientSecret:    getEnvOrDefault("OIDC_CLIENT_SECRET", "kubelens-secret"),
-		RedirectURL:     getEnvOrDefault("KUBELENS_URL", "http://localhost:3030") + "/auth/callback",
 		DefaultGroup:    getEnvOrDefault("OIDC_DEFAULT_GROUP", "viewer"),
 		AutoCreateGroup: getEnvOrDefault("OIDC_AUTO_CREATE_GROUP", "true") == "true",
 		GroupMapping:    parseGroupMapping(os.Getenv("OIDC_GROUP_MAPPING")),
 	}
-}
-
-// HandleOIDCCallback handles the OIDC callback
-func (h *Handler) HandleOIDCCallback(c *gin.Context) {
-	config := h.GetOIDCConfig()
-
-	state := c.Query("state")
-	code := c.Query("code")
-	errorMsg := c.Query("error")
-
-	// Check for error from provider
-	if errorMsg != "" {
-		errorDesc := c.Query("error_description")
-		log.Warnf("OIDC error: %s - %s", errorMsg, errorDesc)
-		h.auditLogger.LogAuth(
-			audit.EventAuthLoginFailed,
-			nil,
-			"",
-			"",
-			c.ClientIP(),
-			fmt.Sprintf("OIDC login failed: %s", errorDesc),
-			false,
-		)
-		c.Redirect(http.StatusFound, "/login?error="+errorMsg)
-		return
-	}
-
-	// Validate state (should be validated against session-stored state)
-	_ = state
-
-	ctx := context.Background()
-	provider, err := oidc.NewProvider(ctx, config.IssuerURL)
-	if err != nil {
-		log.Errorf("Failed to query OIDC provider: %v", err)
-		c.Redirect(http.StatusFound, "/login?error=provider_error")
-		return
-	}
-
-	oauth2Config := oauth2.Config{
-		ClientID:     config.ClientID,
-		ClientSecret: config.ClientSecret,
-		RedirectURL:  config.RedirectURL,
-		Endpoint:     provider.Endpoint(),
-		Scopes:       []string{oidc.ScopeOpenID, "profile", "email", "groups"},
-	}
-
-	token, err := oauth2Config.Exchange(ctx, code)
-	if err != nil {
-		log.Errorf("Failed to exchange token: %v", err)
-		c.Redirect(http.StatusFound, "/login?error=token_exchange_failed")
-		return
-	}
-
-	rawIDToken, ok := token.Extra("id_token").(string)
-	if !ok {
-		log.Error("No id_token in response")
-		c.Redirect(http.StatusFound, "/login?error=no_id_token")
-		return
-	}
-
-	verifier := provider.Verifier(&oidc.Config{ClientID: config.ClientID})
-	idToken, err := verifier.Verify(ctx, rawIDToken)
-	if err != nil {
-		log.Errorf("Failed to verify ID token: %v", err)
-		c.Redirect(http.StatusFound, "/login?error=token_verification_failed")
-		return
-	}
-
-	var claims OIDCClaims
-	if err := idToken.Claims(&claims); err != nil {
-		log.Errorf("Failed to parse claims: %v", err)
-		c.Redirect(http.StatusFound, "/login?error=invalid_claims")
-		return
-	}
-
-	// Sync user and groups
-	user, isNew, err := h.syncOIDCUser(claims, config)
-	if err != nil {
-		log.Errorf("Failed to sync user: %v", err)
-		c.Redirect(http.StatusFound, "/login?error=user_sync_failed")
-		return
-	}
-
-	// Sync groups
-	syncedGroups, err := h.syncOIDCGroups(user, claims.Groups, config)
-	if err != nil {
-		log.Warnf("Failed to sync groups for user %s: %v", user.Email, err)
-		// Don't fail login for group sync errors
-	}
-
-	// Update last login
-	now := time.Now()
-	user.LastLogin = &now
-	h.db.UpdateUser(user)
-
-	// Create session token
-	sessionToken, err := GenerateToken(int(user.ID), user.Email, user.Username, user.IsAdmin, h.secret)
-	if err != nil {
-		log.Errorf("Failed to generate session token: %v", err)
-		c.Redirect(http.StatusFound, "/login?error=session_creation_failed")
-		return
-	}
-
-	// Audit Log
-	userIDInt := int(user.ID)
-	eventType := audit.EventAuthLoginSuccess
-	description := "OIDC login success"
-	if isNew {
-		eventType = audit.EventUserCreated
-		description = "User created via OIDC login"
-	}
-	h.auditLogger.LogAuth(
-		eventType,
-		&userIDInt,
-		user.Username,
-		user.Email,
-		c.ClientIP(),
-		fmt.Sprintf("%s (groups: %v)", description, syncedGroups),
-		true,
-	)
-
-	log.Infof("OIDC login successful for user %s (new: %v, groups: %v)", user.Email, isNew, syncedGroups)
-
-	// Redirect to frontend with token
-	c.Redirect(http.StatusFound, fmt.Sprintf("/dashboard?token=%s", sessionToken))
 }
 
 // HandleOIDCSync handles sync requests from the OAuth2 extension
@@ -217,7 +88,7 @@ func (h *Handler) HandleOIDCSync(c *gin.Context) {
 		return
 	}
 
-	config := h.GetOIDCConfig()
+	config := h.getOIDCConfig()
 
 	claims := OIDCClaims{
 		Subject:       req.Subject,
@@ -567,9 +438,9 @@ func (h *Handler) HandleOAuthExchange(c *gin.Context) {
 		return
 	}
 
-	// Get internal Dex address (from environment or default)
-	// The issuer must include /dex path as that's how the Dex extension is configured
-	dexIssuer := getEnvOrDefault("DEX_INTERNAL_ISSUER", "http://127.0.0.1:5556/dex")
+	// Get internal OAuth2 extension address (from environment or default)
+	// The issuer must include /api/v1/auth/oauth path as that's how the OAuth2 extension is configured
+	dexIssuer := getEnvOrDefault("DEX_INTERNAL_ISSUER", "http://127.0.0.1:5556/api/v1/auth/oauth")
 
 	ctx := context.Background()
 
@@ -629,7 +500,7 @@ func (h *Handler) HandleOAuthExchange(c *gin.Context) {
 		return
 	}
 
-	config := h.GetOIDCConfig()
+	config := h.getOIDCConfig()
 
 	// Sync user to database
 	oidcClaims := OIDCClaims{

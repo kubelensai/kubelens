@@ -51,6 +51,7 @@ type Manager struct {
 	db          *db.DB
 	auditLogger *audit.Logger
 	encryptor   *crypto.Encryptor
+	publicURL   string // Public URL for OAuth2 callbacks (e.g., https://api.kubelens.example.com)
 
 	clients     map[string]*plugin.Client
 	extensions  map[string]kbplugin.Extension
@@ -65,7 +66,7 @@ type Manager struct {
 }
 
 // NewManager creates a new extension manager
-func NewManager(rootDir string, database *db.DB, auditLogger *audit.Logger) (*Manager, error) {
+func NewManager(rootDir string, database *db.DB, auditLogger *audit.Logger, publicURL string) (*Manager, error) {
 	store, err := NewStore(rootDir)
 	if err != nil {
 		return nil, err
@@ -85,12 +86,18 @@ func NewManager(rootDir string, database *db.DB, auditLogger *audit.Logger) (*Ma
 		}
 	}
 
+	// Default publicURL for local development
+	if publicURL == "" {
+		publicURL = "http://localhost:8080"
+	}
+
 	return &Manager{
 		store:       store,
 		discovery:   NewDiscovery(),
 		db:          database,
 		auditLogger: auditLogger,
 		encryptor:   encryptor,
+		publicURL:   publicURL,
 		clients:     make(map[string]*plugin.Client),
 		extensions:  make(map[string]kbplugin.Extension),
 		statuses:    make(map[string]ExtensionStatus),
@@ -187,6 +194,11 @@ func (m *Manager) loadExtension(ext InstalledExtension) error {
 	if config == nil {
 		config = make(map[string]string)
 		m.configs[ext.Manifest.Name] = config
+	}
+	
+	// Inject public_url into extension config for OAuth2 redirect URIs
+	if m.publicURL != "" {
+		config["public_url"] = m.publicURL
 	}
 	
 	log.Infof("Initializing extension %s...", ext.Manifest.Name)
@@ -753,26 +765,6 @@ func (m *Manager) setupExtensionProxy(name, endpoint string) {
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
 
-	// Custom director to handle path rewriting
-	originalDirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
-		originalDirector(req)
-
-		// Get the mount path for this extension
-		mountPath := m.getMountPath(name)
-
-		// Strip the mount path prefix from the request
-		req.URL.Path = strings.TrimPrefix(req.URL.Path, mountPath)
-		if req.URL.Path == "" {
-			req.URL.Path = "/"
-		}
-
-		// Update headers for proper URL reconstruction in extension
-		req.Header.Set("X-Forwarded-Host", req.Host)
-		req.Header.Set("X-Forwarded-Proto", "http") // TODO: detect from TLS or upstream header
-		req.Header.Set("X-Original-URI", req.RequestURI)
-	}
-
 	// Custom error handler
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		log.Errorf("Proxy error for extension %s: %v", name, err)
@@ -781,25 +773,57 @@ func (m *Manager) setupExtensionProxy(name, endpoint string) {
 
 	m.httpProxies[name] = proxy
 
-	// Mount the proxy route
+	// Mount the proxy route with custom handler that properly forwards headers
 	mountPath := m.getMountPath(name)
 	if m.router != nil {
-		m.router.Any(mountPath+"/*path", func(c *gin.Context) {
+		proxyHandler := func(c *gin.Context) {
+			// Create a custom director that has access to the original request
+			originalDirector := proxy.Director
+			proxy.Director = func(req *http.Request) {
+				originalDirector(req)
+
+				// Strip the mount path prefix from the request
+				req.URL.Path = strings.TrimPrefix(req.URL.Path, mountPath)
+				if req.URL.Path == "" {
+					req.URL.Path = "/"
+				}
+
+				// Forward X-Forwarded-Host from incoming request or use original Host
+				forwardedHost := c.Request.Header.Get("X-Forwarded-Host")
+				if forwardedHost == "" {
+					forwardedHost = c.Request.Host
+				}
+				req.Header.Set("X-Forwarded-Host", forwardedHost)
+
+				// Forward X-Forwarded-Proto from incoming request or detect from TLS
+				forwardedProto := c.Request.Header.Get("X-Forwarded-Proto")
+				if forwardedProto == "" {
+					if c.Request.TLS != nil {
+						forwardedProto = "https"
+					} else {
+						forwardedProto = "http"
+					}
+				}
+				req.Header.Set("X-Forwarded-Proto", forwardedProto)
+
+				req.Header.Set("X-Original-URI", c.Request.RequestURI)
+			}
+
 			proxy.ServeHTTP(c.Writer, c.Request)
-		})
+		}
+
+		m.router.Any(mountPath+"/*path", proxyHandler)
 		// Also handle root path without trailing wildcard
-		m.router.Any(mountPath, func(c *gin.Context) {
-			proxy.ServeHTTP(c.Writer, c.Request)
-		})
+		m.router.Any(mountPath, proxyHandler)
 		log.Infof("Mounted HTTP proxy for extension %s at %s -> %s", name, mountPath, endpoint)
 	}
 }
 
 // getMountPath returns the URL path where the extension should be mounted
 func (m *Manager) getMountPath(name string) string {
-	// Special case for oauth2 extension - mount at /dex for OIDC compatibility
+	// Special case for oauth2 extension - mount at /api/v1/auth/oauth for API consistency
 	if name == "kubelens-oauth2" {
-		return "/dex"
+		return "/api/v1/auth/oauth"
 	}
 	return "/extensions/" + name + "/proxy"
 }

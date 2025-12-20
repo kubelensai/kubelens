@@ -145,7 +145,7 @@ func main() {
 	if extensionDir == "" {
 		extensionDir = "/app/extensions"
 	}
-	extensionManager, err := extension.NewManager(extensionDir, database, auditLogger)
+	extensionManager, err := extension.NewManager(extensionDir, database, auditLogger, cfg.PublicURL)
 	if err != nil {
 		log.Warnf("Failed to initialize extension manager: %v", err)
 	} else {
@@ -156,7 +156,7 @@ func main() {
 			log.Infof("🧩 Extension manager initialized")
 		}
 
-		// Register extension HTTP proxies (e.g., /dex for OAuth2)
+		// Register extension HTTP proxies (e.g., /api/v1/auth/oauth for OAuth2)
 		extensionManager.RegisterHTTPProxies(router)
 	}
 
@@ -592,10 +592,7 @@ func main() {
 	}
 	}
 
-	// OAuth2 routes (outside /api/v1)
-	router.GET("/auth/callback", authHandler.HandleOIDCCallback)
-
-	// OIDC sync endpoint (for OAuth2 extension)
+	// OIDC sync endpoint (for OAuth2 extension - internal use)
 	router.POST("/api/auth/oidc/sync", authHandler.HandleOIDCSync)
 
 	// OAuth2 PKCE exchange endpoint

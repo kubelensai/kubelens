@@ -34,6 +34,7 @@ type RealDexServer struct {
 	lastError  error
 	logHandler LogHandler
 	address    string
+	publicURL  string // Public URL for OAuth2 callbacks (e.g., https://api.kubelens.example.com)
 
 	// Pending authorizations: state -> AuthorizationRequest
 	pendingAuths map[string]*AuthorizationRequest
@@ -87,7 +88,7 @@ type ProviderTokenResponse struct {
 }
 
 // NewRealDexServer creates a new real Dex server instance
-func NewRealDexServer(config *Config, logHandler LogHandler) (*RealDexServer, error) {
+func NewRealDexServer(config *Config, logHandler LogHandler, publicURL string) (*RealDexServer, error) {
 	// Generate RSA key for signing tokens
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -101,6 +102,7 @@ func NewRealDexServer(config *Config, logHandler LogHandler) (*RealDexServer, er
 		state:        StateStopped,
 		logHandler:   logHandler,
 		address:      InternalDexAddress,
+		publicURL:    publicURL,
 		pendingAuths: make(map[string]*AuthorizationRequest),
 		authCodes:    make(map[string]*AuthorizationCode),
 	}, nil
@@ -124,35 +126,35 @@ func (s *RealDexServer) Start() error {
 
 	mux := http.NewServeMux()
 
-	// OIDC Discovery endpoint - handle both with and without /dex prefix
-	// Without prefix: for requests coming through Kubelens proxy (which strips /dex)
+	// OIDC Discovery endpoint - handle both with and without prefix
+	// Without prefix: for requests coming through Kubelens proxy (which strips mount path)
 	// With prefix: for direct internal calls from backend
 	mux.HandleFunc("/.well-known/openid-configuration", s.handleDiscovery)
-	mux.HandleFunc("/dex/.well-known/openid-configuration", s.handleDiscovery)
+	mux.HandleFunc("/api/v1/auth/oauth/.well-known/openid-configuration", s.handleDiscovery)
 
 	// JWKS endpoint
 	mux.HandleFunc("/keys", s.handleJWKS)
-	mux.HandleFunc("/dex/keys", s.handleJWKS)
+	mux.HandleFunc("/api/v1/auth/oauth/keys", s.handleJWKS)
 
 	// Authorization endpoint - shows connector selection or redirects to provider
 	mux.HandleFunc("/auth", s.handleAuth)
-	mux.HandleFunc("/dex/auth", s.handleAuth)
+	mux.HandleFunc("/api/v1/auth/oauth/auth", s.handleAuth)
 
 	// Connector-specific auth endpoint
 	mux.HandleFunc("/auth/", s.handleConnectorAuth)
-	mux.HandleFunc("/dex/auth/", s.handleConnectorAuth)
+	mux.HandleFunc("/api/v1/auth/oauth/auth/", s.handleConnectorAuth)
 
 	// Callback from upstream provider (Google, GitHub, etc.)
 	mux.HandleFunc("/callback", s.handleProviderCallback)
-	mux.HandleFunc("/dex/callback", s.handleProviderCallback)
+	mux.HandleFunc("/api/v1/auth/oauth/callback", s.handleProviderCallback)
 
 	// Token endpoint - exchanges code for tokens
 	mux.HandleFunc("/token", s.handleToken)
-	mux.HandleFunc("/dex/token", s.handleToken)
+	mux.HandleFunc("/api/v1/auth/oauth/token", s.handleToken)
 
 	// Userinfo endpoint
 	mux.HandleFunc("/userinfo", s.handleUserinfo)
-	mux.HandleFunc("/dex/userinfo", s.handleUserinfo)
+	mux.HandleFunc("/api/v1/auth/oauth/userinfo", s.handleUserinfo)
 
 	// Health endpoint
 	mux.HandleFunc("/health", s.handleHealth)
@@ -276,8 +278,16 @@ func (s *RealDexServer) handleJWKS(w http.ResponseWriter, r *http.Request) {
 }
 
 // getIssuerFromRequest builds the issuer URL dynamically from the incoming request
-// This allows the server to work with any domain without configuration
+// Priority: 1) Configured publicURL, 2) X-Forwarded headers, 3) Request Host
 func (s *RealDexServer) getIssuerFromRequest(r *http.Request) string {
+	// Priority 1: Use configured publicURL if available
+	if s.publicURL != "" {
+		issuer := strings.TrimSuffix(s.publicURL, "/") + "/api/v1/auth/oauth"
+		s.log(LogDebug, fmt.Sprintf("getIssuerFromRequest: using configured publicURL, issuer=%s", issuer))
+		return issuer
+	}
+	
+	// Priority 2: Fall back to request headers
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
@@ -293,7 +303,7 @@ func (s *RealDexServer) getIssuerFromRequest(r *http.Request) string {
 		host = r.Host
 	}
 	
-	issuer := fmt.Sprintf("%s://%s/dex", scheme, host)
+	issuer := fmt.Sprintf("%s://%s/api/v1/auth/oauth", scheme, host)
 	s.log(LogDebug, fmt.Sprintf("getIssuerFromRequest: X-Forwarded-Host=%s, Host=%s, scheme=%s, issuer=%s", 
 		r.Header.Get("X-Forwarded-Host"), r.Host, scheme, issuer))
 	return issuer

@@ -80,6 +80,10 @@ spec:
           - name: KUBELENS_LOGIN_RATE_LIMIT_PER_MIN
             value: {{ .Values.rateLimit.login | quote }}
           {{- end }}
+          {{- if .Values.publicURL }}
+          - name: KUBELENS_PUBLIC_URL
+            value: {{ .Values.publicURL | quote }}
+          {{- end }}
           {{- if eq .Values.database.type "sqlite" }}
           - name: KUBELENS_DATABASE_TYPE
             value: "sqlite"
