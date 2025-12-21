@@ -92,13 +92,31 @@ export default function ImportClusterModal({ isOpen, onClose }: ImportClusterMod
       return
     }
 
+    // Base64 encode CA and Token before sending to server
+    let encodedCA: string
+    let encodedToken: string
+    
+    try {
+      encodedCA = btoa(tokenCA.trim())
+    } catch {
+      setError('Invalid Certificate Authority data: contains invalid characters')
+      return
+    }
+    
+    try {
+      encodedToken = btoa(tokenValue.trim())
+    } catch {
+      setError('Invalid Bearer Token: contains invalid characters')
+      return
+    }
+
     importMutation.mutate({
       name: tokenName.trim(),
       auth_type: 'token',
       auth_config: {
         server: tokenServer.trim(),
-        ca: tokenCA.trim(),
-        token: tokenValue.trim()
+        ca: encodedCA,
+        token: encodedToken
       }
     })
   }
@@ -337,15 +355,18 @@ export default function ImportClusterModal({ isOpen, onClose }: ImportClusterMod
                       {/* CA Certificate */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Certificate Authority (Base64) <span className="text-red-500">*</span>
+                          Certificate Authority (PEM) <span className="text-red-500">*</span>
                     </label>
                     <textarea
                           value={tokenCA}
                           onChange={(e) => setTokenCA(e.target.value)}
-                          placeholder="LS0tLS1CRUdJTi..."
+                          placeholder="-----BEGIN CERTIFICATE-----&#10;MIIDQTCCAimgAwIBAgI...&#10;-----END CERTIFICATE-----"
                           rows={4}
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-xs"
                     />
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Paste the CA certificate in PEM format (will be automatically encoded)
+                    </p>
                   </div>
 
                   {/* Token */}
@@ -356,10 +377,13 @@ export default function ImportClusterModal({ isOpen, onClose }: ImportClusterMod
                     <textarea
                           value={tokenValue}
                           onChange={(e) => setTokenValue(e.target.value)}
-                          placeholder="eyJhbGciOiJSUzI1NiIs..."
+                          placeholder="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
                       rows={4}
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-xs"
                     />
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Paste the service account token or JWT bearer token
+                    </p>
                 </div>
 
                       {/* Submit Button */}

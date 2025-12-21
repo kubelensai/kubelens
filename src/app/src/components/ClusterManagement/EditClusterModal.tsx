@@ -95,8 +95,22 @@ export default function EditClusterModal({ isOpen, onClose, cluster }: EditClust
     }
 
     // Encode CA and Token to base64 before sending
-    const caBase64 = btoa(tokenCA.trim())
-    const tokenBase64 = btoa(tokenValue.trim())
+    let caBase64: string
+    let tokenBase64: string
+    
+    try {
+      caBase64 = btoa(tokenCA.trim())
+    } catch {
+      setError('Invalid Certificate Authority data: contains invalid characters')
+      return
+    }
+    
+    try {
+      tokenBase64 = btoa(tokenValue.trim())
+    } catch {
+      setError('Invalid Bearer Token: contains invalid characters')
+      return
+    }
 
     updateMutation.mutate({
       auth_type: 'token',
@@ -253,34 +267,34 @@ export default function EditClusterModal({ isOpen, onClose, cluster }: EditClust
                       {/* Certificate Authority */}
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Certificate Authority (CA) <span className="text-red-500">*</span>
+                          Certificate Authority (PEM) <span className="text-red-500">*</span>
                         </label>
                         <textarea
                           value={tokenCA}
                           onChange={(e) => setTokenCA(e.target.value)}
-                          placeholder="Paste certificate-authority-data (base64 encoded)"
+                          placeholder="-----BEGIN CERTIFICATE-----&#10;MIIDQTCCAimgAwIBAgI...&#10;-----END CERTIFICATE-----"
                           rows={6}
                           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-xs resize-none"
                         />
                         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                          Base64 encoded certificate authority data
+                          Paste the CA certificate in PEM format (will be automatically encoded)
                         </p>
                       </div>
 
                       {/* Token */}
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Token <span className="text-red-500">*</span>
+                          Bearer Token <span className="text-red-500">*</span>
                         </label>
                         <textarea
                           value={tokenValue}
                           onChange={(e) => setTokenValue(e.target.value)}
-                          placeholder="Paste service account token or bearer token"
+                          placeholder="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
                           rows={4}
                           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-xs resize-none"
                         />
                         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                          Service account token or bearer token for authentication
+                          Paste the service account token or JWT bearer token
                         </p>
                       </div>
                     </Tab.Panel>

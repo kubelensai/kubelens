@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -179,6 +180,16 @@ func (h *Handler) AddCluster(c *gin.Context) {
 			return
 		}
 		
+		// Validate base64 format before processing
+		if _, err := base64.StdEncoding.DecodeString(ca); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Certificate Authority: not valid base64 encoded data"})
+			return
+		}
+		if _, err := base64.StdEncoding.DecodeString(token); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Bearer Token: not valid base64 encoded data"})
+			return
+		}
+		
 		// Add cluster using token
 		addErr = h.clusterManager.AddClusterFromConfig(req.Name, server, ca, token)
 		serverURL = server
@@ -323,11 +334,10 @@ func (h *Handler) UpdateCluster(c *gin.Context) {
 	name := c.Param("name")
 
 	var req struct {
-		Server    string `json:"server"`
-		CA        string `json:"ca"`
-		Token     string `json:"token"`
-		IsDefault bool   `json:"is_default"`
-		Enabled   bool   `json:"enabled"`
+		AuthType   string                 `json:"auth_type"`
+		AuthConfig map[string]interface{} `json:"auth_config"`
+		IsDefault  bool                   `json:"is_default"`
+		Enabled    bool                   `json:"enabled"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -342,38 +352,97 @@ func (h *Handler) UpdateCluster(c *gin.Context) {
 		return
 	}
 
-	// Update server, CA, token if provided
-	if req.Server != "" || req.CA != "" || req.Token != "" {
+	// Handle auth_config update if provided
+	if req.AuthConfig != nil && len(req.AuthConfig) > 0 {
 		// Remove old cluster from manager
 		h.clusterManager.RemoveCluster(name)
 
-		// Use new values or keep existing
-		server := req.Server
-		if server == "" {
-			server = existingCluster.Server
-		}
-		ca := req.CA
-		if ca == "" {
-			ca = existingCluster.CA
-		}
-		token := req.Token
-		if token == "" {
-			token = existingCluster.Token
+		// Determine auth type (use provided or keep existing)
+		authType := req.AuthType
+		if authType == "" {
+			authType = existingCluster.AuthType
 		}
 
-		// Add updated cluster to manager
-		if err := h.clusterManager.AddClusterFromConfig(name, server, ca, token); err != nil {
-			log.Errorf("Failed to update cluster: %v", err)
-			existingCluster.Status = "error"
-			h.db.SaveCluster(existingCluster)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		switch authType {
+		case "token":
+			// Extract server, CA, token from auth_config
+			server, _ := req.AuthConfig["server"].(string)
+			ca, _ := req.AuthConfig["ca"].(string)
+			token, _ := req.AuthConfig["token"].(string)
+
+			// Validate required fields
+			if server == "" || ca == "" || token == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "server, ca, and token are required for token auth type"})
+				return
+			}
+
+			// Validate base64 format
+			if _, err := base64.StdEncoding.DecodeString(ca); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Certificate Authority: not valid base64 encoded data"})
+				return
+			}
+			if _, err := base64.StdEncoding.DecodeString(token); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Bearer Token: not valid base64 encoded data"})
+				return
+			}
+
+			// Add updated cluster to manager
+			if err := h.clusterManager.AddClusterFromConfig(name, server, ca, token); err != nil {
+				log.Errorf("Failed to update cluster: %v", err)
+				existingCluster.Status = "error"
+				h.db.SaveCluster(existingCluster)
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Failed to connect to cluster: %v", err)})
+				return
+			}
+
+			// Update cluster fields
+			existingCluster.Server = server
+			existingCluster.CA = ca
+			existingCluster.Token = token
+			existingCluster.AuthType = "token"
+			existingCluster.Status = "connected"
+
+			// Update auth_config JSON
+			authConfigJSON, _ := json.Marshal(req.AuthConfig)
+			existingCluster.AuthConfig = db.JSON(authConfigJSON)
+
+		case "kubeconfig":
+			// Extract kubeconfig and context from auth_config
+			kubeconfigStr, ok := req.AuthConfig["kubeconfig"].(string)
+			if !ok || kubeconfigStr == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "kubeconfig is required for kubeconfig auth type"})
+				return
+			}
+
+			context, _ := req.AuthConfig["context"].(string)
+
+			// Add cluster using kubeconfig
+			if err := h.clusterManager.AddClusterFromKubeconfigContent(name, kubeconfigStr, context); err != nil {
+				log.Errorf("Failed to update cluster: %v", err)
+				existingCluster.Status = "error"
+				h.db.SaveCluster(existingCluster)
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Failed to connect to cluster: %v", err)})
+				return
+			}
+
+			// Extract server URL from kubeconfig for display
+			serverURL, _ := extractServerFromKubeconfig(kubeconfigStr, context)
+
+			// Update cluster fields
+			existingCluster.Server = serverURL
+			existingCluster.CA = ""
+			existingCluster.Token = ""
+			existingCluster.AuthType = "kubeconfig"
+			existingCluster.Status = "connected"
+
+			// Update auth_config JSON
+			authConfigJSON, _ := json.Marshal(req.AuthConfig)
+			existingCluster.AuthConfig = db.JSON(authConfigJSON)
+
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unsupported auth_type: %s", authType)})
 			return
 		}
-
-		existingCluster.Server = server
-		existingCluster.CA = ca
-		existingCluster.Token = token
-		existingCluster.Status = "connected"
 	}
 
 	// Update other fields
